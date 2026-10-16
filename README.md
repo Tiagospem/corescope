@@ -20,7 +20,7 @@ Saída: `build/CoreScope.app`. Assinatura **ad hoc**, sem Developer ID/notariza�
 - **Visão geral**: sinais que merecem atenção, CPU total, memória, histórico e processos com maior CPU.
 - **Processos**: busca por nome/PID/usuário, colunas ordenáveis, filtros mínimos, árvore, candidatos a revisão e até 12 identidades acompanhadas. Duplo clique ou Enter abre detalhes. CPU por processo pode superar 100%: 100% significa um núcleo.
 - **Armazenamento**: volumes separados dos dispositivos físicos; não some capacidade APFS. I/O é atividade, não saturação.
-- **Sensores**: estado térmico público; leituras em Celsius só quando houver uma fonte realmente suportada. Consulte a investigação específica do Disk Drill em `docs/`.
+- **Sensores**: estado térmico público; leituras em Celsius só quando houver uma fonte realmente suportada. Leitura real validada no SSD Apple interno e Kingston externo pela API pública NVMe, sem root. SATA e bridges incompatíveis permanecem sem suporte. Consulte a investigação específica do Disk Drill em `docs/`.
 - **Ajustes**: cadência, tema, métricas e ordem do menu, painel, limiares e início de sessão opcional (desligado por padrão).
 - **Cmd+1…5**: navegar. **Cmd+R**: atualizar. **Cmd+Shift+P**: painel. **Cmd+Shift+Espaço**: pausar/retomar. Fechar a janela mantém o menu; Cmd+Q encerra o app.
 
@@ -51,3 +51,7 @@ Encerramento: só usuário atual e processos elegíveis, com confirmação do ex
 | `captures/` | capturas do aplicativo real |
 
 Contrato de memória FFI em `native/CoreScopeFFI.h` e `docs/ARCHITECTURE.md`. A UI copia UTF-8 e sempre chama `cs_free`; Rust contém panics, e todo o estado é serializado. O adaptador C não toma decisões de diagnóstico.
+
+## Evidências da entrega
+
+[Funcionalidades e validação](docs/VALIDATION.md) · [Consumo observado](docs/CONSUMPTION.md) · [Investigação REA / Disk Drill](docs/DISKDRILL-TEMPERATURE.md) · [Fontes das APIs](docs/API-SOURCES.md) · [Capturas reais](captures/README.md) · [Revisão visual](docs/FINISH-REVIEW.md).

@@ -8,6 +8,10 @@ O Disk Drill instalado inclui **smartctl/Smartmontools** e código que reconhece
 
 Há uma oportunidade melhor que depender do Disk Drill: o SDK Apple instalado fornece a interface **NVMeSMARTLibExternal.h**, com leitura SMART e campo de temperatura. CoreScope pode usar esse contrato do SDK por um pequeno adaptador C próprio. O funcionamento com o SSD Apple interno e com o Kingston externo precisa ser verificado por leitura real no host; a análise estática, sozinha, não demonstra acesso, temperatura ou compatibilidade.
 
+## Resultado posterior no CoreScope
+
+Após esta investigação estática, o adaptador independente do CoreScope leu os dois SSDs usando `SMARTReadData`, sem root: Apple 50,85 °C e Kingston 47,85 °C às 09:55:31. Isso valida esses dispositivos e essa conexão no host observado; não prova suporte universal. A evidência de execução e suas limitações estão em [VALIDATION.md](VALIDATION.md). As seções abaixo preservam o escopo e as incertezas da investigação estática original.
+
 ## Alvos e evidências
 
 Disk Drill **6.3**, build **6.3.2326**, identificado por `Contents/Info.plist`. Caminhos abaixo são relativos a `/Applications/Disk Drill.app`.

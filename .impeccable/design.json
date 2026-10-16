@@ -1,0 +1,99 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-16T13:12:07.880550+00:00",
+  "title": "Design System: CoreScope",
+  "extensions": {
+    "typographyMeta": {
+      "metric": {
+        "displayName": "Métrica principal",
+        "purpose": "CPU e memória na visão geral; fonte do sistema com desenho arredondado e algarismos tabulares."
+      }
+    },
+    "native": {
+      "platform": "macOS / SwiftUI + AppKit",
+      "unit": "pt",
+      "semanticColorSource": [
+        "Color.accentColor",
+        "Color.teal",
+        "Color.secondary",
+        "Color.orange",
+        "Color.red",
+        "NSColor.windowBackgroundColor"
+      ],
+      "materials": [
+        "bar",
+        "regularMaterial"
+      ],
+      "sourceFiles": [
+        "native/Views.swift",
+        "native/CoreScope.swift",
+        "native/Panel.swift",
+        "native/PreferencesView.swift",
+        "native/Models.swift"
+      ],
+      "componentPreview": "Não há HTML/CSS: componentes são nativos. Este sidecar registra narrativa e metadados, sem prometer prévia web equivalente.",
+      "validation": "Visão geral e sensores capturados em tema escuro. Menu e painel corrigidos por código aguardam recaptura, conforme docs/FINISH-REVIEW.md."
+    }
+  },
+  "components": [
+    {
+      "name": "Linha de métrica",
+      "kind": "custom",
+      "description": "MetricLine: título, valor tabular à direita e ajuda com origem, horário e disponibilidade."
+    },
+    {
+      "name": "Micrográfico",
+      "kind": "custom",
+      "description": "Sparkline em Canvas nativo; lacunas interrompem o traço e descrição acessível resume amostras."
+    },
+    {
+      "name": "Navegação lateral",
+      "kind": "nav",
+      "description": "NavigationSplitView com List, SF Symbols, seleção do sistema e atalhos Cmd+1 a Cmd+5."
+    },
+    {
+      "name": "Busca de processos",
+      "kind": "input",
+      "description": "TextField nativo com estilo roundedBorder; estados de foco fornecidos pelo macOS."
+    },
+    {
+      "name": "Confirmação de processo",
+      "kind": "custom",
+      "description": "Sheet nativa com lista fixa de alvos, aviso de impacto e botão destrutivo explicitamente rotulado."
+    },
+    {
+      "name": "Painel flutuante",
+      "kind": "custom",
+      "description": "NSPanel não ativante com material nativo, métricas e rótulo de pausa independente da opção térmica."
+    }
+  ],
+  "narrative": {
+    "northStar": "Seu Mac, em perspectiva.",
+    "overview": "CoreScope segue a identidade macOS nativa exigida no brief: conteúdo compacto, hierarquia discreta, tipografia do sistema e controles familiares. A interface ajuda a investigar sinais antes de agir; a precisão do estado exibido faz parte de sua linguagem visual.\n\nEste registro descreve o SwiftUI/AppKit implementado, sem converter cores dinâmicas em uma paleta fixa ou simular componentes web. As unidades do frontmatter são pontos lógicos do macOS. Fontes sem tamanho explícito seguem os estilos semânticos de SwiftUI.",
+    "keyCharacteristics": [
+      "Tipografia do sistema, SF Symbols e algarismos tabulares nas métricas.",
+      "Destaque progressivo acompanhado por texto e símbolos.",
+      "Três superfícies complementares: janela, barra de menus e painel flutuante.",
+      "Dados ausentes ou antigos identificados por palavras, nunca apresentados como leituras normais."
+    ],
+    "rules": [
+      {
+        "name": "The Evidência Rule",
+        "body": "Ausência de leitura não recebe aparência de estado normal; pausa e desatualização têm rótulo independente dos sensores selecionados.",
+        "section": "colors"
+      }
+    ],
+    "dos": [
+      "Do manter estilos semânticos do macOS, SF Symbols e algarismos tabulares nas métricas.",
+      "Do acompanhar estados com texto, símbolo, origem e contexto da leitura.",
+      "Do preservar confirmação separada e impacto visível nas ações destrutivas.",
+      "Do distinguir implementação, captura real e teste físico nos registros de validação."
+    ],
+    "donts": [
+      "Don't congelar as cores dinâmicas do macOS em valores hex extraídos de uma captura.",
+      "Don't converter estado térmico em graus Celsius nem ocupação de RAM em pressão.",
+      "Don't ocultar o estado de pausa quando uma categoria de métrica estiver desativada.",
+      "Don't introduzir dashboard web, fontes externas ou animação decorativa nesta identidade nativa."
+    ]
+  }
+}
