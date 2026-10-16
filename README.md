@@ -82,7 +82,19 @@ If you work with Claude Code, Codex, editors and terminals all day, your Mac fil
 
 ## Install
 
-CoreScope is built from source (prebuilt, notarized releases are not available yet).
+### Download (Apple Silicon)
+
+1. Download `CoreScope-<version>-macos-arm64.dmg` from the [latest release](https://github.com/Tiagospem/corescope/releases/latest).
+2. Open the DMG and drag **CoreScope** to **Applications**.
+3. First launch: the app is open source and signed ad hoc, **not notarized by Apple**, so macOS blocks it the first time. Open it once, then go to **System Settings → Privacy & Security** and click **Open Anyway**. Alternatively, in Terminal:
+
+   ```bash
+   xattr -dr com.apple.quarantine /Applications/CoreScope.app
+   ```
+
+Each release lists SHA-256 checksums (`SHA256SUMS.txt`) so you can verify the download with `shasum -a 256 CoreScope-*.dmg`.
+
+### Build from source
 
 **Requirements:** macOS 14 or later · Xcode Command Line Tools (Swift 6) · Rust/Cargo. Developed and validated on Apple Silicon (MacBook Air M4, macOS 27); Intel Macs are untested.
 
@@ -135,6 +147,7 @@ The Swift UI calls the Rust core over a small C ABI that returns one JSON snapsh
 ```bash
 ./scripts/test.sh     # cargo fmt --check, cargo test, clippy -D warnings, native logic tests
 ./scripts/build.sh    # release build into build/CoreScope.app
+./scripts/package.sh  # DMG + zip + SHA-256 checksums into dist/ (release artifacts)
 open --env CORESCOPE_DEMO=1 build/CoreScope.app   # live metrics with anonymized paths, projects and session titles
 ```
 
@@ -143,8 +156,12 @@ The screenshots in this README were taken in demo mode.
 ## Roadmap
 
 - Claude Code usage limits through Claude Code's documented status line data (opt-in, local only).
-- Prebuilt, notarized releases.
+- Notarized releases and a universal (Intel) build.
 - Validation on Intel Macs and macOS 14.
+
+## Security
+
+Please report vulnerabilities privately — see [SECURITY.md](SECURITY.md).
 
 ## Contributing
 

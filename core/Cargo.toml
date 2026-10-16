@@ -2,6 +2,10 @@
 name = "corescope"
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
+repository = "https://github.com/Tiagospem/corescope"
+description = "Native sampling core for CoreScope, a developer-focused macOS system monitor"
+publish = false
 
 [lib]
 crate-type = ["staticlib", "rlib"]
