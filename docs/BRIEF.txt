@@ -1,0 +1,108 @@
+Crie um aplicativo pessoal para macOS que funcione como uma central leve de monitoramento e diagnóstico da minha máquina. Quero um produto funcional, bonito e confiável, não um dashboard demonstrativo.
+CONTEXTO
+Uso um MacBook Air M4 com 16 GB de RAM para desenvolvimento, containers e agentes como Codex e Claude. Preciso entender lentidão, consumo excessivo de recursos, problemas de I/O e processos possivelmente esquecidos por ferramentas de desenvolvimento.
+O monitor não pode se tornar mais uma fonte de lentidão. Priorize eficiência, clareza e controle manual.
+1. ARQUITETURA
+   - Use Rust para coleta, processamento de métricas, histórico, diagnóstico e controle de processos.
+   - Prefira uma camada fina de SwiftUI/AppKit para interface nativa, MenuBarExtra e painel flutuante. Essa solução é híbrida: documente claramente o papel de cada linguagem.
+   - Integre por uma fronteira FFI pequena e segura, com ownership definido, liberação correta de memória e sem panic atravessando a interface.
+   - Evite Electron, Chromium embutido, servidor local, frontend web e frameworks pesados sem necessidade comprovada.
+   - Use APIs do macOS e dependências pequenas e mantidas. Não use comandos shell periódicos para obter o que uma API pode fornecer.
+   - Não crie arquitetura distribuída, sistema de plugins ou abstrações especulativas.
+   - Antes de implementar, inspecione o repositório e o ambiente disponível, confirme a versão mínima de macOS e registre uma decisão arquitetural curta. Depois comece a implementação.
+2. EXPERIÊNCIA E IDENTIDADE VISUAL
+Quero uma interface refinada, com aparência de aplicativo macOS de primeira linha:
+- Tipografia do sistema, SF Symbols, alinhamento preciso, materiais nativos e boa hierarquia visual.
+- Modos claro e escuro, acessibilidade, navegação por teclado e suporte a redução de transparência/movimento.
+- Informação compacta e legível, sem aparência de painel administrativo web.
+- Cores discretas em operação normal e destaque progressivo para atenção e situação crítica.
+- Nunca dependa só de cores: inclua rótulos, símbolos e explicações.
+- Micrográficos úteis, animações mínimas e atualização sem saltos de layout.
+Três superfícies complementares:
+A. Barra de menus
+Itens configuráveis para CPU, memória, atividade de disco e estado térmico. Permita escolher quais aparecem, a ordem, formato compacto e frequência de atualização. Clicar abre um resumo com acesso rápido aos detalhes.
+B. Janela principal
+Visão geral e áreas de processos, armazenamento, sensores e ajustes. Primeiro mostrar o provável gargalo e as evidências; depois os detalhes técnicos.
+C. Widget flutuante opcional
+Painel compacto, arrastável, com opacidade e tamanho configuráveis, opção de manter acima das janelas, travar posição e ocultar/exibir. Persistir posição por monitor e recuperar uma posição visível se a tela for desconectada. Não roubar foco durante atualizações. Testar Spaces, tela cheia e múltiplos monitores. Não exigir WidgetKit para esse painel.
+3. MÉTRICAS REAIS E SIGNIFICADO CORRETO
+CPU
+- Uso total e por processo; histórico curto e picos sustentados.
+- Quantidade de threads por processo.
+- Documentar a escala: CPU total normalizada entre 0–100% e convenção usada por processo em máquinas multicore.
+- Não tratar número alto de threads, isoladamente, como problema.
+Memória
+- RAM física, métricas disponíveis de uso, compressão e swap.
+- Memória por processo com nome e definição da métrica utilizada.
+- Priorizar pressão de memória quando houver sinal confiável do sistema.
+- Não chamar percentual de RAM ocupada de pressão de memória e não prometer reproduzir exatamente o Monitor de Atividade.
+- Se houver indicador calculado pelo aplicativo, rotular como estimativa e explicar seus fatores.
+Armazenamento e I/O
+- Discos/volumes internos e externos, espaço disponível e taxas de leitura/escrita quando suportadas.
+- Distinguir dispositivo físico de volume para evitar duplicação de contagens.
+- Mostrar métricas por processo apenas quando houver fonte confiável.
+- Não confundir tráfego alto com saturação, nem disco cheio com latência elevada.
+- Só chamar um estado de pressão de I/O quando houver evidências adequadas. Caso contrário, mostrar atividade elevada e a limitação do diagnóstico.
+- Tratar desconexão de dispositivos e mudanças de montagem sem falhas.
+Temperaturas e sensores
+- Detectar quais leituras estão realmente disponíveis nesse hardware, sistema e conexão.
+- Permitir escolher os sensores suportados para exibição.
+- Mostrar temperatura em °C somente quando houver leitura real e identificação confiável do sensor.
+- Tratar SSD interno, HD/SSD externo e adaptadores USB/Thunderbolt individualmente. Não prometer SMART ou temperatura universal.
+- Exibir “não suportado”, “sem permissão” ou “temporariamente indisponível”, conforme o motivo.
+- Exibir o estado térmico do macOS separadamente. Ele não é uma temperatura em °C.
+- Não usar valores simulados, APIs privadas ou técnicas não documentadas como dependência obrigatória. Eventual suporte experimental deve ser isolado, opcional e claramente explicado.
+Cada métrica deve carregar unidade, origem, horário da última leitura e estado de disponibilidade. Leituras antigas não podem continuar parecendo atuais.
+4. DIAGNÓSTICO E CORES
+   - Estados normal, atenção e crítico com limites configuráveis, janelas temporais e histerese, evitando piscar a cada pico.
+   - Diferenciar CPU, memória, armazenamento e condição térmica.
+   - Preferir sinais reais do sistema; heurísticas devem ser explicáveis.
+   - Mostrar frases objetivas, por exemplo: “Este processo mantém consumo elevado de CPU há X minutos”.
+   - Não afirmar que um processo causou a lentidão apenas porque aparece no topo da lista.
+   - Oferecer recomendações ligadas às evidências, sem executar otimizações automaticamente.
+5. EXPLORADOR DE PROCESSOS
+   - Busca, ordenação e filtros por nome, PID, usuário, CPU, memória e threads.
+   - Mostrar árvore de processos, pai, descendentes, horário de início, duração e executável quando permitido.
+   - Relacionar processos a aplicativo, projeto ou agente apenas quando houver evidências; indicar quando a identificação for inferida.
+   - Permitir acompanhar processos escolhidos e examinar seu histórico limitado.
+   - Argumentos de comando podem conter segredos: ocultar detalhes sensíveis por padrão e não gravá-los em logs ou exportações sem revisão.
+Possíveis processos abandonados
+Crie uma seção de candidatos para revisão manual, especialmente subprocessos de ferramentas de desenvolvimento e agentes.
+Combine sinais como mudança/desaparecimento do pai, árvore conhecida, duração, atividade e recursos retidos. Explique por que cada candidato foi listado e mostre o grau de confiança.
+PPID 1, baixo uso de CPU, processo antigo ou nome node/python não comprovam abandono. Serviços legítimos e processos reparentados não devem ser apresentados como lixo. Permita ignorar candidatos conhecidos. Não encerre nada automaticamente.
+6. CONTROLE SEGURO DE PROCESSOS
+   - Permitir encerrar somente processos elegíveis do usuário atual, por ação explícita.
+   - Mostrar processo, PID, executável e possível impacto antes de confirmar.
+   - Usar SIGTERM primeiro, observar o resultado e atualizar a interface.
+   - Oferecer SIGKILL como ação separada, com nova confirmação e aviso de perda de dados.
+   - Revalidar PID positivo, identidade e horário de início imediatamente antes da ação, reduzindo risco de reutilização de PID.
+   - Nunca usar killall, pkill genérico ou sinalização indiscriminada de grupos.
+   - Para encerrar uma árvore, exibir a lista exata de alvos e exigir confirmação específica; revalidar cada alvo.
+   - Bloquear processos críticos conhecidos e não tentar contornar falta de permissão.
+   - Testes de encerramento devem usar exclusivamente subprocessos descartáveis criados pelo próprio teste. Nunca testar em meus processos reais de trabalho.
+7. LEVEZA E PRIVACIDADE
+   - Coleta em background sem bloquear a interface.
+   - Frequências diferentes para métricas rápidas, inventário de discos e sensores mais caros.
+   - Compartilhar um coletor entre barra, janela e painel, sem triplicar o trabalho.
+   - Reduzir atualizações visuais quando superfícies estiverem ocultas; respeitar repouso, retorno e economia de energia.
+   - Histórico em memória com tamanho fixo, retenção curta e descarte previsível. Nada de banco de dados crescente sem necessidade.
+   - Operar localmente, sem telemetria ou envio de dados.
+   - Medir CPU, RAM, energia e frequência de despertares do próprio monitor. Definir metas e apresentar resultados reais, sem inventar benchmarks.
+   - Não exigir root permanentemente, Full Disk Access, extensão de kernel, desativação de SIP ou helper privilegiado como padrão.
+   - Qualquer permissão adicional precisa de justificativa e aprovação. Inicialização com o macOS deve ser opcional e desligada inicialmente.
+Não implementar “limpeza de RAM”, purge de caches, exclusão automática de arquivos, alteração de serviços ou otimizações mágicas.
+8. EXECUÇÃO E ENTREGA
+Implemente em incrementos utilizáveis:
+1. Núcleo Rust com CPU, memória, processos e testes; menu nativo exibindo métricas reais.
+2. Janela principal, seleção de métricas, preferências persistidas e painel flutuante.
+3. I/O, detecção de sensores disponíveis, diagnósticos explicáveis e controle seguro de processos.
+4. Polimento visual, acessibilidade, testes de integração e medição de consumo.
+Não pare depois de escrever um plano ou gerar scaffolding. Execute, compile, teste e corrija até entregar uma primeira versão coerente dentro do ambiente disponível. Se algo depender de hardware, assinatura ou permissão ausente, documente o bloqueio e continue o restante possível.
+Entregue:
+- Código organizado e instruções exatas para compilar e executar.
+- Aplicativo .app de desenvolvimento, se o ambiente permitir, com limitações de assinatura explicitadas.
+- Capturas da interface real, quando possível.
+- Testes de conversão de métricas, limites/histerese, falhas de sensores, repouso/retorno e segurança do encerramento.
+- Tabela de funcionalidades implementadas, validadas e indisponíveis, com motivos.
+- Fontes das APIs utilizadas e relatório do consumo observado.
+Critério de qualidade: eu consigo entender o que está acontecendo com meu Mac, identificar o que merece investigação e tomar uma decisão consciente, sem o monitor esconder limitações, comprometer meu trabalho ou consumir recursos demais.
