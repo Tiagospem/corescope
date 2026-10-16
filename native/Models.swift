@@ -10,37 +10,56 @@ struct Metric: Decodable {
   let source: String
   let at: Double
   let state: String
+  private enum Keys: String, CodingKey { case value, unit, source, at, state }
+  /// Per-process metrics arrive lean (`value`, optional `state`); the rest is optional.
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: Keys.self)
+    value = try c.decodeIfPresent(Double.self, forKey: .value)
+    unit = try c.decodeIfPresent(String.self, forKey: .unit) ?? ""
+    source = try c.decodeIfPresent(String.self, forKey: .source) ?? ""
+    at = try c.decodeIfPresent(Double.self, forKey: .at) ?? Date().timeIntervalSince1970
+    state = try c.decodeIfPresent(String.self, forKey: .state) ?? (value == nil ? "unavailable" : "available")
+  }
   var unavailable: String {
-    state == "unsupported"
-      ? "Não suportado" : state == "permission" ? "Sem permissão" : "Temporariamente indisponível"
+    L(
+      state == "unsupported"
+        ? "Não suportado" : state == "permission" ? "Sem permissão" : "Temporariamente indisponível")
   }
-  var bytes: String {
-    value.map { ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .memory) } ?? "—"
-  }
+  var bytes: String { value.map(formatBytes) ?? "—" }
   var temperature: String { value.map { String(format: "%.1f °C", $0) } ?? unavailable }
   var percent: String { value.map { String(format: "%.1f%%", $0) } ?? "—" }
-  var rate: String {
-    value.map { ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file) + "/s" }
-      ?? "—"
-  }
+  var rate: String { value.map(formatRate) ?? "—" }
   var explanation: String {
-    "\(source) · \(unit)\n\(value == nil ? unavailable : "Última leitura: " + Date(timeIntervalSince1970: at).formatted(date: .omitted, time: .standard))"
+    (source.isEmpty ? "" : "\(source) · \(unit)\n") + "\(value == nil ? unavailable : L("Última leitura: %@", Date(timeIntervalSince1970: at).formatted(date: .omitted, time: .standard)))"
   }
 }
 struct Point: Decodable {
   let at: Double
   let cpu: Double?
   let memory: Double?
+  let disk_read: Double?
+  let disk_write: Double?
+  let net_in: Double?
+  let net_out: Double?
+}
+struct PortInfo: Decodable, Hashable {
+  let port: UInt16
+  let exposed: Bool
+}
+struct Origin: Decodable, Hashable {
+  let label: String
+  let kind: String
+  let pid: Int32
 }
 struct ProcessItem: Decodable, Identifiable {
   let id: String
   let pid: Int32
   let ppid: Int32
   let uid: UInt32
-  let user: String
+  var user: String
   let start: UInt64
   let name: String
-  let path: String
+  var path: String
   let cpu: Metric
   let memory: Metric
   let resident: Metric
@@ -49,14 +68,46 @@ struct ProcessItem: Decodable, Identifiable {
   let write: Metric
   let eligible: Bool
   let blocked: String
-  let candidate: String?
-  let attribution: String?
+  let orphan: String?
+  var orphan_parent: String?
+  var cwd: String
+  let ports: [PortInfo]
+  let tags: [String]
+  let host: String?
+  let origin: Origin?
   let high_cpu_seconds: Double
   let history: [Point]
   var cpuValue: Double { cpu.value ?? -1 }
   var memoryValue: Double { memory.value ?? -1 }
   var threadValue: Double { threads.value ?? -1 }
   var startDate: Date { Date(timeIntervalSince1970: Double(start) / 1_000_000) }
+  var uptime: TimeInterval { max(0, Date().timeIntervalSince(startDate)) }
+  var isServer: Bool { !ports.isEmpty }
+  var isDev: Bool {
+    origin != nil || host != nil
+      || tags.contains { ["runtime", "server", "shell", "mcp", "database", "container"].contains($0) }
+  }
+  /// Agent session root: a CLI agent started from a terminal, editor or a desktop app
+  /// (Claude/Codex Desktop run each session as a bundled CLI). Nested sub-agents are excluded.
+  var isAgentSession: Bool {
+    tags.contains("agent") && !(host ?? "").hasSuffix("Desktop") && origin?.label != host
+  }
+  /// The session root itself or anything an agent session started.
+  var inAgentSession: Bool {
+    isAgentSession || (origin.map { $0.kind == "agent" && !$0.label.hasSuffix("Desktop") } ?? false)
+  }
+  /// Where an agent session runs: the desktop app or the terminal/editor that started it.
+  var sessionSource: String {
+    guard let o = origin else { return "CLI" }
+    return o.label.hasSuffix("Desktop") ? "Desktop" : o.label
+  }
+  /// Outermost .app bundle, used for the real application icon.
+  var bundlePath: String? {
+    path.range(of: ".app/").map { String(path[..<$0.lowerBound]) + ".app" }
+  }
+  var project: String? { projectName(cwd) }
+  var shortCwd: String { abbreviateHome(cwd) }
+  var portsLabel: String { ports.map { ":\($0.port)" }.joined(separator: " ") }
 }
 struct Volume: Decodable, Identifiable {
   let id: String
@@ -84,7 +135,9 @@ struct Diagnostic: Decodable, Identifiable {
       ? "exclamationmark.octagon.fill"
       : level == 1 ? "exclamationmark.triangle.fill" : "checkmark.circle"
   }
-  var label: String { level == 2 ? "Crítico" : level == 1 ? "Atenção" : "Sem alerta" }
+  var label: String { L(level == 2 ? "Crítico" : level == 1 ? "Atenção" : "Sem alerta") }
+  var localizedTitle: String { L(title) }
+  var localizedDetail: String { L(detail) }
 }
 struct Snapshot: Decodable {
   let at: Double
@@ -97,11 +150,15 @@ struct Snapshot: Decodable {
   let swap: Metric
   let pressure: Metric
   let thermal: Metric
-  let processes: [ProcessItem]
+  var processes: [ProcessItem]
   let volumes: [Volume]
   let disks: [Disk]
   let diagnostics: [Diagnostic]
   let history: [Point]
+  let disk_read: Metric
+  let disk_write: Metric
+  let net_in: Metric
+  let net_out: Metric
   let collector_ms: Double
   let own_wakeups: Metric
   let process_state: String
@@ -109,26 +166,103 @@ struct Snapshot: Decodable {
   let disk_state: String
   let current_uid: UInt32
   var thermalLabel: String {
-    guard let v = thermal.value else { return "Indisponível" }
-    return ["Nominal", "Moderado", "Sério", "Crítico"][min(3, max(0, Int(v)))]
+    guard let v = thermal.value else { return L("Indisponível") }
+    return L(["Nominal", "Moderado", "Sério", "Crítico"][min(3, max(0, Int(v)))])
   }
-  var memorySummary: String {
-    guard let a = active.value, let w = wired.value, let c = compressed.value else { return "—" }
-    return ByteCountFormatter.string(fromByteCount: Int64(a + w + c), countStyle: .memory)
-  }
-  var diskRate: String {
-    let values = disks.compactMap { d -> Double? in
-      guard let r = d.read.value, let w = d.write.value else { return nil }
-      return r + w
+  var thermalColor: Color {
+    switch Int(thermal.value ?? 0) {
+    case 3: .red
+    case 2: .orange
+    case 1: .yellow
+    default: .green
     }
-    guard !values.isEmpty else { return "—" }
-    return ByteCountFormatter.string(fromByteCount: Int64(values.reduce(0, +)), countStyle: .file)
-      + "/s"
   }
+  var pressureLabel: String {
+    L(pressure.value.map { ["Normal", "Atenção", "Crítica"][min(2, max(0, Int($0)))] } ?? "Aguardando")
+  }
+  var memoryUsed: Double? {
+    guard let a = active.value, let w = wired.value, let c = compressed.value else { return nil }
+    return a + w + c
+  }
+  var memorySummary: String { memoryUsed.map(formatBytes) ?? "—" }
+  var memoryFraction: Double? {
+    guard let used = memoryUsed, let total = physical.value, total > 0 else { return nil }
+    return used / total
+  }
+  var diskTotal: Double? {
+    guard disk_read.value != nil || disk_write.value != nil else { return nil }
+    return (disk_read.value ?? 0) + (disk_write.value ?? 0)
+  }
+  var diskRate: String { diskTotal.map(formatRate) ?? "—" }
+  /// Derived lists are memoized per snapshot: views ask for them many times per render.
+  private func memo<T>(_ key: String, _ make: () -> T) -> T {
+    if SnapshotMemo.at != at {
+      SnapshotMemo.at = at
+      SnapshotMemo.values.removeAll(keepingCapacity: true)
+    }
+    if let value = SnapshotMemo.values[key] as? T { return value }
+    let value = make()
+    SnapshotMemo.values[key] = value
+    return value
+  }
+  /// Listening processes, one per name + port set (pre-fork workers such as nginx share sockets).
+  var servers: [ProcessItem] { memo("servers") { serverGroups.map(\.0) } }
+  var serverGroups: [(ProcessItem, Int)] { memo("serverGroups") { makeServerGroups() } }
+  private func makeServerGroups() -> [(ProcessItem, Int)] {
+    var groups: [String: (ProcessItem, Int)] = [:]
+    for p in processes where p.isServer {
+      let key = p.name + p.portsLabel
+      if let g = groups[key] {
+        groups[key] = (g.0.pid < p.pid ? g.0 : p, g.1 + 1)
+      } else {
+        groups[key] = (p, 1)
+      }
+    }
+    return groups.values.sorted { ($0.0.ports.first?.port ?? 0) < ($1.0.ports.first?.port ?? 0) }
+  }
+  var agentSessions: [ProcessItem] { memo("agentSessions") { processes.filter(\.isAgentSession) } }
+  var orphans: [ProcessItem] {
+    memo("orphans") {
+      processes.filter { $0.orphan != nil }.sorted { $0.memoryValue > $1.memoryValue }
+    }
+  }
+  private var byPID: [Int32: ProcessItem] {
+    memo("byPID") { Dictionary(processes.map { ($0.pid, $0) }, uniquingKeysWith: { a, _ in a }) }
+  }
+  private var children: [Int32: [Int32]] {
+    memo("children") { Dictionary(grouping: processes.map { ($0.pid, $0.ppid) }, by: \.1).mapValues { $0.map(\.0) } }
+  }
+  func process(pid: Int32) -> ProcessItem? { byPID[pid] }
+  /// Root followed by every descendant (children before parents for signaling).
+  func subtree(of root: ProcessItem) -> [ProcessItem] {
+    memo("subtree.\(root.id)") {
+      var ids = [root.pid]
+      var seen: Set<Int32> = [root.pid]
+      var index = 0
+      while index < ids.count {
+        for child in children[ids[index]] ?? [] where seen.insert(child).inserted { ids.append(child) }
+        index += 1
+      }
+      return ids.reversed().compactMap { byPID[$0] }
+    }
+  }
+}
+
+/// Main-thread cache for values derived from the current snapshot.
+enum SnapshotMemo {
+  static var at = -1.0
+  static var values: [String: Any] = [:]
 }
 
 final class Preferences: ObservableObject {
   static let shared = Preferences()
+  /// system · pt · en · es
+  @Published var language = UserDefaults.standard.string(forKey: "language") ?? "system" {
+    didSet {
+      save("language", language)
+      Localization.refresh()
+    }
+  }
   @Published var appearance = UserDefaults.standard.string(forKey: "appearance") ?? "Sistema" {
     didSet {
       save("appearance", appearance)
@@ -150,21 +284,74 @@ final class Preferences: ObservableObject {
   @Published var compact = UserDefaults.standard.object(forKey: "compact") as? Bool ?? true {
     didSet { save("compact", compact) }
   }
+  @Published var menuIcon = UserDefaults.standard.object(forKey: "menuIcon") as? Bool ?? true {
+    didSet { save("menuIcon", menuIcon) }
+  }
+  /// always · window (only while the main window is open) · never
+  @Published var dockMode =
+    UserDefaults.standard.string(forKey: "dockMode")
+    ?? ((UserDefaults.standard.object(forKey: "showInDock") as? Bool) == false ? "never" : "window")
+  {
+    didSet {
+      save("dockMode", dockMode)
+      applyActivationPolicy()
+    }
+  }
+  /// Menu bar app when the window is closed; regular app (Dock, ⌘-Tab) while it is open.
+  func applyActivationPolicy() {
+    let windowOpen = NSApp.windows.contains {
+      $0.isVisible && $0.identifier?.rawValue.contains("main") == true
+    }
+    let regular = dockMode == "always" || (dockMode == "window" && windowOpen)
+    let policy: NSApplication.ActivationPolicy = regular ? .regular : .accessory
+    guard NSApp.activationPolicy() != policy else { return }
+    NSApp.setActivationPolicy(policy)
+    if regular, let icon = AppIcon.image { NSApp.applicationIconImage = icon }
+  }
+  @Published var confirmTerminate =
+    UserDefaults.standard.object(forKey: "confirmTerminate") as? Bool ?? true
+  { didSet { save("confirmTerminate", confirmTerminate) } }
+  @Published var processTree = UserDefaults.standard.object(forKey: "processTree") as? Bool ?? true
+  { didSet { save("processTree", processTree) } }
   @Published var panelVisible = UserDefaults.standard.bool(forKey: "panelVisible") {
-    didSet { save("panelVisible", panelVisible) }
+    didSet {
+      save("panelVisible", panelVisible)
+      FloatingController.shared.apply()
+    }
+  }
+  /// compact · standard · detailed
+  @Published var panelMode = UserDefaults.standard.string(forKey: "panelMode") ?? "standard" {
+    didSet { save("panelMode", panelMode) }
   }
   @Published var panelOpacity =
-    UserDefaults.standard.object(forKey: "panelOpacity") as? Double ?? 0.94
+    UserDefaults.standard.object(forKey: "panelOpacity") as? Double ?? 0.92
   { didSet { save("panelOpacity", panelOpacity) } }
   @Published var panelScale = UserDefaults.standard.object(forKey: "panelScale") as? Double ?? 1.0 {
     didSet { save("panelScale", panelScale) }
   }
   @Published var panelTop = UserDefaults.standard.object(forKey: "panelTop") as? Bool ?? true {
-    didSet { save("panelTop", panelTop) }
+    didSet {
+      save("panelTop", panelTop)
+      FloatingController.shared.apply()
+    }
   }
   @Published var panelLocked = UserDefaults.standard.bool(forKey: "panelLocked") {
-    didSet { save("panelLocked", panelLocked) }
+    didSet {
+      save("panelLocked", panelLocked)
+      FloatingController.shared.apply()
+    }
   }
+  @Published var limitsInMenuBar = UserDefaults.standard.bool(forKey: "limitsInMenuBar") {
+    didSet { save("limitsInMenuBar", limitsInMenuBar) }
+  }
+  @Published var limitsInPanel = UserDefaults.standard.bool(forKey: "limitsInPanel") {
+    didSet { save("limitsInPanel", limitsInPanel) }
+  }
+  @Published var limitsInOverview =
+    UserDefaults.standard.object(forKey: "limitsInOverview") as? Bool ?? true
+  { didSet { save("limitsInOverview", limitsInOverview) } }
+  @Published var panelNetwork = UserDefaults.standard.object(forKey: "panelNetwork") as? Bool ?? false
+  { didSet { save("panelNetwork", panelNetwork) } }
   @Published var cpuWarning = UserDefaults.standard.object(forKey: "cpuWarning") as? Double ?? 80 {
     didSet { save("cpuWarning", cpuWarning) }
   }
@@ -199,13 +386,64 @@ final class Preferences: ObservableObject {
   }
 }
 
+/// Outcome of a signal request, shown as a toast with an optional follow-up force action.
+struct ActionFeedback: Identifiable {
+  let id = UUID()
+  var message: String
+  var survivors: [ProcessItem] = []
+  var failed = false
+  var pending = false
+}
+/// A termination awaiting the user's confirmation in the main window.
+struct KillRequest: Identifiable {
+  let id = UUID()
+  let targets: [ProcessItem]
+  let roots: [ProcessItem]
+  let force: Bool
+  var title: String {
+    if roots.count == 1, let p = roots.first {
+      if targets.count > 1 {
+        return L(
+          force ? "Forçar encerramento de %@ e %@ descendentes?" : "Encerrar %@ e %@ descendentes?",
+          p.name, String(targets.count - 1))
+      }
+      return L(
+        force ? "Forçar encerramento de %@ (PID %@)?" : "Encerrar %@ (PID %@)?", p.name,
+        String(p.pid))
+    }
+    return L(
+      force ? "Forçar encerramento de %@ processos?" : "Encerrar %@ processos?",
+      String(targets.count))
+  }
+  var detail: String {
+    var lines: [String] = []
+    if roots.count == 1, let p = roots.first {
+      if !p.ports.isEmpty { lines.append(L("Escutando em %@", p.portsLabel)) }
+      if !p.cwd.isEmpty { lines.append(L("Diretório: %@", p.shortCwd)) }
+      if let o = p.origin { lines.append(L("Iniciado via %@", o.label)) }
+    } else {
+      lines.append(roots.prefix(6).map { "\($0.name) (\($0.pid))" }.joined(separator: ", "))
+    }
+    lines.append(
+      L(
+        force
+          ? "SIGKILL encerra imediatamente: trabalho não salvo é perdido."
+          : "SIGTERM pede encerramento; builds, agentes e servidores serão interrompidos."))
+    if targets.contains(where: { !$0.eligible }) {
+      lines.append(L("Processos protegidos ou de outro usuário serão ignorados."))
+    }
+    return lines.joined(separator: "\n")
+  }
+}
+
 final class Monitor: ObservableObject {
   static let shared = Monitor()
   @Published var snapshot: Snapshot?
   @Published var error: String?
   @Published var sleeping = false
   @Published var manuallyPaused = false
-  @Published var actionResults: String?
+  @Published var feedback: ActionFeedback?
+  @Published var pendingKill: KillRequest?
   private let queue = DispatchQueue(label: "app.corescope.collector", qos: .utility)
   private var timer: Timer?
   private var busy = false
@@ -266,7 +504,7 @@ final class Monitor: ObservableObject {
     watchdog?.cancel()
     let watchdog = DispatchWorkItem { [weak self] in
       guard let self, self.busy else { return }
-      self.error = "Coleta demorando mais de 25 s; leituras anteriores estão antigas."
+      self.error = L("Coleta demorando mais de 25 s; leituras anteriores estão antigas.")
     }
     self.watchdog = watchdog
     DispatchQueue.main.asyncAfter(deadline: .now() + 25, execute: watchdog)
@@ -281,7 +519,7 @@ final class Monitor: ObservableObject {
       let json = String(data: data, encoding: .utf8)
     else {
       busy = false
-      error = "Configuração inválida"
+      error = L("Configuração inválida")
       return
     }
     queue.async {
@@ -289,14 +527,15 @@ final class Monitor: ObservableObject {
         guard let pointer = json.withCString({ cs_snapshot($0) }) else {
           throw NSError(
             domain: "CoreScope", code: 1,
-            userInfo: [NSLocalizedDescriptionKey: "O núcleo não retornou dados"])
+            userInfo: [NSLocalizedDescriptionKey: L("O núcleo não retornou dados")])
         }
         defer { cs_free(pointer) }
-        let data = Data(String(cString: pointer).utf8)
+        // One copy straight from the Rust buffer (no intermediate String).
+        let data = Data(bytes: pointer, count: strlen(pointer))
         if let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
           let error = obj["error"] as? String
         {
-          throw NSError(domain: "CoreScope", code: 2, userInfo: [NSLocalizedDescriptionKey: error])
+          throw NSError(domain: "CoreScope", code: 2, userInfo: [NSLocalizedDescriptionKey: L(error)])
         }
         return try JSONDecoder().decode(Snapshot.self, from: data)
       }
@@ -307,7 +546,7 @@ final class Monitor: ObservableObject {
         if !self.sleeping && !self.manuallyPaused {
           switch result {
           case .success(let s):
-            self.snapshot = s
+            self.snapshot = Demo.enabled ? Demo.scrub(s) : s
             self.error = nil
           case .failure(let e): self.error = e.localizedDescription
           }
@@ -330,14 +569,38 @@ final class Monitor: ObservableObject {
     }
     timer?.tolerance = seconds * 0.15
   }
+  /// Entry point for every termination in the main window: confirms unless the user opted out
+  /// for plain SIGTERM of the selected processes. Trees and SIGKILL always confirm.
+  func requestKill(_ roots: [ProcessItem], tree: Bool = false, force: Bool = false) {
+    guard let s = snapshot, !roots.isEmpty else { return }
+    var seen = Set<String>()
+    let targets = (tree ? roots.flatMap { s.subtree(of: $0) } : roots).filter {
+      seen.insert($0.id).inserted
+    }
+    let request = KillRequest(targets: targets, roots: roots, force: force)
+    if !force && !tree && !Preferences.shared.confirmTerminate {
+      signal(targets, force: false)
+    } else {
+      pendingKill = request
+    }
+  }
   func signal(_ targets: [ProcessItem], force: Bool) {
+    let targets = targets.filter(\.eligible)
+    guard !targets.isEmpty else {
+      feedback = ActionFeedback(message: L("Nenhum processo elegível para encerrar."), failed: true)
+      return
+    }
+    feedback = ActionFeedback(
+      message: targets.count == 1
+        ? L("Encerrando %@…", targets[0].name) : L("Encerrando %@ processos…", String(targets.count)),
+      pending: true)
     queue.async {
-      var results: [String] = []
+      var errors: [String] = []
       var sent: [ProcessItem] = []
       for p in targets {
         guard let pointer = p.path.withCString({ cs_signal(p.pid, p.start, $0, force ? 1 : 0) })
         else {
-          results.append("\(p.name): falha interna")
+          errors.append("\(p.name): " + L("falha interna"))
           continue
         }
         let text = String(cString: pointer)
@@ -346,28 +609,33 @@ final class Monitor: ObservableObject {
           let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
           let error = obj["error"] as? String
         {
-          results.append("\(p.name) (\(p.pid)): \(error)")
+          errors.append("\(p.name) (\(p.pid)): \(L(error))")
         } else {
           sent.append(p)
         }
       }
-      // Observation is scheduled, not a blocking sleep; every identity is checked on the next fresh sample.
-      DispatchQueue.main.async {
-        self.actionResults =
-          (results + sent.map { "\($0.name) (\($0.pid)): sinal enviado; aguardando observação." })
-          .joined(separator: "\n")
-        self.refresh()
-      }
+      DispatchQueue.main.async { self.refresh() }
+      // Observation is scheduled, not a blocking sleep; each identity is rechecked after 2 s.
       self.queue.asyncAfter(deadline: .now() + 2) {
-        let text =
-          (results
-          + sent.map { p in
-            cs_is_same(p.pid, p.start) == 1
-              ? "\(p.name) (\(p.pid)): continua presente após 2 s. Encerrar à força exige outra confirmação."
-              : "\(p.name) (\(p.pid)): não está mais acessível com esta identidade (encerrou ou acesso mudou)."
-          }).joined(separator: "\n")
+        let survivors = sent.filter { cs_is_same($0.pid, $0.start) == 1 }
+        let ended = sent.count - survivors.count
+        var parts: [String] = []
+        if ended > 0 {
+          parts.append(
+            ended == 1 && sent.count == 1
+              ? L("%@ encerrado.", sent[0].name) : L("%@ processos encerrados.", String(ended)))
+        }
+        if !survivors.isEmpty {
+          parts.append(
+            survivors.count == 1
+              ? L("%@ (%@) ignorou o pedido.", survivors[0].name, String(survivors[0].pid))
+              : L("%@ continuam ativos.", String(survivors.count)))
+        }
+        parts.append(contentsOf: errors.prefix(3))
         DispatchQueue.main.async {
-          self.actionResults = text
+          self.feedback = ActionFeedback(
+            message: parts.joined(separator: " "), survivors: force ? [] : survivors,
+            failed: !errors.isEmpty || (force && !survivors.isEmpty))
           self.refresh()
         }
       }

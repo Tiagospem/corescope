@@ -76,3 +76,35 @@ pub fn process(pid: i32) -> Option<RawProcess> {
     // SAFETY: out is a live, writable struct with the ABI in macos.h.
     (unsafe { os_process(pid, &mut out) } == 0).then_some(out)
 }
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct RawPort {
+    pub port: u16,
+    pub exposed: u8,
+}
+unsafe extern "C" {
+    pub fn os_ports(pid: i32, out: *mut RawPort, capacity: i32) -> i32;
+    pub fn os_cwd(pid: i32, out: *mut c_char, capacity: i32) -> i32;
+    pub fn os_network(in_bytes: *mut u64, out_bytes: *mut u64) -> i32;
+}
+/// Listening TCP ports of a same-user process; empty when inaccessible.
+pub fn ports(pid: i32) -> Vec<RawPort> {
+    let mut out = [RawPort::default(); 32];
+    // SAFETY: out holds 32 writable entries matching CSPort.
+    let n = unsafe { os_ports(pid, out.as_mut_ptr(), out.len() as i32) };
+    out[..n.max(0) as usize].to_vec()
+}
+pub fn cwd(pid: i32) -> String {
+    let mut out = [0 as c_char; 1024];
+    // SAFETY: out is a writable buffer of the declared capacity.
+    if unsafe { os_cwd(pid, out.as_mut_ptr(), out.len() as i32) } == 0 {
+        string(&out)
+    } else {
+        String::new()
+    }
+}
+pub fn network() -> Option<(u64, u64)> {
+    let (mut rx, mut tx) = (0, 0);
+    // SAFETY: both pointers reference live u64 values.
+    (unsafe { os_network(&mut rx, &mut tx) } == 0).then_some((rx, tx))
+}

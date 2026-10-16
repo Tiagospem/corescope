@@ -1,57 +1,155 @@
-# CoreScope
+<p align="center">
+  <img src="docs/icon.png" width="128" height="128" alt="CoreScope icon">
+</p>
 
-Monitor local para macOS, com núcleo Rust e interface SwiftUI/AppKit. Métricas reais, histórico curto e controle manual de processos. Sem servidor, webview, telemetria ou otimizações automáticas.
+<h1 align="center">CoreScope</h1>
 
-## Compilar e abrir
+<p align="center">
+  <b>A system monitor for developers on macOS.</b><br>
+  See which AI agent session, dev server or forgotten process is eating your Mac — and stop it in one click.
+</p>
 
-Requisitos: macOS 14+, Command Line Tools com Swift e SDK macOS, Rust/Cargo. Build validado em macOS 27.0.1 arm64, Swift 6.4 e Rust 1.98.1; macOS 14 e Intel ainda precisam de validação física. A primeira compilação baixa as dependências Cargo; o aplicativo não usa rede.
+<p align="center">
+  <img alt="macOS 14+" src="https://img.shields.io/badge/macOS-14%2B-black?logo=apple">
+  <img alt="Apple Silicon" src="https://img.shields.io/badge/Apple%20Silicon-native-3ddc84">
+  <img alt="Rust + SwiftUI" src="https://img.shields.io/badge/Rust%20%2B%20SwiftUI-native-orange">
+  <img alt="Offline" src="https://img.shields.io/badge/network-none-blue">
+  <img alt="MIT" src="https://img.shields.io/badge/license-MIT-lightgrey">
+</p>
 
-```sh
-cd "/Volumes/HD Externo/Documents/testes/CoreScope"
-./scripts/test.sh
+<p align="center">
+  <img src="docs/screenshots/overview.jpg" alt="CoreScope overview: CPU, memory, disk and network charts, listening servers, possible orphans, usage limits and agent sessions" width="900">
+</p>
+
+---
+
+## Why CoreScope?
+
+Activity Monitor tells you *that* `node` is using 2 GB. It doesn't tell you **which project it belongs to, which agent or terminal started it, which port it's serving, or that its parent died an hour ago**.
+
+If you work with Claude Code, Codex, editors and terminals all day, your Mac fills up with dev servers, MCP servers, language servers, watchers and the leftovers of sessions you already closed. CoreScope organizes all of that around the way you actually work — **projects, agents and ports** — and lets you clean it up without hunting for PIDs.
+
+### Who it's for
+
+- Developers running **AI coding agents** (Claude Code — desktop and CLI — Codex, Gemini CLI, Aider, OpenCode, Cursor Agent…) who want to see what each session spawned.
+- Anyone juggling **local dev servers, containers and databases** (Node, Bun, Python, PHP/Herd, Go, Docker/OrbStack, Postgres, Redis…).
+- People on **memory-constrained Macs** (8–16 GB) who need to know what to stop *right now*.
+
+## Features
+
+### 🌳 Process tree, built for dev work
+
+<img src="docs/screenshots/processes.jpg" alt="Process tree grouped by app and agent session, with project, origin, ports and summed CPU/memory" width="900">
+
+- **Tree view by default.** Every app or tool heads its own tree; children of `launchd` become roots. Collapsed parents show the child count and **Σ totals** of CPU and memory for the whole subtree.
+- **Project & origin columns.** The working directory (`cwd`) of each process and the agent, editor or terminal that started it ("via Claude Code", "via Zed", "via Warp").
+- **Listening ports** per process, highlighted when exposed beyond loopback, with a one-click *open `localhost:port`*.
+- **Filters:** All · Mine · Dev · Agents · Servers · Orphans · Watched — plus search by name, PID, port, project or agent.
+- **Kill without opening windows:** ✕ on any row (click to arm, click to confirm), ⌫ / ⌘⌫ on the selection, *terminate tree* to stop a process and everything it started, and *force quit* (SIGKILL) when SIGTERM is ignored.
+- **Live inspector** with origin, directory (open in Finder / Terminal), executable, resources and optional history.
+
+### ✨ Agents
+
+<img src="docs/screenshots/agents.jpg" alt="Agents page listing Claude Code sessions with title, working/idle status, project, process count and resources, plus the Codex weekly limit" width="900">
+
+- Every **Claude Code** session (desktop app and CLI) and **Codex** session, with its title, *working / idle* status, project, how long it has been running, how many processes it started, ports, CPU and memory.
+- **Terminate a whole session** — the agent and every server, shell and tool it spawned — in one action.
+- **Codex weekly limit**, read from the `rate_limits` events Codex itself writes to `~/.codex/sessions` — no network, no credentials. Optionally shown in the menu bar and floating panel.
+- **Possible orphans:** dev runtimes still running after their terminal, editor or agent went away.
+
+### 📊 Menu bar and floating panel
+
+<table>
+<tr>
+<td align="center" valign="top" width="50%">
+<img src="docs/screenshots/menubar.jpg" alt="Menu bar popover with CPU, memory, disk and network charts, agent sessions, servers and top CPU" width="330"><br>
+<sub><b>Menu bar</b> — CPU, memory, disk and network charts, agent sessions, servers and top CPU, each with a stop button.</sub>
+</td>
+<td align="center" valign="top" width="50%">
+<img src="docs/screenshots/panel.jpg" alt="Floating panel in detailed layout" width="300"><br>
+<sub><b>Floating panel</b> — compact, standard or detailed layouts. Pin above windows, lock position, size, opacity and contents right from the panel (⋯ or right-click). Drag it anywhere.</sub>
+</td>
+</tr>
+</table>
+
+### And also
+
+- **Storage & I/O:** per-device read/write, volume capacity (without double-counting APFS containers), NVMe temperature via public SMART APIs.
+- **Honest metrics:** every value carries its source and timestamp; missing data is labeled, never faked. Memory is *active + wired + compressed*, and is never presented as "pressure".
+- **Languages:** English, Portuguese and Spanish — follows your system language or a choice in Settings.
+- **Dock behavior:** always, only while the window is open (default — close it and CoreScope lives in the menu bar), or never.
+- **Shortcuts:** ⌘1…⌘6 pages · ⌘R refresh · ⇧⌘P floating panel · ⇧⌘Space pause / resume.
+
+## Install
+
+CoreScope is built from source (prebuilt, notarized releases are not available yet).
+
+**Requirements:** macOS 14 or later · Xcode Command Line Tools (Swift 6) · Rust/Cargo. Developed and validated on Apple Silicon (MacBook Air M4, macOS 27); Intel Macs are untested.
+
+```bash
+xcode-select --install                                           # Swift toolchain, if needed
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh   # Rust, if needed
+git clone https://github.com/Tiagospem/corescope.git
+cd corescope
 ./scripts/build.sh
 open build/CoreScope.app
 ```
 
-Saída: `build/CoreScope.app`. Assinatura **ad hoc**, sem Developer ID/notarização, destinada a este ambiente de desenvolvimento. Não altera SIP, não instala helper, não solicita root ou Full Disk Access. O build não instala nada em `/Applications`. Não copie o app enquanto o build estiver em execução.
+The build produces `build/CoreScope.app`, signed **ad hoc** for your machine. To keep it, drag it to `/Applications`. The app asks for no special permissions: no root, no Full Disk Access, no helper tools, and *launch at login* stays off until you turn it on in Settings.
 
-## Uso
+## Privacy
 
-- **Visão geral**: sinais que merecem atenção, CPU total, memória, histórico e processos com maior CPU.
-- **Processos**: busca por nome/PID/usuário, colunas ordenáveis, filtros mínimos, árvore, candidatos a revisão e até 12 identidades acompanhadas. Duplo clique ou Enter abre detalhes. CPU por processo pode superar 100%: 100% significa um núcleo.
-- **Armazenamento**: volumes separados dos dispositivos físicos; não some capacidade APFS. I/O é atividade, não saturação.
-- **Sensores**: estado térmico público; leituras em Celsius só quando houver uma fonte realmente suportada. Leitura real validada no SSD Apple interno e Kingston externo pela API pública NVMe, sem root. SATA e bridges incompatíveis permanecem sem suporte. Consulte a investigação específica do Disk Drill em `docs/`.
-- **Ajustes**: cadência, tema, métricas e ordem do menu, painel, limiares e início de sessão opcional (desligado por padrão).
-- **Cmd+1…5**: navegar. **Cmd+R**: atualizar. **Cmd+Shift+P**: painel. **Cmd+Shift+Espaço**: pausar/retomar. Fechar a janela mantém o menu; Cmd+Q encerra o app.
+CoreScope is **local-only**: no network access, no telemetry, no accounts.
 
-O painel não ganha foco durante atualizações; é arrastável pelo fundo e salva posição por tela. Ao desconectar uma tela, tenta trazer o painel para uma área visível. Ajustes permitem recuperar a posição manualmente. O painel participa de Spaces/tela cheia; cenários físicos não exercitados estão explicitados no relatório.
+- Process names, executables, users, start times, working directories and listening ports are read locally through public macOS APIs (`libproc`, `sysctl`, IOKit). Working directories and ports are read only for **your own** processes.
+- **Arguments and environment variables are never collected.**
+- Agent data comes from local files only: the newest `rate_limits` event in `~/.codex/sessions` and the session metadata in `~/.claude/sessions`. Claude Code does not store its weekly limit on disk, so CoreScope does not show it — and does not read credentials to fetch it.
+- History (up to 10 minutes) lives in memory only. Preferences and watched processes stay in `UserDefaults`.
+- Nothing is ever killed automatically. Termination only targets your own, eligible processes, revalidates each process identity (PID + start time + executable) right before signaling, and never touches system services or CoreScope's own ancestors.
 
-## Definições e privacidade
+## Resource usage
 
-Cada métrica traz unidade, origem, horário e disponibilidade no snapshot. Passe o mouse sobre a leitura para ver a fonte; o rodapé mostra a atualização, e pausa/falha sinaliza dados antigos. I/O tem cadência de 6 s, volumes de 30 s. Não há coleta em shell.
+A monitor shouldn't be what slows your Mac down. Measured on a MacBook Air M4 with ~450 processes:
 
-Memória principal = **ativa + wired + compressor físico**. Não equivale ao indicador “Memória usada” do Monitor de Atividade nem a “pressão”. Por processo usamos **phys_footprint**, com páginas residentes separadas nos detalhes. Pressão vem de eventos Dispatch: até receber o primeiro evento, permanece desconhecida. Swap ocupado não é diagnóstico por si só.
+| State | Memory (footprint) | CPU |
+|---|---|---|
+| Window open, sampling every 3 s | ~80 MB | ~2–3 % of one core |
+| Window closed (menu bar only, sampling every 10 s) | ~85 MB | < 1 % of one core |
 
-Argumentos e variáveis de ambiente **não são coletados**. Nomes, executáveis, UID, PID e início são lidos localmente. Histórico de até 120 pontos e 10 minutos, somente em RAM. Acompanhamentos/ignorados usam identidade PID + início e ficam no UserDefaults; não migram automaticamente para uma nova execução do mesmo programa. Não há exportador de argumentos ou log contínuo de processos.
+Sampling pauses during sleep and slows down in Low Power Mode.
 
-O candidato a possível abandono requer uma mudança de pai observada, pai com nome de ferramenta de desenvolvimento (heurística), idade e recursos retidos. Confiança moderada: um serviço legítimo pode cumprir esses critérios. Não identifica processos abandonados que já existiam antes do monitor. Nenhuma ação automática.
+## How it works
 
-Encerramento: só usuário atual e processos elegíveis, com confirmação do executável e impacto. SIGTERM primeiro; SIGKILL é separado e avisa sobre perda de dados. Árvore usa lista fixa, filhos antes do pai, com revalidação de cada identidade. Não há `killall`, `pkill` ou sinalização de grupos. O macOS não oferece um identificador de processo atômico para `kill`: a revalidação reduz, mas não elimina matematicamente, a corrida residual de reutilização de PID.
-
-## Organização
-
-| Diretório | Responsabilidade |
+| Directory | Role |
 |---|---|
-| `core/src/lib.rs` | processamento Rust, diagnóstico, histórico, políticas de processo, FFI e testes |
-| `core/src/os.rs` | tipos ABI e acesso seguro aos registros brutos |
-| `core/src/macos.c` | adaptador mínimo para estruturas/API públicas do SDK |
-| `native/` | modelos, serviço serial, SwiftUI, MenuBarExtra e NSPanel |
-| `scripts/` | build, testes e medidor externo somente leitura |
-| `docs/` | arquitetura, API, validação, consumo e investigação de sensores |
-| `captures/` | capturas do aplicativo real |
+| `core/src/macos.c` | Thin C adapter over public SDK APIs (libproc, Mach, sysctl, IOKit, NVMe SMART) |
+| `core/src/lib.rs` | Rust core: sampling, deltas, history, diagnostics, process classification (agents, editors, terminals, runtimes), origin and orphan detection, safe signaling, C ABI |
+| `native/` | SwiftUI + AppKit app: window, menu bar extra, floating `NSPanel`, agents, localization |
+| `scripts/` | Build, tests, procedural app icon, external read-only resource meter |
+| `docs/` | Architecture, API sources, validation and measurement notes (Portuguese) |
 
-Contrato de memória FFI em `native/CoreScopeFFI.h` e `docs/ARCHITECTURE.md`. A UI copia UTF-8 e sempre chama `cs_free`; Rust contém panics, e todo o estado é serializado. O adaptador C não toma decisões de diagnóstico.
+The Swift UI calls the Rust core over a small C ABI that returns one JSON snapshot per sample on a serial background queue. See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
-## Evidências da entrega
+## Development
 
-[Funcionalidades e validação](docs/VALIDATION.md) · [Consumo observado](docs/CONSUMPTION.md) · [Investigação REA / Disk Drill](docs/DISKDRILL-TEMPERATURE.md) · [Fontes das APIs](docs/API-SOURCES.md) · [Capturas reais](captures/README.md) · [Revisão visual](docs/FINISH-REVIEW.md).
+```bash
+./scripts/test.sh     # cargo fmt --check, cargo test, clippy -D warnings, native logic tests
+./scripts/build.sh    # release build into build/CoreScope.app
+open --env CORESCOPE_DEMO=1 build/CoreScope.app   # live metrics with anonymized paths, projects and session titles
+```
+
+The screenshots in this README were taken in demo mode.
+
+## Roadmap
+
+- Claude Code usage limits through Claude Code's documented status line data (opt-in, local only).
+- Prebuilt, notarized releases.
+- Validation on Intel Macs and macOS 14.
+
+## Contributing
+
+Issues and pull requests are welcome. Please run `./scripts/test.sh` before opening a PR, keep the app offline-only, and avoid private or undocumented system APIs.
+
+## License
+
+[MIT](LICENSE) © 2026 Tiago Padilha

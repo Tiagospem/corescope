@@ -34,6 +34,15 @@ Este registro descreve o SwiftUI/AppKit implementado, sem converter cores dinâm
 
 A revisão visual disponível cobre visão geral e sensores no tema escuro. Menu e painel tiveram correções confirmadas por código, mas ainda requerem recaptura; as demais superfícies e condições de acessibilidade não têm validação visual completa. Ver `docs/FINISH-REVIEW.md`.
 
+## Revisão 0.2 (foco em desenvolvedores)
+
+- **Ícone** gerado por `scripts/make-icon.swift`: retícula verde com linha de pulso sobre grafite.
+- **Séries fixas** (`Tint` em `native/Design.swift`): CPU verde da marca, memória azul, disco laranja/rosa (leitura/escrita), rede ciano/lilás. Gráficos de área com gradiente, alinhados à direita (a amostra mais nova fica na borda), lacunas interrompem a linha.
+- **Cartões** com fundo `primary` a 3,5% e borda a 8%, raio 12; chips de filtro em cápsula; badges para portas (ciano local, laranja exposta), órfãos e origem.
+- **Ações no lugar**: botão ✕ por linha com confirmação em dois cliques, barra de seleção, menu de contexto e inspetor lateral em vez de folhas modais.
+- **Painel flutuante** sem moldura, `NSVisualEffectView` (`.hudWindow`, sempre ativo), opacidade aplicada só ao fundo; controles no próprio painel.
+- **Idiomas**: textos de origem em português passam por `L(...)` (`native/Localization.swift`) com inglês e espanhol.
+
 ## Colors
 
 A paleta usa cores e materiais semânticos do sistema; valores RGB/hex dependem da aparência e da configuração do macOS e não são tokens fixos deste produto.
@@ -106,3 +115,4 @@ Os micrográficos usam traço de 1,6 pt com pontas e junções arredondadas. Lac
 - **Don't** converter estado térmico em graus Celsius nem ocupação de RAM em pressão.
 - **Don't** ocultar o estado de pausa quando uma categoria de métrica estiver desativada.
 - **Don't** introduzir dashboard web, fontes externas ou animação decorativa nesta identidade nativa.
+- **Don't** observar `Monitor`/`Preferences` no `App` ou em células repetidas: cada snapshot reavaliaria todas as cenas ou centenas de linhas.

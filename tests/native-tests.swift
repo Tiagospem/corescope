@@ -13,8 +13,29 @@ import Foundation
     let left = CGRect(x: -1920, y: 0, width: 1920, height: 1080)
     precondition(
       left.contains(clampPanel(CGRect(x: -2500, y: 1200, width: 400, height: 260), to: left)))
+
+    // launchd children become roots; orphaned parents and cycles never hide nodes.
+    let nodes: [(pid: Int32, ppid: Int32)] = [
+      (1, 0), (10, 1), (11, 10), (12, 11), (13, 1), (14, 10), (20, 999), (30, 31), (31, 30),
+    ]
+    let forest = ProcessForest(nodes)
+    precondition(Set(forest.roots).isSuperset(of: [1, 10, 13, 20]))
+    let all = forest.flatten(expanded: { _ in true }, order: <)
+    precondition(Set(all.map(\.pid)) == Set(nodes.map(\.pid)))
+    precondition(all.first { $0.pid == 12 }?.depth == 2)
+    let collapsed = forest.flatten(expanded: { $0 != 10 }, order: <)
+    precondition(!collapsed.contains { $0.pid == 11 })
+    precondition(collapsed.first { $0.pid == 10 }?.children == 2)
+    let totals = forest.totals { Double($0) }
+    precondition(totals[10] == 10 + 11 + 12 + 14)
+    let parent = Dictionary(uniqueKeysWithValues: nodes.map { ($0.pid, $0.ppid) })
+    precondition(forest.ancestors(of: [12], parent: parent) == [11, 10])
+    let filtered = forest.flatten(visible: [12, 11, 10], expanded: { _ in true }, order: <)
+    precondition(filtered.map(\.pid) == [10, 11, 12])
+    precondition(formatDuration(3725) == "1 h 2 min")
+    precondition(projectName("/") == nil && projectName("/tmp/app") == "app")
     print(
-      "6 native assertions passed: exact descendants, cycle, parent ordering, off-screen recovery, negative-origin monitor"
+      "15 native assertions passed: descendants, cycle, ordering, off-screen recovery, negative-origin monitor, forest roots, flatten, collapse, totals, ancestors, filter, formatting"
     )
   }
 }

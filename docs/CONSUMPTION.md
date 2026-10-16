@@ -39,7 +39,7 @@ Metas propostas para aceitação, não requisitos medidos previamente nem promes
 ## Reproduzir
 
 ```sh
-cd "/Volumes/HD Externo/Documents/testes/CoreScope"
+cd corescope
 clang -O2 scripts/measure.c -o build/measure
 pgrep -x CoreScope
 # Substituir PID pelo valor conferido; o medidor não envia sinais.

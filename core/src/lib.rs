@@ -54,6 +54,18 @@ impl Metric {
         }
     }
 }
+/// Per-process metrics travel as `{"value":x}` (plus `state` when not available): source and
+/// unit are fixed per field and the timestamp equals the snapshot's, so repeating them for
+/// every process made each sample several hundred KB.
+fn lean<S: serde::Serializer>(m: &Metric, s: S) -> Result<S::Ok, S::Error> {
+    use serde::ser::SerializeMap;
+    let mut map = s.serialize_map(None)?;
+    map.serialize_entry("value", &m.value)?;
+    if m.state != "available" {
+        map.serialize_entry("state", m.state)?;
+    }
+    map.end()
+}
 fn temperature(kelvin: u32, status: i32, at: f64) -> Metric {
     let valid = status == 0 && (173..=473).contains(&kelvin);
     let mut metric = Metric::new(
@@ -142,11 +154,228 @@ fn cpu_percent(old: &[u64; 4], new: &[u64; 4]) -> Option<f64> {
 fn rate(old: u64, new: u64, elapsed: f64) -> Option<f64> {
     (elapsed > 0. && elapsed <= 60. && new >= old).then(|| (new - old) as f64 / elapsed)
 }
-#[derive(Clone, Serialize)]
+#[derive(Clone, Default, Serialize)]
 pub struct Point {
     pub at: f64,
     pub cpu: Option<f64>,
     pub memory: Option<f64>,
+    pub disk_read: Option<f64>,
+    pub disk_write: Option<f64>,
+    pub net_in: Option<f64>,
+    pub net_out: Option<f64>,
+}
+#[derive(Clone, Serialize)]
+pub struct Port {
+    pub port: u16,
+    /// Bound beyond loopback (all interfaces or a LAN address).
+    pub exposed: bool,
+}
+/// Nearest ancestor that hosts developer work: agent, editor or terminal.
+#[derive(Clone, Serialize)]
+pub struct Origin {
+    pub label: &'static str,
+    pub kind: &'static str,
+    pub pid: i32,
+}
+fn app_bundle(path: &str, bundle: &str) -> bool {
+    path.contains(&format!("/{bundle}.app/"))
+}
+/// Main executable of an app bundle; helpers under Frameworks/Helpers are excluded.
+fn app_main(path: &str, bundle: &str) -> bool {
+    path.contains(&format!("/{bundle}.app/Contents/MacOS/"))
+}
+/// Identifies processes that start developer work. Name-based heuristic; never used to act automatically.
+pub fn host(name: &str, path: &str) -> Option<(&'static str, &'static str)> {
+    let lower = name.to_lowercase();
+    // Desktop apps host sessions; their bundled CLIs (e.g. claude-code/<v>/claude.app) are the sessions.
+    if app_main(path, "Claude") {
+        return Some(("Claude Desktop", "agent"));
+    }
+    if app_main(path, "Codex") {
+        return Some(("Codex Desktop", "agent"));
+    }
+    if lower == "claude" || path.contains("/claude/versions/") || path.contains("/claude-code/") {
+        return Some(("Claude Code", "agent"));
+    }
+    if lower.starts_with("codex") {
+        return Some(("Codex", "agent"));
+    }
+    for (bin, label) in [
+        ("gemini", "Gemini CLI"),
+        ("aider", "Aider"),
+        ("opencode", "OpenCode"),
+        ("cursor-agent", "Cursor Agent"),
+        ("copilot", "Copilot CLI"),
+        ("amp", "Amp"),
+    ] {
+        if lower == bin {
+            return Some((label, "agent"));
+        }
+    }
+    for (bundle, label) in [
+        ("Visual Studio Code", "VS Code"),
+        ("Cursor", "Cursor"),
+        ("Zed", "Zed"),
+        ("Zed Preview", "Zed"),
+        ("Windsurf", "Windsurf"),
+        ("Xcode", "Xcode"),
+        ("PhpStorm", "PhpStorm"),
+        ("WebStorm", "WebStorm"),
+        ("PyCharm", "PyCharm"),
+        ("GoLand", "GoLand"),
+        ("RustRover", "RustRover"),
+        ("IntelliJ IDEA", "IntelliJ IDEA"),
+        ("Android Studio", "Android Studio"),
+        ("Sublime Text", "Sublime Text"),
+        ("Nova", "Nova"),
+    ] {
+        if app_main(path, bundle) {
+            return Some((label, "editor"));
+        }
+    }
+    if lower == "zed" || lower == "nvim" || lower == "vim" || lower == "emacs" {
+        return Some(match lower.as_str() {
+            "zed" => ("Zed", "editor"),
+            "emacs" => ("Emacs", "editor"),
+            _ => ("Neovim", "editor"),
+        });
+    }
+    for (bundle, label) in [
+        ("Terminal", "Terminal"),
+        ("iTerm", "iTerm2"),
+        ("Warp", "Warp"),
+        ("Ghostty", "Ghostty"),
+        ("WezTerm", "WezTerm"),
+        ("kitty", "kitty"),
+        ("Alacritty", "Alacritty"),
+        ("Hyper", "Hyper"),
+        ("Tabby", "Tabby"),
+    ] {
+        if app_main(path, bundle) {
+            return Some((label, "terminal"));
+        }
+    }
+    (lower == "tmux" || lower == "zellij").then_some(("tmux", "terminal"))
+}
+/// Descriptive tags for grouping and filtering in the interface.
+pub fn tags(name: &str, path: &str, listening: bool) -> Vec<&'static str> {
+    let lower = name.to_lowercase();
+    let mut out = Vec::new();
+    if let Some((_, kind)) = host(name, path) {
+        out.push(kind);
+    }
+    const RUNTIMES: [&str; 34] = [
+        "node",
+        "bun",
+        "deno",
+        "python",
+        "ruby",
+        "php",
+        "java",
+        "go",
+        "cargo",
+        "rustc",
+        "npm",
+        "npx",
+        "pnpm",
+        "yarn",
+        "tsx",
+        "ts-node",
+        "esbuild",
+        "vite",
+        "next-server",
+        "nodemon",
+        "uvicorn",
+        "gunicorn",
+        "rails",
+        "puma",
+        "sidekiq",
+        "dotnet",
+        "beam.smp",
+        "elixir",
+        "mix",
+        "turbo",
+        "webpack",
+        "jest",
+        "vitest",
+        "playwright",
+    ];
+    let runtime = RUNTIMES.iter().any(|r| {
+        lower == *r
+            || lower.starts_with(&format!("{r}."))
+            || lower.starts_with(&format!("{r}-"))
+            || (r.len() > 3 && lower.starts_with(r))
+    }) || lower.starts_with("python")
+        || lower.starts_with("php")
+        || path.contains("/go-build")
+        || path.contains("/node_modules/");
+    if lower.contains("mcp") {
+        out.push("mcp");
+    }
+    if runtime || lower.contains("mcp") {
+        out.push("runtime");
+    }
+    if ["zsh", "bash", "sh", "fish", "nu", "dash", "login"].contains(&lower.as_str()) {
+        out.push("shell");
+    }
+    if [
+        "docker",
+        "com.docker",
+        "orbstack",
+        "qemu-system",
+        "vfkit",
+        "colima",
+        "limactl",
+        "podman",
+        "containerd",
+        "krunvm",
+    ]
+    .iter()
+    .any(|c| lower.starts_with(c))
+        || app_bundle(path, "OrbStack")
+        || app_bundle(path, "Docker")
+    {
+        out.push("container");
+    }
+    if [
+        "postgres",
+        "redis-server",
+        "mysqld",
+        "mariadbd",
+        "mongod",
+        "memcached",
+        "valkey-server",
+        "clickhouse",
+        "meilisearch",
+        "typesense-server",
+    ]
+    .iter()
+    .any(|d| lower.starts_with(d))
+    {
+        out.push("database");
+    }
+    if listening {
+        out.push("server");
+    }
+    out
+}
+/// Orphan evidence for same-user, eligible processes. Moderate confidence; no automatic action.
+pub fn orphan_reason(
+    ppid: i32,
+    lost_parent: Option<&str>,
+    age: f64,
+    path: &str,
+    tags: &[&str],
+) -> Option<String> {
+    // Texts are stable keys: the interface translates them, values travel in separate fields.
+    if lost_parent.is_some() && age >= 30. {
+        return Some(
+            "O processo pai encerrou e este continuou rodando, adotado pelo launchd.".into(),
+        );
+    }
+    let dev = tags.contains(&"runtime") && !tags.contains(&"agent") && !tags.contains(&"editor");
+    (ppid == 1 && dev && age >= 60. && !path.contains(".app/") && !path.starts_with("/Library/"))
+        .then(|| "Sem processo pai: adotado pelo launchd. Runtimes de desenvolvimento costumam ter terminal, editor ou agente como pai; pode ser um serviço iniciado de propósito.".into())
 }
 fn push(history: &mut VecDeque<Point>, point: Point) {
     let cutoff = point.at - 600.;
@@ -165,16 +394,29 @@ pub struct Process {
     pub start: u64,
     pub name: String,
     pub path: String,
+    #[serde(serialize_with = "lean")]
     pub cpu: Metric,
+    #[serde(serialize_with = "lean")]
     pub memory: Metric,
+    #[serde(serialize_with = "lean")]
     pub resident: Metric,
+    #[serde(serialize_with = "lean")]
     pub threads: Metric,
+    #[serde(serialize_with = "lean")]
     pub read: Metric,
+    #[serde(serialize_with = "lean")]
     pub write: Metric,
     pub eligible: bool,
     pub blocked: String,
-    pub candidate: Option<String>,
-    pub attribution: Option<String>,
+    pub orphan: Option<String>,
+    /// Parent observed before reparenting to launchd, when known.
+    pub orphan_parent: Option<String>,
+    pub cwd: String,
+    pub ports: Vec<Port>,
+    pub tags: Vec<&'static str>,
+    /// Label when this process itself hosts developer work (agent, editor, terminal).
+    pub host: Option<&'static str>,
+    pub origin: Option<Origin>,
     pub high_cpu_seconds: f64,
     pub history: VecDeque<Point>,
 }
@@ -219,6 +461,10 @@ pub struct Snapshot {
     pub disks: Vec<Disk>,
     pub diagnostics: Vec<Diagnostic>,
     pub history: VecDeque<Point>,
+    pub disk_read: Metric,
+    pub disk_write: Metric,
+    pub net_in: Metric,
+    pub net_out: Metric,
     pub collector_ms: f64,
     pub own_wakeups: Metric,
     pub process_state: String,
@@ -246,6 +492,10 @@ pub struct Collector {
     temperatures: HashMap<u64, (Instant, Metric)>,
     last_volumes: Option<Instant>,
     last_disks: Option<Instant>,
+    /// cwd and listening ports per pid, keyed by start time; refreshed every 5 s.
+    extras: HashMap<i32, (u64, String, Vec<Port>)>,
+    last_extras: Option<Instant>,
+    net_raw: Option<(Instant, u64, u64)>,
     volume_state: String,
     disk_state: String,
 }
@@ -296,20 +546,41 @@ fn protected() -> HashSet<i32> {
     }
     out
 }
-fn dev_name(name: &str) -> bool {
-    [
-        "codex", "claude", "node", "python", "cargo", "rustc", "npm", "docker", "swift",
-    ]
-    .iter()
-    .any(|s| name.to_lowercase().contains(s))
+fn dev_name(name: &str, path: &str) -> bool {
+    host(name, path).is_some()
+        || tags(name, path, false)
+            .iter()
+            .any(|t| ["runtime", "shell"].contains(t))
 }
-fn candidate_evidence(
-    parent: Option<&str>,
-    age: f64,
-    memory: u64,
-    cpu: Option<f64>,
-) -> Option<String> {
-    parent.filter(|_|age>=300. && (memory>=100*1024*1024||cpu.is_some_and(|v|v>=1.))).map(|p|format!("Confiança moderada: mudança observada de pai ({p}) para launchd; idade ≥ 5 min e recursos retidos. Pode ser um serviço legítimo. Confirme a finalidade antes de agir."))
+/// Fills `origin` with the nearest strict ancestor that is an agent, editor or terminal.
+fn assign_origins(processes: &mut [Process]) {
+    let index: HashMap<i32, usize> = processes
+        .iter()
+        .enumerate()
+        .map(|(i, p)| (p.pid, i))
+        .collect();
+    let hosts: Vec<Option<(&'static str, &'static str)>> =
+        processes.iter().map(|p| host(&p.name, &p.path)).collect();
+    for i in 0..processes.len() {
+        let mut current = processes[i].ppid;
+        let mut origin = None;
+        for _ in 0..48 {
+            if current <= 1 {
+                break;
+            }
+            let Some(&j) = index.get(&current) else { break };
+            if let Some((label, kind)) = hosts[j] {
+                origin = Some(Origin {
+                    label,
+                    kind,
+                    pid: current,
+                });
+                break;
+            }
+            current = processes[j].ppid;
+        }
+        processes[i].origin = origin;
+    }
 }
 impl Collector {
     pub fn reset(&mut self) {
@@ -323,6 +594,9 @@ impl Collector {
         self.last_disks = None;
         self.disk_raw.clear();
         self.temperatures.clear();
+        self.extras.clear();
+        self.last_extras = None;
+        self.net_raw = None;
     }
     pub fn sample(&mut self, mut config: Config) -> Snapshot {
         config.sanitize();
@@ -356,6 +630,13 @@ impl Collector {
         let protected = protected();
         let own = unsafe { os_self() };
         let mut own_wakeups = None;
+        let refresh_extras = self
+            .last_extras
+            .is_none_or(|t| t.elapsed().as_secs_f64() >= 5.);
+        if refresh_extras {
+            self.last_extras = Some(Instant::now());
+        }
+        let mut extras = HashMap::new();
         let mut previous = HashMap::with_capacity(raws.len());
         let mut processes = Vec::with_capacity(raws.len());
         for raw in raws {
@@ -377,7 +658,7 @@ impl Collector {
                 && let Some(parent) = self.previous.get(&old.raw.ppid)
             {
                 let name = string(&parent.raw.name);
-                if dev_name(&name) {
+                if dev_name(&name, &string(&parent.raw.path)) {
                     lost = Some(format!("{} · PID {}", name, parent.raw.pid));
                 }
             }
@@ -398,6 +679,7 @@ impl Collector {
                         at,
                         cpu: pcpu,
                         memory,
+                        ..Default::default()
                     },
                 );
             }
@@ -411,9 +693,33 @@ impl Collector {
                 own_wakeups = io(raw.wakeups, old.map(|p| p.raw.wakeups));
             }
             let path = string(&raw.path);
-            let attribution = path
-                .find(".app/")
-                .map(|i| format!("Executável dentro de {}", &path[..i + 4]));
+            let name = string(&raw.name);
+            // Same-user only: other users' descriptors and cwd are not readable without privileges.
+            let (cwd, listening) = if raw.uid != uid {
+                (String::new(), vec![])
+            } else {
+                match self.extras.get(&raw.pid) {
+                    Some((start, cwd, ports)) if *start == raw.start && !refresh_extras => {
+                        (cwd.clone(), ports.clone())
+                    }
+                    _ => (
+                        cwd(raw.pid),
+                        ports(raw.pid)
+                            .into_iter()
+                            .map(|p| Port {
+                                port: p.port,
+                                exposed: p.exposed != 0,
+                            })
+                            .collect(),
+                    ),
+                }
+            };
+            if raw.uid == uid {
+                extras.insert(raw.pid, (raw.start, cwd.clone(), listening.clone()));
+            }
+            let tags = tags(&name, &path, !listening.is_empty());
+            let host_label = host(&name, &path).map(|h| h.0);
+            let age = at - raw.start as f64 / 1e6;
             processes.push(Process {
                 id: id.clone(),
                 pid: raw.pid,
@@ -421,8 +727,19 @@ impl Collector {
                 uid: raw.uid,
                 user: string(&raw.user),
                 start: raw.start,
-                name: string(&raw.name),
+                name,
+                orphan: if config.ignored.contains(&id) || !reason.is_empty() {
+                    None
+                } else {
+                    orphan_reason(raw.ppid, lost.as_deref(), age, &path, &tags)
+                },
+                orphan_parent: lost.clone(),
                 path,
+                cwd,
+                ports: listening,
+                host: host_label,
+                tags,
+                origin: None,
                 cpu: Metric::new(pcpu, "% de um núcleo", "libproc · delta de tempo CPU", at),
                 memory: Metric::new(memory, "B", "proc_pid_rusage · phys_footprint", at),
                 resident: Metric::new(
@@ -453,17 +770,6 @@ impl Collector {
                 ),
                 eligible: reason.is_empty(),
                 blocked: reason.into(),
-                candidate: if config.ignored.contains(&id) || !reason.is_empty() {
-                    None
-                } else {
-                    candidate_evidence(
-                        lost.as_deref(),
-                        at - raw.start as f64 / 1e6,
-                        raw.footprint,
-                        pcpu,
-                    )
-                },
-                attribution,
                 high_cpu_seconds: high.map(|t| elapsed - t).unwrap_or(0.),
                 history: history.clone(),
             });
@@ -478,6 +784,8 @@ impl Collector {
             );
         }
         self.previous = previous;
+        self.extras = extras;
+        assign_origins(&mut processes);
         processes.sort_by(|a, b| {
             b.cpu
                 .value
@@ -485,12 +793,23 @@ impl Collector {
                 .total_cmp(&a.cpu.value.unwrap_or(-1.))
         });
         self.refresh_storage(at);
+        let total = |f: fn(&Disk) -> Option<f64>| {
+            let values: Vec<f64> = self.disks.iter().filter_map(f).collect();
+            (!values.is_empty()).then(|| values.iter().sum::<f64>())
+        };
+        let disk_read = total(|d| d.read.value);
+        let disk_write = total(|d| d.write.value);
+        let (net_in, net_out) = self.sample_network();
         push(
             &mut self.history,
             Point {
                 at,
                 cpu,
                 memory: mem(h.active + h.wired + h.compressed),
+                disk_read,
+                disk_write,
+                net_in,
+                net_out,
             },
         );
         let mut diagnostics = Vec::new();
@@ -511,7 +830,7 @@ impl Collector {
             .entry("cpu")
             .or_default()
             .update(desired, elapsed, config.sustain);
-        diagnostics.push(Diagnostic{id:"cpu",level,title:if cpu.is_none(){"CPU em aquecimento".into()}else if level>0{"CPU elevada de forma sustentada".into()}else{"CPU sem alerta sustentado".into()},detail:format!("Total normalizado em 0–100%. Janela de {:.0} s; saída 5 pontos abaixo do limite. Consumo alto não comprova a causa de lentidão.",config.sustain)});
+        diagnostics.push(Diagnostic{id:"cpu",level,title:if cpu.is_none(){"CPU em aquecimento".into()}else if level>0{"CPU elevada de forma sustentada".into()}else{"CPU sem alerta sustentado".into()},detail:"Total normalizado em 0–100%, com janela sustentada configurável; saída 5 pontos abaixo do limite. Consumo alto não comprova a causa de lentidão.".into()});
         let mem_level = match config.pressure {
             2 => 2,
             1 => 1,
@@ -601,6 +920,30 @@ impl Collector {
             disks: self.disks.clone(),
             diagnostics,
             history: self.history.clone(),
+            disk_read: Metric::new(
+                disk_read,
+                "B/s",
+                "IOBlockStorageDriver · soma dos dispositivos",
+                at,
+            ),
+            disk_write: Metric::new(
+                disk_write,
+                "B/s",
+                "IOBlockStorageDriver · soma dos dispositivos",
+                at,
+            ),
+            net_in: Metric::new(
+                net_in,
+                "B/s",
+                "sysctl NET_RT_IFLIST2 · interfaces sem loopback",
+                at,
+            ),
+            net_out: Metric::new(
+                net_out,
+                "B/s",
+                "sysctl NET_RT_IFLIST2 · interfaces sem loopback",
+                at,
+            ),
             collector_ms: begin.elapsed().as_secs_f64() * 1000.,
             own_wakeups: Metric::new(
                 own_wakeups,
@@ -620,6 +963,19 @@ impl Collector {
             disk_state: self.disk_state.clone(),
             current_uid: uid,
         }
+    }
+    fn sample_network(&mut self) -> (Option<f64>, Option<f64>) {
+        let Some((rx, tx)) = network() else {
+            self.net_raw = None;
+            return (None, None);
+        };
+        let now = Instant::now();
+        let result = self.net_raw.map_or((None, None), |(t, prx, ptx)| {
+            let d = now.duration_since(t).as_secs_f64();
+            (rate(prx, rx, d), rate(ptx, tx, d))
+        });
+        self.net_raw = Some((now, rx, tx));
+        result
     }
     fn refresh_storage(&mut self, at: f64) {
         if self
@@ -651,7 +1007,10 @@ impl Collector {
                 .collect();
             self.last_volumes = Some(Instant::now());
         }
-        if self.last_disks.is_none_or(|t| t.elapsed().as_secs() >= 6) {
+        if self
+            .last_disks
+            .is_none_or(|t| t.elapsed().as_secs_f64() >= 1.5)
+        {
             let dt = self.last_disks.map(|t| t.elapsed().as_secs_f64());
             let mut raw: Vec<RawDisk> = (0..128).map(|_| unsafe { std::mem::zeroed() }).collect();
             let n = unsafe { os_disks(raw.as_mut_ptr(), 128) };
@@ -850,8 +1209,7 @@ mod tests {
                 &mut h,
                 Point {
                     at: i as f64,
-                    cpu: None,
-                    memory: None,
+                    ..Default::default()
                 },
             );
         }
@@ -860,8 +1218,7 @@ mod tests {
             &mut h,
             Point {
                 at: 1200.,
-                cpu: None,
-                memory: None,
+                ..Default::default()
             },
         );
         assert_eq!(h.len(), 1);
@@ -873,13 +1230,80 @@ mod tests {
         assert!(m.value.is_none());
     }
     #[test]
-    fn ppid_one_age_or_low_cpu_not_enough() {
-        assert!(candidate_evidence(None, 99999., 999999999, None).is_none());
-        assert!(candidate_evidence(Some("codex"), 100., 999999999, Some(100.)).is_none());
+    fn orphan_requires_dev_runtime_without_parent() {
+        let node = tags("node", "/opt/homebrew/bin/node", false);
+        assert!(orphan_reason(1, None, 600., "/opt/homebrew/bin/node", &node).is_some());
+        assert!(orphan_reason(1, None, 10., "/opt/homebrew/bin/node", &node).is_none());
+        assert!(orphan_reason(500, None, 600., "/opt/homebrew/bin/node", &node).is_none());
+        let app = tags(
+            "Slack",
+            "/Applications/Slack.app/Contents/MacOS/Slack",
+            false,
+        );
+        assert!(
+            orphan_reason(
+                1,
+                None,
+                600.,
+                "/Applications/Slack.app/Contents/MacOS/Slack",
+                &app
+            )
+            .is_none()
+        );
     }
     #[test]
-    fn candidate_requires_observed_parent_and_resources() {
-        assert!(candidate_evidence(Some("codex"), 600., 200 * 1024 * 1024, Some(0.)).is_some());
+    fn observed_parent_loss_is_orphan_evidence() {
+        assert!(orphan_reason(1, Some("codex · PID 9"), 60., "/bin/x", &[]).is_some());
+        assert!(orphan_reason(1, Some("codex · PID 9"), 5., "/bin/x", &[]).is_none());
+    }
+    #[test]
+    fn hosts_and_tags_identify_dev_tools() {
+        assert_eq!(
+            host("2.1.3", "/Users/a/.local/share/claude/versions/2.1.3").map(|h| h.0),
+            Some("Claude Code")
+        );
+        assert_eq!(
+            host("codex", "/opt/homebrew/bin/codex").map(|h| h.1),
+            Some("agent")
+        );
+        assert_eq!(
+            host(
+                "zsh",
+                "/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal"
+            )
+            .map(|h| h.1),
+            Some("terminal")
+        );
+        assert!(host("node", "/opt/homebrew/bin/node").is_none());
+        assert_eq!(
+            host("Claude", "/Applications/Claude.app/Contents/MacOS/Claude").map(|h| h.0),
+            Some("Claude Desktop")
+        );
+        let bundled = "/Users/a/Library/Application Support/Claude/claude-code/2.1.2/ab/claude.app/Contents/MacOS/claude";
+        assert_eq!(host("claude", bundled).map(|h| h.0), Some("Claude Code"));
+        assert!(tags("node", "/opt/homebrew/bin/node", true).contains(&"server"));
+        assert!(tags("python3.12", "/usr/bin/python3", false).contains(&"runtime"));
+        assert!(tags("github-mcp-server", "/x/github-mcp-server", false).contains(&"mcp"));
+        assert!(tags("postgres", "/opt/homebrew/bin/postgres", false).contains(&"database"));
+        assert!(
+            !tags(
+                "Safari",
+                "/Applications/Safari.app/Contents/MacOS/Safari",
+                false
+            )
+            .contains(&"runtime")
+        );
+    }
+    #[test]
+    fn listening_port_and_cwd_of_own_child() {
+        use std::net::TcpListener;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let own = unsafe { os_self() };
+        let found = ports(own);
+        assert!(found.iter().any(|p| p.port == port && p.exposed == 0));
+        assert_eq!(cwd(own), std::env::current_dir().unwrap().to_string_lossy());
+        assert!(network().is_some());
     }
     #[test]
     fn invalid_and_self_signals_are_blocked() {

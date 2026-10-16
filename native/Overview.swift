@@ -1,0 +1,332 @@
+import AppKit
+import SwiftUI
+
+/// Big-number resource card with a right-aligned history chart.
+struct ResourceCard: View {
+  let title: String
+  let symbol: String
+  let value: String
+  var unit: String = ""
+  let detail: String
+  let series: [ChartSeries]
+  var ceiling: Double? = nil
+  var fraction: Double? = nil
+  var legend: [(String, Color)] = []
+  var help: String = ""
+  var body: some View {
+    Card {
+      HStack(spacing: 6) {
+        Image(systemName: symbol).font(.system(size: 11, weight: .semibold))
+          .foregroundStyle(series.first?.color ?? .secondary)
+        Text(title).font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
+        Spacer()
+        ForEach(legend, id: \.0) { item in
+          HStack(spacing: 3) {
+            Circle().fill(item.1).frame(width: 6, height: 6)
+            Text(L(item.0)).font(.system(size: 10)).foregroundStyle(.secondary)
+          }
+        }
+      }
+      HStack(alignment: .firstTextBaseline, spacing: 4) {
+        Text(value).font(.system(size: 26, weight: .semibold, design: .rounded)).monospacedDigit()
+          .lineLimit(1).minimumScaleFactor(0.7)
+        if !unit.isEmpty { Text(unit).font(.callout).foregroundStyle(.secondary) }
+      }
+      // Every card reserves the meter row so the grid stays aligned.
+      if let fraction, let color = series.first?.color {
+        MeterBar(fraction: fraction, color: color)
+      } else {
+        Color.clear.frame(height: 4)
+      }
+      AreaChart(series: series, ceiling: ceiling).frame(height: 54)
+      Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+    }.help(help)
+  }
+}
+
+struct OverviewView: View {
+  @ObservedObject var monitor = Monitor.shared
+  var body: some View {
+    ScrollView {
+      if let s = monitor.snapshot {
+        VStack(alignment: .leading, spacing: 16) {
+          let alerts = s.diagnostics.filter { $0.level > 0 }
+          if !alerts.isEmpty { AlertStrip(alerts: alerts) }
+          LazyVGrid(
+            columns: Array(repeating: GridItem(.flexible(minimum: 150), spacing: 12), count: 4),
+            alignment: .leading, spacing: 12
+          ) {
+            ResourceCard(
+              title: L("CPU"), symbol: "cpu",
+              value: s.cpu.value.map { String(format: "%.0f", $0) } ?? "—", unit: "%",
+              detail: L("%@ núcleos · térmico %@", "\(s.cores)", "\(s.thermalLabel.lowercased())"),
+              series: [ChartSeries(values: s.history.map(\.cpu), color: Tint.cpu)], ceiling: 100,
+              help: s.cpu.explanation)
+            ResourceCard(
+              title: L("Memória"), symbol: "memorychip", value: s.memorySummary,
+              detail: L("de %@ · swap %@", "\(s.physical.bytes)", "\(s.swap.bytes)"),
+              series: [ChartSeries(values: s.history.map(\.memory), color: Tint.memory)],
+              ceiling: s.physical.value, fraction: s.memoryFraction,
+              help: L(
+                "Ativa + wired + compressor (%@). Pressão de memória: %@.", s.compressed.bytes,
+                s.pressureLabel.lowercased()))
+            ResourceCard(
+              title: L("Disco"), symbol: "internaldrive", value: s.diskRate,
+              detail: "↓ \(s.disk_read.rate)  ↑ \(s.disk_write.rate)",
+              series: [
+                ChartSeries(values: s.history.map(\.disk_read), color: Tint.diskRead),
+                ChartSeries(values: s.history.map(\.disk_write), color: Tint.diskWrite),
+              ], legend: [("leitura", Tint.diskRead), ("escrita", Tint.diskWrite)],
+              help: s.disk_read.explanation)
+            ResourceCard(
+              title: L("Rede"), symbol: "arrow.up.arrow.down",
+              value: formatRate((s.net_in.value ?? 0) + (s.net_out.value ?? 0)),
+              detail: "↓ \(s.net_in.rate)  ↑ \(s.net_out.rate)",
+              series: [
+                ChartSeries(values: s.history.map(\.net_in), color: Tint.netIn),
+                ChartSeries(values: s.history.map(\.net_out), color: Tint.netOut),
+              ], legend: [("entrada", Tint.netIn), ("saída", Tint.netOut)],
+              help: s.net_in.explanation)
+          }
+          LazyVGrid(
+            columns: Array(repeating: GridItem(.flexible(), spacing: 12, alignment: .top), count: 2),
+            alignment: .leading, spacing: 12
+          ) {
+            ServersCard(groups: s.serverGroups)
+            OrphansCard(orphans: s.orphans)
+          }
+          if Preferences.shared.limitsInOverview { LimitsCard() }
+          AgentSessionsCard(snapshot: s)
+          LazyVGrid(
+            columns: Array(repeating: GridItem(.flexible(), spacing: 12, alignment: .top), count: 2),
+            alignment: .leading, spacing: 12
+          ) {
+            TopCard(
+              title: "Maior CPU", symbol: "flame", tint: Tint.cpu,
+              items: Array(s.processes.prefix(6)), value: { $0.cpu.percent })
+            TopCard(
+              title: "Maior memória", symbol: "memorychip", tint: Tint.memory,
+              items: Array(s.processes.sorted { $0.memoryValue > $1.memoryValue }.prefix(6)),
+              value: { $0.memory.bytes })
+          }
+        }.padding(20)
+      } else {
+        ProgressView(L("Lendo métricas do macOS…")).frame(maxWidth: .infinity, minHeight: 320)
+      }
+    }
+  }
+}
+
+private struct AlertStrip: View {
+  let alerts: [Diagnostic]
+  @ViewState private var open = false
+  var body: some View {
+    VStack(alignment: .leading, spacing: 6) {
+      ForEach(alerts) { d in
+        HStack(alignment: .top, spacing: 10) {
+          Image(systemName: d.symbol).foregroundStyle(d.color)
+          VStack(alignment: .leading, spacing: 3) {
+            Text(d.localizedTitle).font(.callout.weight(.semibold))
+            if open { Text(d.localizedDetail).font(.caption).foregroundStyle(.secondary) }
+          }
+          Spacer()
+        }
+      }
+    }
+    .padding(12)
+    .background(alerts.first!.color.opacity(0.1), in: RoundedRectangle(cornerRadius: 10))
+    .overlay(alignment: .topTrailing) {
+      Button(open ? L("Menos") : L("Detalhes")) { open.toggle() }.buttonStyle(.link).font(.caption)
+        .padding(12)
+    }
+  }
+}
+
+/// Compact process line used by overview cards and the menu bar popover.
+struct ProcessLine<Trailing: View>: View {
+  let process: ProcessItem
+  var subtitle: String? = nil
+  @ViewBuilder var trailing: Trailing
+  var body: some View {
+    HStack(spacing: 8) {
+      ProcessIcon(process: process, size: 18)
+      VStack(alignment: .leading, spacing: 1) {
+        HStack(spacing: 4) {
+          Text(process.name).lineLimit(1)
+          Text(String(process.pid)).font(.caption2).foregroundStyle(.tertiary).monospacedDigit()
+        }
+        if let subtitle, !subtitle.isEmpty {
+          Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+        }
+      }
+      Spacer(minLength: 6)
+      trailing
+    }
+    .font(.callout)
+    .contentShape(Rectangle())
+    .help(process.path)
+  }
+}
+func devSubtitle(_ p: ProcessItem) -> String {
+  [p.project, p.origin.map { "via \($0.label)" }, formatDuration(p.uptime)]
+    .compactMap { $0 }.joined(separator: " · ")
+}
+
+private struct ServersCard: View {
+  let groups: [(ProcessItem, Int)]
+  var body: some View {
+    Card {
+      CardHeader(title: L("Servidores em escuta"), symbol: "network", tint: Tint.netIn, count: groups.count) {
+        Button(L("Ver todos")) { navigate(.processes) }.buttonStyle(.link).font(.caption)
+      }
+      if groups.isEmpty {
+        EmptyNote(text: L("Nenhuma porta TCP aberta por processos seus."))
+      }
+      ForEach(groups.prefix(7), id: \.0.id) { p, instances in
+        ProcessLine(process: p, subtitle: devSubtitle(p)) {
+          HStack(spacing: 3) {
+            if instances > 1 {
+              Text(L("×%@", "\(instances)")).font(.caption2).foregroundStyle(.secondary)
+                .help(L("%@ processos compartilham estas portas", "\(instances)"))
+            }
+            ForEach(p.ports.prefix(2), id: \.port) { port in
+              Badge(text: ":\(port.port)", color: port.exposed ? .orange : Tint.netIn)
+                .help(port.exposed ? L("Acessível na rede") : L("Somente local"))
+            }
+            if let port = p.ports.first?.port { OpenPortButton(port: port) }
+            KillButton(process: p)
+          }
+        }
+      }
+      if groups.count > 7 {
+        Text(L("+ %@ servidores", "\(groups.count - 7)")).font(.caption).foregroundStyle(.secondary)
+      }
+    }
+  }
+}
+
+private struct OrphansCard: View {
+  let orphans: [ProcessItem]
+  @ObservedObject var monitor = Monitor.shared
+  var body: some View {
+    Card {
+      CardHeader(
+        title: L("Possíveis órfãos"), symbol: "exclamationmark.triangle", tint: .orange,
+        count: orphans.count
+      ) {
+        if orphans.count > 1 {
+          Button(L("Encerrar todos…")) { monitor.requestKill(orphans) }.buttonStyle(.link).font(.caption)
+        }
+      }
+      if orphans.isEmpty {
+        EmptyNote(text: L("Nenhum runtime de desenvolvimento rodando sem pai."))
+      }
+      ForEach(orphans.prefix(7)) { p in
+        ProcessLine(
+          process: p,
+          subtitle: [p.project, p.ports.isEmpty ? nil : p.portsLabel, formatDuration(p.uptime), p.memory.bytes]
+            .compactMap { $0 }.joined(separator: " · ")
+        ) {
+          KillButton(process: p)
+        }.help(L(p.orphan ?? ""))
+      }
+    }
+  }
+}
+
+private struct AgentSession: Identifiable {
+  let root: ProcessItem
+  let tree: [ProcessItem]
+  var id: String { root.id }
+  var cpu: Double { tree.compactMap(\.cpu.value).reduce(0, +) }
+  var memory: Double { tree.compactMap(\.memory.value).reduce(0, +) }
+  var ports: [String] { tree.flatMap(\.ports).map { ":\($0.port)" } }
+}
+private struct AgentSessionsCard: View {
+  let snapshot: Snapshot
+  private var sessions: [AgentSession] {
+    snapshot.agentSessions
+      .map { AgentSession(root: $0, tree: snapshot.subtree(of: $0)) }
+      .sorted { $0.memory > $1.memory }
+  }
+  var body: some View {
+    let sessions = self.sessions
+    Card {
+      CardHeader(title: L("Sessões de agentes"), symbol: "sparkles", tint: .orange, count: sessions.count) {
+        Button(L("Ver agentes")) { navigate(.agents) }.buttonStyle(.link).font(.caption)
+      }
+      if sessions.isEmpty {
+        EmptyNote(text: L("Nenhuma sessão de Claude Code, Codex ou outro agente em execução (desktop ou terminal)."))
+      } else {
+        Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 8) {
+          GridRow {
+            Text(L("Agente"))
+            Text(L("Onde"))
+            Text(L("Projeto"))
+            Text(L("Processos"))
+            Text(L("Portas"))
+            Text(L("CPU"))
+            Text(L("Memória"))
+            Text("")
+          }.font(.caption).foregroundStyle(.secondary)
+          ForEach(sessions.prefix(10)) { session in SessionRow(session: session) }
+        }
+      }
+    }
+  }
+}
+private struct SessionRow: View {
+  let session: AgentSession
+  @ObservedObject var monitor = Monitor.shared
+  var body: some View {
+    let root = session.root
+    let ports = session.ports
+    GridRow {
+      HStack(spacing: 6) {
+        ProcessIcon(process: root, size: 16)
+        Text(root.host ?? root.name)
+        Text(String(root.pid)).font(.caption2).foregroundStyle(.tertiary).monospacedDigit()
+      }
+      Badge(text: root.sessionSource, color: root.sessionSource == "Desktop" ? .orange : .secondary)
+        .help(root.origin.map { L("Iniciado via %@ · PID %@", "\($0.label)", "\($0.pid)") } ?? L("Sem app de origem"))
+      Text(root.project ?? "—").lineLimit(1).help(root.shortCwd)
+      Text("\(session.tree.count)").monospacedDigit()
+      Text(ports.isEmpty ? "—" : ports.prefix(3).joined(separator: " ")).font(.caption)
+        .foregroundStyle(ports.isEmpty ? Color.secondary : Tint.netIn).lineLimit(1)
+      Text(String(format: L("%.1f%%"), session.cpu)).monospacedDigit()
+      Text(formatBytes(session.memory)).monospacedDigit()
+      Button(L("Encerrar…")) { monitor.requestKill([root], tree: true) }
+        .buttonStyle(PillButtonStyle(tint: Tint.danger)).disabled(!root.eligible)
+        .help(L("Encerra o agente e todos os processos que ele iniciou"))
+    }.font(.callout)
+  }
+}
+
+private struct TopCard: View {
+  let title: String
+  let symbol: String
+  let tint: Color
+  let items: [ProcessItem]
+  let value: (ProcessItem) -> String
+  var body: some View {
+    Card {
+      CardHeader(title: L(title), symbol: symbol, tint: tint)
+      ForEach(items) { p in
+        ProcessLine(process: p, subtitle: p.project ?? p.origin.map { L("via %@", "\($0.label)") }) {
+          Text(value(p)).monospacedDigit().foregroundStyle(.secondary)
+          KillButton(process: p)
+        }
+      }
+    }
+  }
+}
+
+struct EmptyNote: View {
+  let text: String
+  var body: some View {
+    Text(text).font(.callout).foregroundStyle(.secondary).padding(.vertical, 6)
+  }
+}
+func navigate(_ page: Page) {
+  NotificationCenter.default.post(name: Notification.Name("CoreScope.navigate"), object: page)
+}

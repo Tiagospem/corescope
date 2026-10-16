@@ -110,3 +110,52 @@ int os_nvme_temperature(uint64_t driver_id,uint32_t *kelvin){
  (*smart)->Release(smart);IODestroyPlugInInterface(plugin);
  return result==kIOReturnSuccess?0:smart_status(result);
 }
+
+#include <stdlib.h>
+#include <net/if.h>
+#include <net/route.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+static int exposed_address(const struct in_sockinfo *s){
+ if(s->insi_vflag&INI_IPV4){uint32_t a=ntohl(s->insi_laddr.ina_46.i46a_addr4.s_addr);return (a>>24)!=127;}
+ const struct in6_addr *a=&s->insi_laddr.ina_6;
+ if(IN6_IS_ADDR_LOOPBACK(a))return 0;
+ if(IN6_IS_ADDR_V4MAPPED(a))return a->s6_addr[12]!=127;
+ return 1;
+}
+int os_ports(int32_t pid,CSPort *out,int cap){
+ int size=proc_pidinfo(pid,PROC_PIDLISTFDS,0,NULL,0);if(size<=0)return -1;
+ size+=32*PROC_PIDLISTFD_SIZE; // descriptors may be opened between both calls
+ struct proc_fdinfo *fds=malloc((size_t)size);if(!fds)return -1;
+ size=proc_pidinfo(pid,PROC_PIDLISTFDS,0,fds,size);if(size<=0){free(fds);return -1;}
+ int n=0,count=size/(int)PROC_PIDLISTFD_SIZE;
+ for(int i=0;i<count&&n<cap;i++){
+  if(fds[i].proc_fdtype!=PROX_FDTYPE_SOCKET)continue;
+  struct socket_fdinfo si;
+  if(proc_pidfdinfo(pid,fds[i].proc_fd,PROC_PIDFDSOCKETINFO,&si,sizeof(si))!=sizeof(si))continue;
+  if(si.psi.soi_kind!=SOCKINFO_TCP||si.psi.soi_proto.pri_tcp.tcpsi_state!=TSI_S_LISTEN)continue;
+  const struct in_sockinfo *in=&si.psi.soi_proto.pri_tcp.tcpsi_ini;
+  uint16_t port=ntohs((uint16_t)in->insi_lport);int exposed=exposed_address(in),dup=0;
+  for(int j=0;j<n;j++)if(out[j].port==port){out[j].exposed|=exposed;dup=1;break;}
+  if(!dup&&port){out[n].port=port;out[n].exposed=(uint8_t)exposed;n++;}
+ }
+ free(fds);return n;
+}
+int os_cwd(int32_t pid,char *out,int cap){
+ struct proc_vnodepathinfo v;out[0]=0;
+ if(proc_pidinfo(pid,PROC_PIDVNODEPATHINFO,0,&v,sizeof(v))!=sizeof(v))return -1;
+ strlcpy(out,v.pvi_cdir.vip_path,(size_t)cap);return 0;
+}
+int os_network(uint64_t *in_bytes,uint64_t *out_bytes){
+ *in_bytes=0;*out_bytes=0;int mib[6]={CTL_NET,PF_ROUTE,0,0,NET_RT_IFLIST2,0};size_t len=0;
+ if(sysctl(mib,6,NULL,&len,NULL,0)<0)return -1;
+ char *buf=malloc(len);if(!buf)return -1;
+ if(sysctl(mib,6,buf,&len,NULL,0)<0){free(buf);return -1;}
+ for(char *p=buf;p<buf+len;){
+  struct if_msghdr *h=(struct if_msghdr*)p;if(h->ifm_msglen==0)break;
+  if(h->ifm_type==RTM_IFINFO2){struct if_msghdr2 *h2=(struct if_msghdr2*)p;
+   if(!(h2->ifm_flags&IFF_LOOPBACK)){*in_bytes+=h2->ifm_data.ifi_ibytes;*out_bytes+=h2->ifm_data.ifi_obytes;}}
+  p+=h->ifm_msglen;
+ }
+ free(buf);return 0;
+}
