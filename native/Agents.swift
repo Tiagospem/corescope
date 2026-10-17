@@ -205,24 +205,15 @@ final class TokenUsageStore: ObservableObject {
         }
       }
     }
-    // Codex files live under the day the conversation started; already known files are
-    // re-checked wherever they are, so long conversations keep counting.
+    // Resumed Codex conversations can remain under arbitrarily old start dates.
     let root = Self.home.appendingPathComponent(".codex/sessions")
-    let calendar = Calendar(identifier: .gregorian)
-    var seen = Set(out.map(\.url.path))
-    for back in 0...7 {
-      guard let day = calendar.date(byAdding: .day, value: -back, to: Date()) else { continue }
-      let c = calendar.dateComponents([.year, .month, .day], from: day)
-      let dir = root.appendingPathComponent(
-        String(format: "%04d/%02d/%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0))
-      for file in Self.list(dir) where file.pathExtension == "jsonl" {
-        guard let s = Self.stat(file), s.modified >= since, seen.insert(file.path).inserted else { continue }
+    if let enumerator = FileManager.default.enumerator(
+      at: root, includingPropertiesForKeys: Self.keys, options: [.skipsHiddenFiles])
+    {
+      for case let file as URL in enumerator where file.pathExtension == "jsonl" {
+        guard let s = Self.stat(file), s.modified >= since else { continue }
         out.append((file, .codex, s.size, s.modified))
       }
-    }
-    for (path, entry) in files where entry.tally.kind == .codex && !seen.contains(path) {
-      let url = URL(fileURLWithPath: path)
-      if let s = Self.stat(url), s.modified >= since { out.append((url, .codex, s.size, s.modified)) }
     }
     return out
   }
