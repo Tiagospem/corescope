@@ -352,6 +352,8 @@ struct ContainerPorts: View {
           .help(
             L("Porta %@ do contêiner", "\(p.container)") + " · "
               + (p.exposed ? L("Acessível na rede") : L("Somente local")))
+          .accessibilityLabel(L("Porta %@", "\(p.host)"))
+          .accessibilityValue(p.exposed ? L("Acessível na rede") : L("Somente local"))
       }
       if ports.count > 3 { Text("+\(ports.count - 3)").font(.caption2).foregroundStyle(.secondary) }
       if let port = ports.first?.host { OpenPortButton(port: port) }
@@ -478,10 +480,7 @@ struct ContainerServerLine: View {
       }
       Spacer(minLength: 6)
       HStack(spacing: 3) {
-        ForEach(ports.prefix(maxPorts), id: \.port) { port in
-          Badge(text: ":\(port.port)", color: port.exposed ? .orange : Tint.netIn)
-            .help(port.exposed ? L("Acessível na rede") : L("Somente local"))
-        }
+        ForEach(ports.prefix(maxPorts), id: \.port) { port in PortBadge(port: port) }
         if let port = ports.first?.port { OpenPortButton(port: port) }
         ContainerActionButton(container: container, action: "stop")
       }

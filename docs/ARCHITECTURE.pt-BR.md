@@ -1,0 +1,33 @@
+# ADR 001 — núcleo local e interface nativa
+
+*English: [ARCHITECTURE.md](ARCHITECTURE.md)*
+
+Decisão registrada antes da implementação, em 16/10/2026.
+
+Ambiente observado: macOS 27.0.1 (26A434), arm64, Swift 6.4, Rust 1.98.1 e Command Line Tools. Sem projeto preexistente. Deployment target: macOS 14, pela disponibilidade das APIs de UI usadas; compatibilidade em 14 ainda exige teste em outra máquina. Build de desenvolvimento para a arquitetura local, assinatura ad hoc.
+
+Rust coleta e interpreta dados, mantém buffers limitados, calcula taxas por relógio monotônico, aplica histerese e revalida cada ação de processo. Um adaptador C pequeno usa os headers do SDK para as estruturas Mach/libproc/IOKit; não contém diagnósticos nem armazenamento. Isso evita copiar layouts de ABI do kernel para Rust, inclusive estruturas VM que mudaram no SDK 27.
+
+SwiftUI apresenta janela e MenuBarExtra; AppKit fornece NSPanel não ativador. Um único serviço Swift serial em background chama Rust, entrega snapshots imutáveis e recebe eventos públicos de pressão, repouso e estado térmico. Não há servidor, navegador, banco de dados, telemetria ou coleta de argumentos/env.
+
+FFI: JSON UTF-8 em ponteiro alocado por Rust, copiado por Swift e liberado exatamente uma vez por `cs_free`. Entradas permanecem emprestadas durante a chamada. Mutex serializa estado; catch_unwind impede panic atravessando C. Ponteiros inválidos continuam proibidos pelo contrato. Sinais retornam resultado explícito; identidade inclui PID, início em microssegundos, UID e executável. macOS não oferece sinalização atômica por PID + início: uma janela residual de corrida é documentada.
+
+Cadências: 3 s padrão, 10 s em economia/sem superfícies de detalhe, inventário de volumes 30 s, I/O físico 6 s; pausa no repouso e reinício dos deltas no retorno. Limites: 120 amostras e 10 minutos; até 12 processos acompanhados. Sensores Celsius sem API pública confiável são marcados não suportados. Eventos de pressão ficam desconhecidos até o primeiro evento, sem confundir ocupação de RAM com pressão.
+
+## ADR 002 — temperatura NVMe via interface pública
+
+A investigação solicitada do Disk Drill identificou Smartmontools; o SDK instalado contém `IOKit/storage/nvme/NVMeSMARTLibExternal.h`. Por isso a primeira versão passou a consultar **diretamente** `IONVMeSMARTInterface.SMARTReadData`, sem executar ou incorporar o Disk Drill/smartctl. A associação parte do ID do driver físico e sobe apenas seus ancestrais até `NVMe SMART Capable`.
+
+Leitura de 512 bytes, somente leitura, a cada 30 s, na fila serial; interfaces COM/IOKit e portas são liberadas. Não há ativação de SMART, autoteste, escrita, root ou helper. Rust valida a faixa, converte Kelvin para Celsius e preserva origem, horário e estados separado para falta de suporte, permissão e falha temporária. O campo NVMe tem resolução de 1 K; casas decimais são conversão de unidade, não precisão adicional. A temperatura é composta do controlador, sem atribuí-la ao gabinete/adaptador.
+
+Validação ao vivo neste hardware: APPLE SSD AP0256Z e KINGSTON SNV3S1000G retornaram dados sem elevação. Isso não estabelece suporte a todos os discos SATA/USB/Thunderbolt. Para ATA/SATA ou bridges sem interface pública compatível, a ausência de suporte continua explícita. Veja DISKDRILL-TEMPERATURE.pt-BR.md para a investigação estática, distinta desta execução.
+
+## ADR 003 — contêineres pela API local do Docker Engine
+
+Decisão de 16/10/2026. OrbStack (e Docker Desktop/Colima) mantém as portas publicadas num processo auxiliar da VM, então a lista de servidores mostrava só “OrbStack Helper”. A fonte pública e estável é a API do Docker Engine no socket Unix local: `GET /containers/json?all=1`, `GET /containers/{id}/stats?stream=false&one-shot=true` e `POST /containers/{id}/stop|restart?t=10`. Não executamos o CLI `docker`, não usamos TCP (um `DOCKER_HOST` que não seja `unix://` é ignorado) e não lemos credenciais.
+
+`core/src/containers.rs` fala HTTP/1.1 mínimo sobre `UnixStream` (respostas limitadas a 8 MiB, timeouts de 3 s; ações até 40 s), com trava própria para não atrasar a amostra de processos. Sockets candidatos são deduplicados pelo destino real (`/var/run/docker.sock` costuma apontar para o do OrbStack). `one-shot=true` responde em ~70 ms, contra ~1 s de `stream=false`, que espera uma segunda leitura; por isso a CPU é calculada pelo delta entre duas leituras nossas (`Δtotal_usage / Δsystem_cpu_usage × online_cpus`, % de um núcleo como nos processos) e fica indisponível na primeira. Memória = `usage − inactive_file`, igual ao `docker stats`. Stats rodam em até 4 threads; cada motor lista no máximo 64 contêineres, com os em execução antes dos parados ao aplicar o limite. Parar/reiniciar localiza o contêiner pela lista filtrada por id (`/containers/json?filters=…`), nunca por `/containers/{id}/json`, cuja resposta inclui `Config.Env` (pode conter segredos), e exige uma única correspondência entre todos os motores.
+
+Na interface, `ContainerStore` usa fila própria e só lê enquanto uma vista registrada está na tela e a janela que a contém está visível (não minimizada nem coberta; popover aberto), nunca durante repouso ou pausa: a cada 5 s (10 s em economia de energia). Stats só são lidos quando uma vista visível os pede; vistas de servidores pedem só a lista, e apenas quando algum processo de VM de contêiner está escutando. Uma porta publicada por mais de um contêiner (outro endereço ou outro motor) continua na linha do processo auxiliar. Ações reaproveitam o padrão armar → confirmar (`ArmedButton`) e o toast de resultado.
+
+Seção completa na página Agentes, não em Processos: a tabela de processos tem colunas e ações de PID/sinal que não se aplicam a contêineres dentro de uma VM, enquanto Agentes já reúne o trabalho de desenvolvimento em andamento (sessões, órfãos) — bancos e serviços de compose iniciados para essas sessões ficam ao lado delas.

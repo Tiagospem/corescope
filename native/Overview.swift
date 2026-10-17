@@ -17,7 +17,7 @@ struct ResourceCard: View {
     Card {
       HStack(spacing: 6) {
         Image(systemName: symbol).font(.system(size: 11, weight: .semibold))
-          .foregroundStyle(series.first?.color ?? .secondary)
+          .foregroundStyle(series.first?.color ?? .secondary).accessibilityHidden(true)
         Text(title).font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
         Spacer()
         ForEach(legend, id: \.0) { item in
@@ -38,9 +38,10 @@ struct ResourceCard: View {
       } else {
         Color.clear.frame(height: 4)
       }
-      AreaChart(series: series, ceiling: ceiling).frame(height: 54)
+      AreaChart(series: series, ceiling: ceiling, title: title).frame(height: 54)
       Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(1)
     }.help(help)
+    .accessibilityElement(children: .combine)
   }
 }
 
@@ -60,12 +61,12 @@ struct OverviewView: View {
               title: L("CPU"), symbol: "cpu",
               value: s.cpu.value.map { String(format: "%.0f", $0) } ?? "—", unit: "%",
               detail: L("%@ núcleos · térmico %@", "\(s.cores)", "\(s.thermalLabel.lowercased())"),
-              series: [ChartSeries(values: s.history.map(\.cpu), color: Tint.cpu)], ceiling: 100,
+              series: [.cpu(s.history.map(\.cpu))], ceiling: 100,
               help: s.cpu.explanation)
             ResourceCard(
               title: L("Memória"), symbol: "memorychip", value: s.memorySummary,
               detail: L("de %@ · swap %@", "\(s.physical.bytes)", "\(s.swap.bytes)"),
-              series: [ChartSeries(values: s.history.map(\.memory), color: Tint.memory)],
+              series: [.memory(s.history.map(\.memory))],
               ceiling: s.physical.value, fraction: s.memoryFraction,
               help: L(
                 "Ativa + wired + compressor (%@). Pressão de memória: %@.", s.compressed.bytes,
@@ -74,8 +75,8 @@ struct OverviewView: View {
               title: L("Disco"), symbol: "internaldrive", value: s.diskRate,
               detail: "↓ \(s.disk_read.rate)  ↑ \(s.disk_write.rate)",
               series: [
-                ChartSeries(values: s.history.map(\.disk_read), color: Tint.diskRead),
-                ChartSeries(values: s.history.map(\.disk_write), color: Tint.diskWrite),
+                .diskRead(s.history.map(\.disk_read)),
+                .diskWrite(s.history.map(\.disk_write)),
               ], legend: [("leitura", Tint.diskRead), ("escrita", Tint.diskWrite)],
               help: s.disk_read.explanation)
             ResourceCard(
@@ -83,8 +84,8 @@ struct OverviewView: View {
               value: formatRate((s.net_in.value ?? 0) + (s.net_out.value ?? 0)),
               detail: "↓ \(s.net_in.rate)  ↑ \(s.net_out.rate)",
               series: [
-                ChartSeries(values: s.history.map(\.net_in), color: Tint.netIn),
-                ChartSeries(values: s.history.map(\.net_out), color: Tint.netOut),
+                .netIn(s.history.map(\.net_in)),
+                .netOut(s.history.map(\.net_out)),
               ], legend: [("entrada", Tint.netIn), ("saída", Tint.netOut)],
               help: s.net_in.explanation)
           }
@@ -196,10 +197,7 @@ private struct ServersCard: View {
                 Text(L("×%@", "\(instances)")).font(.caption2).foregroundStyle(.secondary)
                   .help(L("%@ processos compartilham estas portas", "\(instances)"))
               }
-              ForEach(ports.prefix(2), id: \.port) { port in
-                Badge(text: ":\(port.port)", color: port.exposed ? .orange : Tint.netIn)
-                  .help(port.exposed ? L("Acessível na rede") : L("Somente local"))
-              }
+              ForEach(ports.prefix(2), id: \.port) { port in PortBadge(port: port) }
               if let port = ports.first?.port { OpenPortButton(port: port) }
               KillButton(process: p)
             }

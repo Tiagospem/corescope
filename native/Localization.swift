@@ -333,7 +333,6 @@ private let entries = """
   Última passagem do coletor ¦ Last collector pass ¦ Última pasada del recolector
   órfão ¦ orphan ¦ huérfano
   ↓ %@  ↑ %@ · soma dos dispositivos físicos ¦ ↓ %@  ↑ %@ · sum of physical devices ¦ ↓ %@  ↑ %@ · suma de los dispositivos físicos
-  Histórico de %@ amostras; último valor %@ ¦ History of %@ samples; last value %@ ¦ Historial de %@ muestras; último valor %@
   indisponível ¦ unavailable ¦ no disponible
   não suportados ¦ not supported ¦ no compatibles
   temporariamente indisponíveis ¦ temporarily unavailable ¦ temporalmente no disponibles
@@ -446,4 +445,27 @@ private let entries = """
   Serviço %@ ¦ Service %@ ¦ Servicio %@
   Saudável ¦ Healthy ¦ Saludable
   contêiner %@ ¦ container %@ ¦ contenedor %@
+  Histórico de %@ ¦ %@ history ¦ Historial de %@
+  último %@, pico %@ ¦ latest %@, peak %@ ¦ último %@, pico %@
+  Uso ¦ Usage ¦ Uso
+  Porta %@ ¦ Port %@ ¦ Puerto %@
+  %@ não pode ser encerrado ¦ %@ cannot be terminated ¦ %@ no se puede finalizar
+  Confirmar: encerrar %@ ¦ Confirm: terminate %@ ¦ Confirmar: finalizar %@
+  Confirmar: forçar %@ ¦ Confirm: force quit %@ ¦ Confirmar: forzar %@
+  Encerrar sessão %@ ¦ Terminate session %@ ¦ Finalizar sesión %@
+  Forçar encerramento de %@ ¦ Force quit %@ ¦ Forzar la finalización de %@
+  Abrir localhost:%@ no navegador ¦ Open localhost:%@ in the browser ¦ Abrir localhost:%@ en el navegador
+  Dispensar ¦ Dismiss ¦ Descartar
+  Ativado ¦ On ¦ Activado
+  Desativado ¦ Off ¦ Desactivado
+  Opções do painel ¦ Panel options ¦ Opciones del panel
+  Limpar busca ¦ Clear search ¦ Borrar búsqueda
+  Mostrar detalhes ¦ Show details ¦ Mostrar detalles
+  Ocultar detalhes ¦ Hide details ¦ Ocultar detalles
+  Expandir %@ ¦ Expand %@ ¦ Expandir %@
+  Recolher %@ ¦ Collapse %@ ¦ Contraer %@
+  Acompanhado ¦ Watched ¦ Seguido
+  Total com descendentes: %@ ¦ Total with descendants: %@ ¦ Total con descendientes: %@
+  Expandido ¦ Expanded ¦ Expandido
+  Recolhido ¦ Collapsed ¦ Contraído
   """

@@ -94,6 +94,7 @@ struct SessionJumpButton: View {
         } label: {
           Image(systemName: "arrow.up.forward.app")
         }.buttonStyle(HoverButtonStyle(tint: .accentColor, size: 24)).help(jump.help)
+          .accessibilityLabel(jump.label)
       } else {
         Button {
           jump.open()
@@ -264,12 +265,13 @@ struct LimitBar: View {
           .font(.system(size: compact ? 11 : 13, weight: .semibold, design: .rounded)).monospacedDigit()
           .foregroundStyle(window.color)
       }
-      MeterBar(fraction: window.usedPercent / 100, color: window.color)
+      MeterBar(fraction: window.usedPercent / 100, color: window.color).accessibilityHidden(true)
       if !compact, let reset = window.resetText {
         Text(reset).font(.caption).foregroundStyle(.secondary)
       }
     }
     .help(window.resetText ?? "")
+    .accessibilityElement(children: .combine)
   }
 }
 
@@ -410,7 +412,7 @@ private struct SessionCard: View {
         HStack(spacing: 4) {
           Text(L("Portas")).font(.caption).foregroundStyle(.secondary)
           ForEach(ports.prefix(8), id: \.port) { port in
-            Badge(text: ":\(port.port)", color: port.exposed ? .orange : Tint.netIn)
+            PortBadge(port: port)
           }
         }
       }
@@ -422,10 +424,11 @@ private struct SessionCard: View {
           } label: {
             HStack(spacing: 5) {
               Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold))
-                .rotationEffect(.degrees(expanded ? 90 : 0))
+                .rotationEffect(.degrees(expanded ? 90 : 0)).accessibilityHidden(true)
               Text(L("%@ processos iniciados pela sessão", String(children.count)))
             }.contentShape(Rectangle())
           }.buttonStyle(.plain).font(.callout).foregroundStyle(.secondary)
+            .accessibilityValue(expanded ? L("Expandido") : L("Recolhido"))
         }
         Spacer(minLength: 8)
         SessionJumpButton(root: root, meta: meta)
@@ -461,6 +464,6 @@ private struct SessionCard: View {
     VStack(alignment: .trailing, spacing: 1) {
       Text(title).font(.caption2).foregroundStyle(.secondary)
       Text(value).font(.system(.callout, design: .rounded).weight(.medium)).monospacedDigit()
-    }.frame(minWidth: 64, alignment: .trailing)
+    }.frame(minWidth: 64, alignment: .trailing).accessibilityElement(children: .combine)
   }
 }
