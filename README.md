@@ -73,7 +73,7 @@ Watch the things your work depends on: a local API's `/health`, a database port,
 
 ### ▶️ Profiles
 
-One click to bring a project's environment up or down. A profile is a folder, the commands you run there every day (`npm run dev`, `php artisan serve`, `cargo watch -x run`…) and the containers it needs. *Start* runs each command in your login shell inside the folder, with output in `~/Library/Application Support/CoreScope/logs`, and starts the containers; the card shows what is running, PIDs and ports. *Stop* (after confirmation) sends SIGTERM only to the process trees CoreScope started for that profile — identity-checked like every other termination — and stops its containers.
+One click to bring a project's environment up or down. A profile is a folder, the commands you run there every day (`npm run dev`, `php artisan serve`, `cargo watch -x run`…) and the containers it needs. *Start* runs each command in your login shell inside the folder, with output in `~/Library/Application Support/CoreScope/logs`, and starts the containers; the card shows what is running, PIDs and ports. *Stop* (after confirmation) sends SIGTERM only to the process trees CoreScope started for that profile — identity-checked like every other termination — and stops its containers — only the ones a profile started, and never one another started profile still uses: shared containers (one database for several projects) stay up until the last profile using them stops, and the confirmation lists what stops and what stays. *Stop everything* is there when you want it all down.
 
 ### 🕒 History (opt-in)
 
@@ -100,7 +100,7 @@ Finds reclaimable developer space and shows what each item is, where it is, its 
 - **Package caches:** Homebrew, npm, Yarn, pnpm, Bun, Cargo, pip, uv, Go, Gradle, Composer, CocoaPods.
 - **Docker:** dangling images, images no container uses, unused build cache (through the engine's own API).
 
-Select items (or *Unused 30+ days*) and confirm: folders go to the **Trash**, so they can be recovered until you empty it. Anything a process is using — a dev server in the project, `cargo`, Xcode, an agent working there — is locked, and every folder is re-checked by the core right before it moves: still a real folder (no symlinks), still one of the kinds above, still unused. Docker data is removed by Docker and pulled again when needed.
+Nothing is scanned until you press *Scan*: the last result is kept in `~/Library/Application Support/CoreScope/cleanup-cache.json` (paths, sizes and dates) and the page says when it may be out of date (older than 6 hours, or the folder list changed). Select items (or *Unused 30+ days*) and confirm: folders go to the **Trash**, so they can be recovered until you empty it. Anything a process is using — a dev server in the project, `cargo`, Xcode, an agent working there — is locked, and every folder is re-checked by the core right before it moves: still a real folder (no symlinks), still one of the kinds above, still unused. Docker data is removed by Docker and pulled again when needed.
 
 ### 📊 Menu bar and floating panel
 

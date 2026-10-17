@@ -35,6 +35,14 @@ final class ProfileStore: ObservableObject {
     didSet { persist(launched, "envLaunched") }
   }
   @Published private(set) var busy = Set<UUID>()
+  /// Profiles started and not stopped yet: their containers stay up for them.
+  @Published private(set) var active: Set<UUID> {
+    didSet { persist(active, "envActive") }
+  }
+  /// Containers a profile started (they were stopped before); only these are stopped by profiles.
+  @Published private(set) var startedContainers: Set<String> {
+    didSet { persist(startedContainers, "envStartedContainers") }
+  }
   private let queue = DispatchQueue(label: "app.corescope.profiles", qos: .userInitiated)
   static let logs = FileManager.default.homeDirectoryForCurrentUser
     .appendingPathComponent("Library/Application Support/CoreScope/logs")
@@ -44,6 +52,17 @@ final class ProfileStore: ObservableObject {
     launched = (Self.load([UUID: LaunchedCommand].self, "envLaunched") ?? [:]).filter {
       cs_is_same($0.value.pid, $0.value.start) == 1
     }
+    active = Self.load(Set<UUID>.self, "envActive") ?? []
+    startedContainers = Self.load(Set<String>.self, "envStartedContainers") ?? []
+  }
+  /// What Stop would do to this profile's containers right now.
+  func stopPlan(_ profile: EnvProfile, containers: [ContainerItem]) -> ContainerStopPlan {
+    let others = profiles.filter { $0.id != profile.id && active.contains($0.id) }.map {
+      (name: $0.name, containers: $0.containers)
+    }
+    return planContainerStop(
+      profile.containers, running: Set(containers.filter(\.running).map(\.name)),
+      startedByProfiles: startedContainers, otherActive: others)
   }
   private static func load<T: Decodable>(_ type: T.Type, _ key: String) -> T? {
     UserDefaults.standard.data(forKey: key).flatMap { try? JSONDecoder().decode(type, from: $0) }
@@ -83,9 +102,15 @@ final class ProfileStore: ObservableObject {
         case .failure(let e): errors.append("\(command.name): \(e.description)")
         }
       }
-      errors += Self.containers(profile.containers, action: "start")
+      let (containerErrors, startedNow, alreadyUp) = Self.containers(profile.containers, action: "start")
+      errors += containerErrors
       DispatchQueue.main.async {
         self.launched.merge(started) { _, new in new }
+        self.active.insert(profile.id)
+        // Already running and no started profile accounts for it: someone else's, leave it be.
+        let claimed = Set(self.profiles.filter { $0.id != profile.id && self.active.contains($0.id) }.flatMap(\.containers))
+        self.startedContainers.subtract(alreadyUp.filter { !claimed.contains($0) })
+        self.startedContainers.formUnion(startedNow)
         self.busy.remove(profile.id)
         ContainerStore.shared.refreshSoon()
         monitor.refresh()
@@ -96,8 +121,13 @@ final class ProfileStore: ObservableObject {
     }
   }
 
-  /// Runs after the user confirmed: the trees of the commands it started, then its containers.
-  func stop(_ profile: EnvProfile) {
+  /// Runs after the user confirmed: the trees of the commands it started, then the containers
+  /// in `plan.stop` (or every running one of the profile with `everything`).
+  func stop(_ profile: EnvProfile, everything: Bool = false) {
+    let current = ContainerStore.shared.report?.containers ?? []
+    let plan = stopPlan(profile, containers: current)
+    let names = everything ? profile.containers : plan.stop
+    active.remove(profile.id)
     let monitor = Monitor.shared
     if let snapshot = monitor.snapshot {
       let nodes = snapshot.processes.map { (pid: $0.pid, ppid: $0.ppid) }
@@ -109,11 +139,12 @@ final class ProfileStore: ObservableObject {
       if !targets.isEmpty { monitor.signal(targets, force: false) }
     }
     for command in profile.commands { launched[command.id] = nil }
-    guard !profile.containers.isEmpty else { return }
+    guard !names.isEmpty else { return }
     busy.insert(profile.id)
     queue.async {
-      let errors = Self.containers(profile.containers, action: "stop")
+      let (errors, stopped, _) = Self.containers(names, action: "stop")
       DispatchQueue.main.async {
+        self.startedContainers.subtract(stopped)
         self.busy.remove(profile.id)
         ContainerStore.shared.refreshSoon()
         if let first = errors.first { monitor.feedback = ActionFeedback(message: first, failed: true) }
@@ -152,20 +183,26 @@ final class ProfileStore: ObservableObject {
     return .success(LaunchedCommand(pid: pid, start: info.pbi_start_tvsec * 1_000_000 + info.pbi_start_tvusec, log: log.path))
   }
 
-  /// Starts or stops containers by name through the engine; returns errors.
-  private static func containers(_ names: [String], action: String) -> [String] {
-    guard !names.isEmpty else { return [] }
-    guard let pointer = cs_containers(0) else { return [L("O núcleo não retornou dados")] }
+  /// Starts or stops containers by name through the engine: errors, the containers it changed,
+  /// and those already in the wanted state.
+  private static func containers(_ names: [String], action: String) -> ([String], [String], [String]) {
+    guard !names.isEmpty else { return ([], [], []) }
+    guard let pointer = cs_containers(0) else { return ([L("O núcleo não retornou dados")], [], []) }
     defer { cs_free(pointer) }
     let data = Data(bytes: pointer, count: strlen(pointer))
     let all = (try? JSONDecoder().decode(ContainerReport.self, from: data))?.containers ?? []
     var errors: [String] = []
+    var changed: [String] = []
+    var unchanged: [String] = []
     for name in names {
       guard let container = all.first(where: { $0.name == name }) else {
         errors.append(L("Contêiner %@ não encontrado", name))
         continue
       }
-      if container.running == (action == "start") { continue }
+      if container.running == (action == "start") {
+        unchanged.append(name)
+        continue
+      }
       let result = container.id.withCString { id in action.withCString { cs_container_action(id, $0) } }
       guard let result else { continue }
       let text = String(cString: result)
@@ -174,9 +211,11 @@ final class ProfileStore: ObservableObject {
         let error = obj["error"] as? String
       {
         errors.append("\(name): \(CleanupStore.translate(error))")
+      } else {
+        changed.append(name)
       }
     }
-    return errors
+    return (errors, changed, unchanged)
   }
 }
 
@@ -254,7 +293,8 @@ private struct ProfileCard: View {
         }
         Spacer(minLength: 8)
         if store.busy.contains(profile.id) { ProgressView().controlSize(.small) }
-        if up < total {
+        // Also offered when everything is already up: starting claims the shared containers.
+        if up < total || !store.active.contains(profile.id) {
           Button {
             store.start(profile)
           } label: {
@@ -282,10 +322,14 @@ private struct ProfileCard: View {
       ForEach(profile.containers, id: \.self) { name in containerRow(name) }
     }
     .confirmationDialog(L("Parar %@?", profile.name), isPresented: $confirmStop, titleVisibility: .visible) {
+      let plan = store.stopPlan(profile, containers: containers)
       Button(L("Parar"), role: .destructive) { store.stop(profile) }
+      if !plan.shared.isEmpty || !plan.external.isEmpty {
+        Button(L("Parar tudo, inclusive compartilhados"), role: .destructive) { store.stop(profile, everything: true) }
+      }
       Button(L("Cancelar"), role: .cancel) {}
     } message: {
-      Text(L("Envia SIGTERM aos processos que o CoreScope iniciou para este perfil (e aos filhos deles) e para os contêineres do perfil."))
+      Text(stopMessage(store.stopPlan(profile, containers: containers)))
     }
     .confirmationDialog(L("Apagar o perfil %@?", profile.name), isPresented: $confirmDelete, titleVisibility: .visible) {
       Button(L("Apagar"), role: .destructive) { store.profiles.removeAll { $0.id == profile.id } }
@@ -293,6 +337,17 @@ private struct ProfileCard: View {
     } message: {
       Text(L("Só a configuração é apagada; nada que esteja rodando é encerrado."))
     }
+  }
+  private func stopMessage(_ plan: ContainerStopPlan) -> String {
+    var lines = [L("Envia SIGTERM aos processos que o CoreScope iniciou para este perfil (e aos filhos deles).")]
+    if !plan.stop.isEmpty { lines.append(L("Para: %@", plan.stop.joined(separator: ", "))) }
+    for (name, other) in plan.shared.sorted(by: { $0.key < $1.key }) {
+      lines.append(L("Mantém %@: em uso pelo perfil %@", name, other))
+    }
+    if !plan.external.isEmpty {
+      lines.append(L("Mantém %@: já estava rodando quando o perfil foi iniciado", plan.external.joined(separator: ", ")))
+    }
+    return lines.joined(separator: "\n")
   }
   private func commandRow(_ command: ProfileCommand) -> some View {
     let launched = store.running(command)

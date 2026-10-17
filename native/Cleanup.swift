@@ -3,7 +3,7 @@ import SwiftUI
 
 /// Something the core found that can be cleaned: a folder (moved to the Trash) or unused Docker
 /// data (removed by the engine).
-struct DevSpaceItem: Decodable, Identifiable, Equatable {
+struct DevSpaceItem: Codable, Identifiable, Equatable {
   let id: String
   let kind: String
   let group: String
@@ -45,7 +45,7 @@ struct DevSpaceItem: Decodable, Identifiable, Equatable {
     }
   }
 }
-struct DevSpaceReport: Decodable {
+struct DevSpaceReport: Codable {
   var items: [DevSpaceItem]
   let roots: [String]
   let seconds: Double
@@ -71,12 +71,50 @@ final class CleanupStore: ObservableObject {
   @Published var selection = Set<String>()
   private let queue = DispatchQueue(label: "app.corescope.cleanup", qos: .userInitiated)
 
+  /// Folders the user had added when the cached result was produced.
+  @Published private(set) var scannedRoots: [String] = []
   var selected: [DevSpaceItem] { (report?.items ?? []).filter { selection.contains($0.id) && $0.busy == nil } }
+
+  /// The last result is kept on disk (paths, sizes and dates only) so opening the page never
+  /// walks the disk by itself; scanning happens only when the user asks.
+  private struct Cache: Codable {
+    let report: DevSpaceReport
+    let scannedAt: Date
+    let roots: [String]
+  }
+  private static let cacheURL = FileManager.default.homeDirectoryForCurrentUser
+    .appendingPathComponent("Library/Application Support/CoreScope/cleanup-cache.json")
+  private init() {
+    guard let data = try? Data(contentsOf: Self.cacheURL),
+      let cache = try? JSONDecoder().decode(Cache.self, from: data)
+    else { return }
+    report = cache.report
+    scannedAt = cache.scannedAt
+    scannedRoots = cache.roots
+  }
+  private func saveCache() {
+    guard let report, let scannedAt else { return }
+    let cache = Cache(report: report, scannedAt: scannedAt, roots: scannedRoots)
+    queue.async {
+      try? FileManager.default.createDirectory(
+        at: Self.cacheURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+      if let data = try? JSONEncoder().encode(cache) { try? data.write(to: Self.cacheURL, options: .atomic) }
+    }
+  }
+  /// Why the cached result may no longer match the disk, if it may not.
+  func staleness(roots: [String], now: Date = Date()) -> String? {
+    guard let scannedAt else { return nil }
+    if Set(roots) != Set(scannedRoots) { return L("As pastas mudaram desde a última análise.") }
+    guard now.timeIntervalSince(scannedAt) > 6 * 3600 else { return nil }
+    return L("Resultado de %@: pode estar desatualizado. Analise de novo para ver o estado atual.",
+      scannedAt.formatted(.relative(presentation: .named)))
+  }
 
   func scan() {
     guard !scanning, !working else { return }
     scanning = true
-    let request: [String: Any] = ["roots": Preferences.shared.cleanupRoots, "auto": true, "docker": true]
+    let roots = Preferences.shared.cleanupRoots
+    let request: [String: Any] = ["roots": roots, "auto": true, "docker": true]
     queue.async {
       let result: Result<DevSpaceReport, Error> = Result {
         let data = try Self.call(request)
@@ -89,6 +127,8 @@ final class CleanupStore: ObservableObject {
           self.report = report
           self.error = nil
           self.scannedAt = Date()
+          self.scannedRoots = roots
+          self.saveCache()
           let ids = Set(report.items.filter { $0.busy == nil }.map(\.id))
           self.selection.formIntersection(ids)
         case .failure(let error):
@@ -144,6 +184,7 @@ final class CleanupStore: ObservableObject {
         }
         self.selection.subtract(done)
         self.selection.subtract(locked.keys)
+        self.saveCache()
         var parts: [String] = []
         if !done.isEmpty {
           parts.append(
@@ -233,7 +274,6 @@ struct CleanupView: View {
       }.padding(20)
     }
     .safeAreaInset(edge: .bottom) { if !store.selected.isEmpty { actionBar } }
-    .onAppear { if store.report == nil { store.scan() } }
     .confirmationDialog(confirmTitle, isPresented: $confirm, titleVisibility: .visible) {
       Button(L("Limpar"), role: .destructive) { store.clean(store.selected) }
       Button(L("Cancelar"), role: .cancel) {}
@@ -266,6 +306,13 @@ struct CleanupView: View {
         }
       }
       if let error = store.error { Text(error).font(.caption).foregroundStyle(.orange) }
+      if !store.scanning, let stale = store.staleness(roots: prefs.cleanupRoots) {
+        Label(stale, systemImage: "clock.badge.exclamationmark").font(.caption).foregroundStyle(.orange)
+      }
+      if store.report == nil, !store.scanning {
+        Text(L("A análise percorre as pastas de projeto e pode levar alguns segundos; nada é lido até você clicar em Analisar."))
+          .font(.caption).foregroundStyle(.secondary)
+      }
       Divider()
       HStack(alignment: .top, spacing: 8) {
         Text(L("Pastas")).font(.callout.weight(.medium)).frame(width: 60, alignment: .leading)
@@ -362,7 +409,6 @@ struct CleanupView: View {
     panel.prompt = L("Adicionar")
     guard panel.runModal() == .OK else { return }
     for url in panel.urls where !prefs.cleanupRoots.contains(url.path) { prefs.cleanupRoots.append(url.path) }
-    store.scan()
   }
 }
 

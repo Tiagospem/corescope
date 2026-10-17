@@ -769,4 +769,12 @@ private let entries = """
   Um clique para subir (ou derrubar) o ambiente de um projeto: comandos na pasta dele e os contêineres de que ele precisa. ¦ One click to bring a project's environment up (or down): commands in its folder and the containers it needs. ¦ Un clic para levantar (o bajar) el entorno de un proyecto: comandos en su carpeta y los contenedores que necesita.
   não encontrado ¦ not found ¦ no encontrado
   Comando ¦ Command ¦ Comando
+  Parar tudo, inclusive compartilhados ¦ Stop everything, including shared ¦ Detener todo, incluso compartidos
+  Envia SIGTERM aos processos que o CoreScope iniciou para este perfil (e aos filhos deles). ¦ Sends SIGTERM to the processes CoreScope started for this profile (and their children). ¦ Envía SIGTERM a los procesos que CoreScope inició para este perfil (y a sus hijos).
+  Para: %@ ¦ Stops: %@ ¦ Detiene: %@
+  Mantém %@: em uso pelo perfil %@ ¦ Keeps %@: in use by the %@ profile ¦ Mantiene %@: en uso por el perfil %@
+  Mantém %@: já estava rodando quando o perfil foi iniciado ¦ Keeps %@: it was already running when the profile started ¦ Mantiene %@: ya estaba en ejecución cuando se inició el perfil
+  As pastas mudaram desde a última análise. ¦ The folders changed since the last scan. ¦ Las carpetas cambiaron desde el último análisis.
+  Resultado de %@: pode estar desatualizado. Analise de novo para ver o estado atual. ¦ Result from %@: it may be out of date. Scan again to see the current state. ¦ Resultado de %@: puede estar desactualizado. Analiza de nuevo para ver el estado actual.
+  A análise percorre as pastas de projeto e pode levar alguns segundos; nada é lido até você clicar em Analisar. ¦ Scanning walks your project folders and can take a few seconds; nothing is read until you click Scan. ¦ El análisis recorre las carpetas de proyecto y puede tardar unos segundos; no se lee nada hasta que pulses Analizar.
   """

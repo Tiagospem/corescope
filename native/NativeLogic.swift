@@ -620,3 +620,30 @@ enum HealthLevel: Int, Comparable {
   static func < (a: Self, b: Self) -> Bool { a.rawValue < b.rawValue }
   init(httpStatus: Int) { self = httpStatus < 400 ? .up : httpStatus < 500 ? .warn : .down }
 }
+
+/// What stopping one profile does to its containers. A container keeps running while another
+/// started profile still uses it, or when no profile started it (it was already up: the user's or
+/// another tool's). The last profile using a container a profile started stops it.
+struct ContainerStopPlan: Equatable {
+  var stop: [String] = []
+  /// Container → the active profile that still uses it.
+  var shared: [String: String] = [:]
+  /// Running before any profile started it.
+  var external: [String] = []
+}
+func planContainerStop(
+  _ containers: [String], running: Set<String>, startedByProfiles: Set<String>,
+  otherActive: [(name: String, containers: [String])]
+) -> ContainerStopPlan {
+  var plan = ContainerStopPlan()
+  for name in containers where running.contains(name) {
+    if let other = otherActive.first(where: { $0.containers.contains(name) }) {
+      plan.shared[name] = other.name
+    } else if startedByProfiles.contains(name) {
+      plan.stop.append(name)
+    } else {
+      plan.external.append(name)
+    }
+  }
+  return plan
+}

@@ -23,7 +23,8 @@ section as the GitHub release notes.
 - **Cleanup page**: reclaimable `node_modules`, Rust `target/`, Xcode DerivedData/device
   support/Simulator caches, package-manager caches and unused Docker images/build cache, with
   sizes and age. Folders go to the Trash after confirmation; items in use by a process are locked
-  and every folder is re-verified right before it moves. Also `corescope space` and the MCP tool
+  and every folder is re-verified right before it moves. Scans run only on demand; the last
+  result is cached and flagged when it may be out of date. Also `corescope space` and the MCP tool
   `list_dev_space` (read-only).
 - **Stuck agent detection**: busy Claude Code sessions and Codex threads with no transcript
   writes for N minutes (default 10) show *Looks stuck* (idle command, possibly waiting for input,
@@ -34,7 +35,8 @@ section as the GitHub release notes.
   down/recovered notifications.
 - **Profiles page**: per-project environments — commands run in the project folder through the
   login shell (logged to ~/Library/Application Support/CoreScope/logs) plus containers to start;
-  Stop ends only the process trees CoreScope started and stops those containers.
+  Stop ends only the process trees CoreScope started and stops only containers a profile started
+  that no other started profile still uses (shared databases stay up until the last one stops).
 
 ## [0.3.2] - 2026-10-17
 
