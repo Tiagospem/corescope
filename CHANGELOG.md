@@ -11,6 +11,12 @@ section as the GitHub release notes.
 ## [Unreleased]
 
 ### Added
+- **Claude Code 5-hour and weekly limits** (opt-in, off by default) in the limits card,
+  menu bar, popover and floating panel, read from the `rate_limits` data Claude Code
+  passes to its status line. Turning it on adds a `statusLine` command to
+  `~/.claude/settings.json` only when none exists (backed up first; an existing one is
+  chained only on request); turning it off restores the previous value. No Keychain,
+  credentials or network.
 - **Opt-in persistent history** (off by default; Settings › History, keep 1, 7 or 30 days):
   one-minute rollups of CPU, memory, swap, disk/network rates, thermal state, memory pressure
   and the top 10 processes by CPU and memory (name, executable, folder, origin — never

@@ -118,8 +118,9 @@ struct MenuBarLabel: View {
   private var title: String {
     guard let s = monitor.snapshot, !monitor.stale else { return "" }
     var limit: [String] = []
-    if prefs.limitsInMenuBar, let w = agents.codex.weekly {
-      limit = ["Cx \(Int(w.usedPercent))%"]
+    if prefs.limitsInMenuBar {
+      if let w = agents.codex.weekly { limit.append("Cx \(Int(w.usedPercent))%") }
+      if let w = agents.claude.weekly { limit.append("Cl \(Int(w.usedPercent))%") }
     }
     return (prefs.menuItems.map { item -> String in
       switch item {
@@ -257,9 +258,9 @@ struct MenuSummary: View {
           }
         }.font(.caption).foregroundStyle(.secondary).labelStyle(.titleAndIcon)
 
-        if prefs.limitsInMenuBar && !agents.codex.windows.isEmpty {
+        if prefs.limitsInMenuBar && !agents.limits.isEmpty {
           VStack(spacing: 6) {
-            ForEach(agents.codex.windows) { w in LimitBar(title: "Codex", window: w, compact: true) }
+            ForEach(agents.limits) { row in LimitBar(title: row.title, window: row.window, compact: true) }
           }
         }
         if !s.orphans.isEmpty {

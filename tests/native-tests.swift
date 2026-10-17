@@ -45,6 +45,57 @@ import Foundation
     // A port two containers publish stays unattributed; repeats of one owner do not count.
     let owners = uniqueOwners([(8080, "a"), (8080, "b"), (5432, "db"), (5432, "db"), (6379, "r")])
     precondition(owners == [5432: "db", 6379: "r"])
+    // Claude status line: settings.json edits keep key order, numbers and escapes untouched.
+    let settingsText = """
+      {
+        "theme": "dark",
+        "env": {
+          "A": "x \\"q\\" \\u00e9 /",
+          "n": 1.50
+        },
+        "hooks": [],
+        "list": [
+          true,
+          null,
+          -2e3
+        ]
+      }
+      """
+    let settings = try! OrderedJSON.parse(settingsText)
+    precondition(settings.serialized() == settingsText.replacingOccurrences(of: "\\u00e9", with: "é"))
+    precondition((try? OrderedJSON.parse("{\"a\":1,}")) == nil && (try? OrderedJSON.parse("[01]")) == nil)
+    precondition(try! OrderedJSON.parse(#""\uD83D\uDE00""#).stringValue == "😀")
+    for malformed in [#""\uD800\u0041""#, #""\uD800x""#, #""\uD800""#, #""\uDC00""#] {
+      precondition((try? OrderedJSON.parse(malformed)) == nil)
+    }
+    let script = "/Users/me/Library/Application Support/CoreScope/claude-statusline.sh"
+    precondition(ClaudeStatusLine.link(of: settings, script: script) == .absent)
+    let fresh = ClaudeStatusLine.installing(over: nil, script: script, chain: false)!
+    let installed = settings.setting("statusLine", fresh)
+    precondition(ClaudeStatusLine.link(of: installed, script: script) == .installed)
+    guard case .object(let members) = installed else { preconditionFailure() }
+    precondition(members.map(\.key) == ["theme", "env", "hooks", "list", "statusLine"])
+    precondition(installed.setting("statusLine", nil) == settings)
+    let own = OrderedJSON.object([
+      .init(key: "type", value: .string("command")), .init(key: "command", value: .string("echo hi # x")),
+      .init(key: "padding", value: .number("0")),
+    ])
+    precondition(ClaudeStatusLine.installing(over: own, script: script, chain: false) == nil)
+    let chained = ClaudeStatusLine.installing(over: own, script: script, chain: true)!
+    precondition(chained["padding"] == .number("0"))
+    precondition(
+      chained["command"]?.stringValue == "'\(script)' --record | (\necho hi # x\n)")
+    precondition(
+      ClaudeStatusLine.link(of: settings.setting("statusLine", chained), script: script) == .chained)
+    precondition(ClaudeStatusLine.shellQuote("it's") == "'it'\\''s'")
+    let limits = Data(
+      #"{"five_hour":{"used_percentage":23.5,"resets_at":2000000000},"seven_day":{"used_percentage":41.200000000000003,"resets_at":1000}}"#
+        .utf8)
+    let samples = parseClaudeLimits(limits, now: Date(timeIntervalSince1970: 1_500_000_000))
+    precondition(samples.map(\.id) == ["five_hour"] && samples[0].usedPercent == 23.5)
+    precondition(samples[0].windowMinutes == 300)
+    precondition(parseClaudeLimits(limits, now: .distantPast).count == 2)
+    precondition(parseClaudeLimits(Data("nope".utf8)).isEmpty)
 
     // Demo mode never shows a real folder name, but keeps system paths readable.
     let fakes = ["acme-api", "web-dashboard", "mobile-app"]
@@ -83,7 +134,7 @@ import Foundation
     precondition(
       shortcutLabel(modifiers: HotkeyModifier.command | HotkeyModifier.option, key: "k") == "⌥⌘K")
     print(
-      "25 native assertions passed: descendants, cycle, ordering, off-screen recovery, negative-origin monitor, forest roots, flatten, collapse, totals, ancestors, filter, formatting, container ports, shared ports, demo paths, debounce, sustained thresholds, new arrivals, port parsing, shortcut label"
+      "25 native assertions passed: descendants, cycle, ordering, off-screen recovery, negative-origin monitor, forest roots, flatten, collapse, totals, ancestors, filter, formatting, container ports, shared ports, demo paths, debounce, sustained thresholds, new arrivals, port parsing, shortcut label; plus settings JSON, Unicode escapes, status line install/chain, Claude limits"
     )
     print(
       "token usage assertions passed: timestamps, formatting, Claude block dedupe, embedded entries, partial lines, long-line skip, fast/full parity, Codex repeats and forks"

@@ -4,6 +4,7 @@ import SwiftUI
 struct PreferencesView: View {
   @ObservedObject var p = Preferences.shared
   @ObservedObject var monitor = Monitor.shared
+  @ObservedObject var agents = AgentStore.shared
   @ObservedObject var notifier = Notifier.shared
   @ObservedObject var hotkey = Hotkey.shared
   // Read on appear: SMAppService.status is a synchronous XPC call.
@@ -137,12 +138,17 @@ struct PreferencesView: View {
         ).font(.caption).foregroundStyle(.secondary)
       }
       Section(L("Agentes")) {
-        Toggle(L("Limite do Codex na barra de menus"), isOn: $p.limitsInMenuBar)
-        Toggle(L("Limite do Codex no painel flutuante"), isOn: $p.limitsInPanel)
+        Toggle(L("Limites na barra de menus"), isOn: $p.limitsInMenuBar)
+        Toggle(L("Limites no painel flutuante"), isOn: $p.limitsInPanel)
         Toggle(L("Limites na visão geral"), isOn: $p.limitsInOverview)
         Text(
-          L("O limite do Codex vem dos eventos rate_limits que o próprio Codex grava em ~/.codex/sessions (somente leitura local). O Claude Code não grava o limite semanal em disco; sessões do Claude vêm de ~/.claude/sessions.")
+          L("O limite do Codex vem dos eventos rate_limits que o próprio Codex grava em ~/.codex/sessions (somente leitura local). Sessões do Claude vêm de ~/.claude/sessions.")
         ).font(.caption).foregroundStyle(.secondary)
+        Toggle(L("Ler limite do Claude pelo status line"), isOn: $p.claudeLimits)
+        Text(
+          L("Desligado por padrão. Ao ligar, o CoreScope instala um comando de status line em ~/.claude/settings.json (com backup; se você já tiver um status line, nada é trocado sem sua confirmação). A cada resposta, o próprio Claude Code passa o uso do plano a esse comando, que grava só rate_limits em ~/Library/Application Support/CoreScope. Sem Keychain, sem credenciais, sem rede. Desligar restaura o statusLine anterior. Só planos Pro e Max informam o limite.")
+        ).font(.caption).foregroundStyle(.secondary)
+        if p.claudeLimits || agents.claudeError != nil { ClaudeLinkStatus() }
       }
       Section(L("Painel flutuante")) {
         Toggle(L("Mostrar painel"), isOn: $p.panelVisible)
@@ -234,6 +240,40 @@ struct PreferencesView: View {
         binding.wrappedValue = value
         if value { notifier.activate() }
       })
+  }
+}
+
+/// Where CoreScope's Claude status line stands, with the explicit step to chain an existing one.
+private struct ClaudeLinkStatus: View {
+  @ObservedObject var agents = AgentStore.shared
+  var body: some View {
+    VStack(alignment: .leading, spacing: 6) {
+      if let error = agents.claudeError {
+        Label(error, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+      }
+      switch agents.claudeLink {
+      case .installed?:
+        Label(L("Status line do CoreScope instalado."), systemImage: "checkmark.circle.fill")
+          .foregroundStyle(.green)
+      case .chained?:
+        Label(
+          L("Encadeado com o seu status line; a saída dele continua a mesma."), systemImage: "link.circle.fill"
+        ).foregroundStyle(.green)
+      case .foreign(let command)?:
+        Text(L("Você já tem um status line, por isso nada foi alterado:"))
+        Text(command.isEmpty ? "statusLine" : command).font(.system(.caption, design: .monospaced))
+          .lineLimit(3).textSelection(.enabled)
+        if !command.isEmpty {
+          Button(L("Encadear com o status line atual")) { agents.setClaudeLimits(true, chain: true) }
+            .help(L("Coloca o comando do CoreScope antes do seu; a saída do seu status line não muda."))
+        }
+        Text(L("Ou edite à mão: comece o comando com"))
+        Text(ClaudeStatusLine.command(script: ClaudeLimitsBridge.script.path) + " --record | ")
+          .font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+      case .absent?, nil:
+        EmptyView()
+      }
+    }.font(.caption)
   }
 }
 
