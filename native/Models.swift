@@ -465,6 +465,13 @@ final class Preferences: ObservableObject {
   @Published var notifyServiceDown = UserDefaults.standard.bool(forKey: "notifyServiceDown") {
     didSet { save("notifyServiceDown", notifyServiceDown) }
   }
+  /// Lets `corescope mcp` reach the app (profiles, Services, machines, cleanup, settings).
+  @Published var mcpAppAccess = UserDefaults.standard.object(forKey: "mcpAppAccess") as? Bool ?? true {
+    didSet {
+      save("mcpAppAccess", mcpAppAccess)
+      ControlServer.shared.apply()
+    }
+  }
   /// Notify when an agent session draws more than `drainWatts` on battery for 5 minutes.
   @Published var notifyAgentDrain = UserDefaults.standard.bool(forKey: "notifyAgentDrain") {
     didSet { save("notifyAgentDrain", notifyAgentDrain) }

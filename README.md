@@ -174,6 +174,19 @@ Off by default. *Settings → MCP server for agents → Enable* registers `cores
 | `list_dev_space` | Reclaimable space (read-only; cleaning stays in the app, with your confirmation) |
 | `stop_port` / `stop_process` | Stop a process (or a port's owner), **only if this agent session started it** |
 
+With *Agents can use the app through MCP* (on by default once the server is registered), the server also reaches the running app over a private Unix socket (`~/Library/Application Support/CoreScope/control.sock`, mode 0600, same-user peers only) for everything the app owns:
+
+| Tool | What it does |
+| --- | --- |
+| `list_profiles` / `create_profile` / `start_profile` / `stop_profile` / `delete_profile` / `profile_logs` | Environment profiles — an agent can read the project and propose, say, a lighter QA profile that builds instead of running watchers |
+| `list_services` / `add_service` / `remove_service` / `check_services` | Services health checks |
+| `list_machines` / `add_machine` / `remove_machine` / `refresh_machines` | SSH machines |
+| `cleanup_status` / `scan_dev_space` / `clean_dev_space` | Cleanup: cached result, a new scan, and moving items from the latest scan to the Trash |
+| `get_settings` / `set_setting` | Notification toggles, thresholds and cleanup folders (nothing that reaches outside the Mac) |
+| `list_stuck_agents` | Busy sessions and whether they look stuck |
+
+Tools that stop, delete or clean are marked destructive, so Claude Code and Codex ask before running them; the app applies the same rules as its own buttons (Trash only, re-verification, shared containers, identity checks).
+
 The server finds its agent session from its own parent chain. A process counts as the session's when it descends from it, or when it was detached (reparented to `launchd`) after the session started, inside the session's folder, and no other running session could claim it. Anything else — other sessions, other users, system services, apps, Docker — is refused with a message telling the agent to ask you. It runs locally, makes no network requests and reads no credentials. Before Codex rewrites `~/.codex/config.toml`, CoreScope keeps a one-time copy at `config.toml.corescope.bak`.
 
 ### And also

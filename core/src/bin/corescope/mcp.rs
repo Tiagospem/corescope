@@ -77,10 +77,240 @@ fn initialize(params: &Value) -> Value {
 }
 
 fn tool(name: &str, description: &str, properties: Value, required: &[&str]) -> Value {
+    let destructive = DESTRUCTIVE.contains(&name);
     json!({"name": name, "description": description,
-           "inputSchema": {"type": "object", "properties": properties, "required": required}})
+           "inputSchema": {"type": "object", "properties": properties, "required": required},
+           "annotations": {"readOnlyHint": !destructive && !CHANGES.contains(&name),
+                           "destructiveHint": destructive, "openWorldHint": false}})
 }
+/// Tools that stop, delete or remove things; hosts ask the user before running them.
+const DESTRUCTIVE: [&str; 7] = [
+    "stop_port",
+    "stop_process",
+    "stop_profile",
+    "delete_profile",
+    "clean_dev_space",
+    "remove_service",
+    "remove_machine",
+];
+/// Tools that change state without destroying anything.
+const CHANGES: [&str; 6] = [
+    "create_profile",
+    "start_profile",
+    "add_service",
+    "add_machine",
+    "set_setting",
+    "scan_dev_space",
+];
+
+/// Tools served by the running CoreScope app (it owns this state): (name, operation, description,
+/// input properties, required).
+fn app_tools() -> Vec<(
+    &'static str,
+    &'static str,
+    &'static str,
+    Value,
+    Vec<&'static str>,
+)> {
+    vec![
+        (
+            "list_profiles",
+            "profiles.list",
+            "Environment profiles (CoreScope › Profiles): folder, commands with running state, PIDs and \
+          ports, containers and whether the profile is started.",
+            json!({}),
+            vec![],
+        ),
+        (
+            "create_profile",
+            "profiles.create",
+            "Create (or with replace: true, overwrite) a profile: a project folder, commands run there \
+          through the user's login shell, and containers to start. Read the project first \
+          (package.json scripts, composer.json, Makefile, docker-compose, Procfile) and propose \
+          commands that fit the purpose — e.g. a QA profile that builds and serves a production \
+          build instead of running watchers like `npm run dev`. Ask the user before creating.",
+            json!({"name": {"type": "string"}, "folder": {"type": "string", "description": "absolute path"},
+                "commands": {"type": "array", "items": {"type": "object", "properties": {
+                    "name": {"type": "string"}, "command": {"type": "string"}}, "required": ["command"]}},
+                "containers": {"type": "array", "items": {"type": "string"}, "description": "container names"},
+                "replace": {"type": "boolean"}}),
+            vec!["name", "folder"],
+        ),
+        (
+            "start_profile",
+            "profiles.start",
+            "Start a profile: its commands not yet running (logs kept per command) and its containers.",
+            json!({"name": {"type": "string"}}),
+            vec!["name"],
+        ),
+        (
+            "stop_profile",
+            "profiles.stop",
+            "Stop a profile: SIGTERM to the processes CoreScope started for it and their children, and \
+          its containers — except containers another started profile still uses or that were \
+          already running before (everything: true stops those too).",
+            json!({"name": {"type": "string"}, "everything": {"type": "boolean"}}),
+            vec!["name"],
+        ),
+        (
+            "delete_profile",
+            "profiles.delete",
+            "Delete a profile's settings (nothing running is stopped).",
+            json!({"name": {"type": "string"}}),
+            vec!["name"],
+        ),
+        (
+            "profile_logs",
+            "profiles.logs",
+            "Last lines of a profile's command logs (all commands, or one by name).",
+            json!({"name": {"type": "string"}, "command": {"type": "string"},
+                "lines": {"type": "integer", "minimum": 1, "maximum": 400}}),
+            vec!["name"],
+        ),
+        (
+            "list_services",
+            "services.list",
+            "Services health checks (CoreScope › Services): target, up/down, HTTP status or TCP result, latency.",
+            json!({}),
+            vec![],
+        ),
+        (
+            "add_service",
+            "services.add",
+            "Watch a service every 30 s: an http(s) URL (2xx/3xx up, 4xx answered with an error, \
+          5xx/no answer down), host:port or a local port number (TCP connect). Returns the first result.",
+            json!({"name": {"type": "string"}, "target": {"type": "string"}}),
+            vec!["target"],
+        ),
+        (
+            "remove_service",
+            "services.remove",
+            "Stop watching a service (by name or target).",
+            json!({"name": {"type": "string"}}),
+            vec!["name"],
+        ),
+        (
+            "check_services",
+            "services.check",
+            "Run every Services check now and return the results.",
+            json!({}),
+            vec![],
+        ),
+        (
+            "list_machines",
+            "machines.list",
+            "SSH machines (CoreScope › Machines) with their last reading: OS, load, memory, disk, \
+          top processes, containers.",
+            json!({}),
+            vec![],
+        ),
+        (
+            "add_machine",
+            "machines.add",
+            "Add an ssh destination (alias from ~/.ssh/config or user@host) and read it now. Uses the \
+          user's ssh in BatchMode with a fixed read-only script; keys and passwords are never used by CoreScope.",
+            json!({"host": {"type": "string"}}),
+            vec!["host"],
+        ),
+        (
+            "remove_machine",
+            "machines.remove",
+            "Remove a machine from the list.",
+            json!({"host": {"type": "string"}}),
+            vec!["host"],
+        ),
+        (
+            "refresh_machines",
+            "machines.refresh",
+            "Read every machine again and return the results.",
+            json!({}),
+            vec![],
+        ),
+        (
+            "cleanup_status",
+            "cleanup.list",
+            "The Cleanup page's last scan (cached): reclaimable node_modules, Rust target/, Xcode data, \
+          package caches and Docker data with ids, sizes, age and what is in use. Says when it may be stale.",
+            json!({}),
+            vec![],
+        ),
+        (
+            "scan_dev_space",
+            "cleanup.scan",
+            "Scan for reclaimable developer space now (can take ~30 s) and return the result with ids.",
+            json!({}),
+            vec![],
+        ),
+        (
+            "clean_dev_space",
+            "cleanup.clean",
+            "Clean items from the latest scan by id: folders go to the Trash (recoverable), Docker data \
+          is removed by Docker. Items in use are skipped and every folder is re-verified first. \
+          Confirm the list and sizes with the user before calling.",
+            json!({"ids": {"type": "array", "items": {"type": "string"}}}),
+            vec!["ids"],
+        ),
+        (
+            "get_settings",
+            "settings.get",
+            "CoreScope settings agents may change: notification toggles, thresholds, cleanup folders.",
+            json!({}),
+            vec![],
+        ),
+        (
+            "set_setting",
+            "settings.set",
+            "Change one setting from get_settings (booleans, numbers in range, or cleanup_folders as a list of paths).",
+            json!({"key": {"type": "string"}, "value": {}}),
+            vec!["key", "value"],
+        ),
+        (
+            "list_stuck_agents",
+            "agents.stuck",
+            "Busy Claude Code sessions and Codex threads and whether they look stuck: no transcript \
+          activity for the configured minutes, with what their commands are doing.",
+            json!({}),
+            vec![],
+        ),
+    ]
+}
+
+/// One request to the app's control socket.
+fn app(op: &str, args: &Value) -> Value {
+    use std::io::Read;
+    use std::os::unix::net::UnixStream;
+    let path = std::path::PathBuf::from(std::env::var_os("HOME").unwrap_or_default())
+        .join("Library/Application Support/CoreScope/control.sock");
+    let offline = json!({"error": "The CoreScope app is not running, or \"Agents can use the app through MCP\" \
+        is off (Settings › MCP server for agents). Ask the user to open CoreScope."});
+    let Ok(mut stream) = UnixStream::connect(&path) else {
+        return offline;
+    };
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(190)));
+    let request = json!({"op": op, "args": args});
+    if writeln!(stream, "{request}").is_err() {
+        return offline;
+    }
+    let mut body = String::new();
+    if stream.read_to_string(&mut body).is_err() {
+        return json!({"error": "CoreScope did not answer in time"});
+    }
+    serde_json::from_str(body.trim())
+        .unwrap_or_else(|_| json!({"error": "invalid answer from CoreScope"}))
+}
+
 fn tools() -> Vec<Value> {
+    let mut all = core_tools();
+    all.extend(
+        app_tools()
+            .into_iter()
+            .map(|(name, _, description, properties, required)| {
+                tool(name, description, properties, &required)
+            }),
+    );
+    all
+}
+fn core_tools() -> Vec<Value> {
     vec![
         tool(
             "list_ports",
@@ -178,6 +408,16 @@ fn text(value: Value, error: bool) -> Value {
 fn call(params: &Value) -> Value {
     let args = &params["arguments"];
     let name = params["name"].as_str().unwrap_or("");
+    if let Some((_, op, ..)) = app_tools().into_iter().find(|t| t.0 == name) {
+        let mut args = args.clone();
+        // The app takes `paths` for cleanup; agents see them as ids.
+        if name == "clean_dev_space" {
+            args = json!({"paths": args["ids"]});
+        }
+        let value = app(op, &args);
+        let failed = value.get("error").is_some();
+        return text(value, failed);
+    }
     match name {
         "list_ports" => text(ports(&sample(false)), false),
         "find_free_port" => {

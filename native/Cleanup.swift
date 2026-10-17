@@ -110,8 +110,12 @@ final class CleanupStore: ObservableObject {
       scannedAt.formatted(.relative(presentation: .named)))
   }
 
-  func scan() {
-    guard !scanning, !working else { return }
+  /// `done` gets an error message, or nil once the new result is in.
+  func scan(done: ((String?) -> Void)? = nil) {
+    guard !scanning, !working else {
+      done?(L("Uma análise ou limpeza já está em andamento"))
+      return
+    }
     scanning = true
     let roots = Preferences.shared.cleanupRoots
     let request: [String: Any] = ["roots": roots, "auto": true, "docker": true]
@@ -131,8 +135,10 @@ final class CleanupStore: ObservableObject {
           self.saveCache()
           let ids = Set(report.items.filter { $0.busy == nil }.map(\.id))
           self.selection.formIntersection(ids)
+          done?(nil)
         case .failure(let error):
           self.error = error.localizedDescription
+          done?(error.localizedDescription)
         }
       }
     }
@@ -140,13 +146,17 @@ final class CleanupStore: ObservableObject {
 
   /// Runs after the user confirmed. Folders are re-checked by the core (still a real folder of a
   /// known kind, nothing using it) right before going to the Trash.
-  func clean(_ items: [DevSpaceItem]) {
-    guard !working, !items.isEmpty else { return }
+  /// `done` gets the summary shown to the user and the ids that were cleaned.
+  func clean(_ items: [DevSpaceItem], done: ((String, Set<String>) -> Void)? = nil) {
+    guard !working, !items.isEmpty else {
+      done?(L("Uma análise ou limpeza já está em andamento"), [])
+      return
+    }
     working = true
     let monitor = Monitor.shared
     monitor.feedback = ActionFeedback(message: plural(items.count, "Limpando 1 item…", "Limpando %@ itens…"), pending: true)
     queue.async {
-      var done = Set<String>()
+      var finished = Set<String>()
       var freed = 0.0
       var failures: [String] = []
       var locked: [String: String] = [:]
@@ -155,7 +165,7 @@ final class CleanupStore: ObservableObject {
           let result = engine.withCString { socket in item.kind.withCString { cs_dev_space_docker(socket, $0) } }
           switch Self.decode(result) {
           case .success(let obj):
-            done.insert(item.id)
+            finished.insert(item.id)
             // Some engines report 0 for images whose layers they count elsewhere: use the measured size.
             let reclaimed = (obj["reclaimed"] as? NSNumber)?.doubleValue ?? 0
             freed += reclaimed > 0 ? reclaimed : item.bytes
@@ -170,7 +180,7 @@ final class CleanupStore: ObservableObject {
         }
         do {
           try FileManager.default.trashItem(at: URL(fileURLWithPath: item.path), resultingItemURL: nil)
-          done.insert(item.id)
+          finished.insert(item.id)
           freed += item.bytes
         } catch {
           failures.append("\(item.title): \(error.localizedDescription)")
@@ -178,23 +188,24 @@ final class CleanupStore: ObservableObject {
       }
       DispatchQueue.main.async {
         self.working = false
-        self.report?.items.removeAll { done.contains($0.id) }
+        self.report?.items.removeAll { finished.contains($0.id) }
         for (id, user) in locked {
           if let i = self.report?.items.firstIndex(where: { $0.id == id }) { self.report?.items[i].busy = user }
         }
-        self.selection.subtract(done)
+        self.selection.subtract(finished)
         self.selection.subtract(locked.keys)
         self.saveCache()
         var parts: [String] = []
-        if !done.isEmpty {
+        if !finished.isEmpty {
           parts.append(
-            done.count == 1
-              ? L("%@ liberados em 1 item.", diskBytes(freed)) : L("%@ liberados em %@ itens.", diskBytes(freed), "\(done.count)"))
+            finished.count == 1
+              ? L("%@ liberados em 1 item.", diskBytes(freed)) : L("%@ liberados em %@ itens.", diskBytes(freed), "\(finished.count)"))
         }
         if let first = failures.first {
           parts.append(failures.count == 1 ? L("Não foi possível limpar %@", first) : L("%@ falharam: %@", "\(failures.count)", first))
         }
         let message = parts.joined(separator: " ")
+        done?(message, finished)
         monitor.feedback = ActionFeedback(message: message, failed: !failures.isEmpty)
       }
     }

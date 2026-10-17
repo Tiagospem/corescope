@@ -101,6 +101,7 @@ struct MCPSettings: View {
   @ViewState private var states: [MCPRegistration.Agent: MCPRegistration.State] = [:]
   @ViewState private var busy = Set<MCPRegistration.Agent>()
   @ViewState private var error: String?
+  @ObservedObject var prefs = Preferences.shared
   private let queue = DispatchQueue(label: "app.corescope.mcp", qos: .userInitiated)
   var body: some View {
     Section(L("Servidor MCP para agentes")) {
@@ -123,6 +124,10 @@ struct MCPSettings: View {
           }
         }
       }
+      Toggle(L("Agentes podem usar o app pelo MCP"), isOn: $prefs.mcpAppAccess)
+      Text(
+        L("Perfis (criar, iniciar, parar, logs), Serviços, Máquinas, limpeza (analisar e mover para a Lixeira o que a análise encontrou) e ajustes de notificação. Pelo socket local do app, só para o seu usuário. O agente pede a sua aprovação antes de cada ação.")
+      ).font(.caption).foregroundStyle(.secondary)
       Text(
         L("Opcional. Registra corescope mcp no Claude Code e no Codex (pelos comandos mcp add deles). Os agentes podem consultar portas, porta livre, maiores processos, sessões e órfãos, e encerrar só o que a própria sessão iniciou — nunca outras sessões, outros usuários ou serviços do sistema. Tudo local, sem rede.")
       ).font(.caption).foregroundStyle(.secondary)

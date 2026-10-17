@@ -87,8 +87,12 @@ final class ProfileStore: ObservableObject {
     String(s.lowercased().map { $0.isLetter || $0.isNumber ? $0 : "-" }.prefix(40))
   }
 
-  func start(_ profile: EnvProfile) {
-    guard !busy.contains(profile.id) else { return }
+  /// `done` gets the errors (empty when everything started).
+  func start(_ profile: EnvProfile, done: (([String]) -> Void)? = nil) {
+    guard !busy.contains(profile.id) else {
+      done?([L("O perfil já está iniciando ou parando")])
+      return
+    }
     busy.insert(profile.id)
     let monitor = Monitor.shared
     monitor.feedback = ActionFeedback(message: L("Iniciando %@…", profile.name), pending: true)
@@ -117,13 +121,15 @@ final class ProfileStore: ObservableObject {
         monitor.feedback = ActionFeedback(
           message: errors.first.map { L("%@: %@", profile.name, $0) } ?? L("%@ iniciado.", profile.name),
           failed: !errors.isEmpty)
+        done?(errors)
       }
     }
   }
 
   /// Runs after the user confirmed: the trees of the commands it started, then the containers
   /// in `plan.stop` (or every running one of the profile with `everything`).
-  func stop(_ profile: EnvProfile, everything: Bool = false) {
+  /// `done` gets the plan that was applied and the errors.
+  func stop(_ profile: EnvProfile, everything: Bool = false, done: ((ContainerStopPlan, [String]) -> Void)? = nil) {
     let current = ContainerStore.shared.report?.containers ?? []
     let plan = stopPlan(profile, containers: current)
     let names = everything ? profile.containers : plan.stop
@@ -139,7 +145,10 @@ final class ProfileStore: ObservableObject {
       if !targets.isEmpty { monitor.signal(targets, force: false) }
     }
     for command in profile.commands { launched[command.id] = nil }
-    guard !names.isEmpty else { return }
+    guard !names.isEmpty else {
+      done?(plan, [])
+      return
+    }
     busy.insert(profile.id)
     queue.async {
       let (errors, stopped, _) = Self.containers(names, action: "stop")
@@ -148,6 +157,7 @@ final class ProfileStore: ObservableObject {
         self.busy.remove(profile.id)
         ContainerStore.shared.refreshSoon()
         if let first = errors.first { monitor.feedback = ActionFeedback(message: first, failed: true) }
+        done?(plan, errors)
       }
     }
   }

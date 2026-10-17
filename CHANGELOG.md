@@ -47,6 +47,10 @@ section as the GitHub release notes.
 - **Energy page**: battery state, watts per process (rusage v6 energy) and per agent session
   with what it started; optional alert when an agent drains the battery. Also `corescope power`,
   `top --energy` and the MCP tool `power_usage`.
+- **MCP drives the app**: through a private local socket (0600, same user, can be turned off),
+  agents can list/create/start/stop profiles and read their logs, manage Services checks and SSH
+  machines, scan and clean dev space, read and change notification settings and see stuck
+  sessions. Destructive tools carry MCP annotations so hosts ask first.
 
 ## [0.3.2] - 2026-10-17
 

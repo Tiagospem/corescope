@@ -36,6 +36,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     Hotkey.shared.apply()
     Notifier.shared.activate()
     _ = HealthStore.shared
+    ControlServer.shared.apply()
     // Dock presence follows the main window when the user chose "only while open".
     let center = NotificationCenter.default
     for name in [NSWindow.didBecomeKeyNotification, NSWindow.willCloseNotification] {
@@ -53,6 +54,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   func applicationWillTerminate(_ notification: Notification) {
     // Keeps the minute in progress instead of dropping it on quit.
     if Preferences.shared.historyEnabled { HistoryStore.flush() }
+    ControlServer.shared.stop()
   }
   func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
   func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
