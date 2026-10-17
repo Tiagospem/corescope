@@ -333,7 +333,6 @@ private let entries = """
   Última passagem do coletor ¦ Last collector pass ¦ Última pasada del recolector
   órfão ¦ orphan ¦ huérfano
   ↓ %@  ↑ %@ · soma dos dispositivos físicos ¦ ↓ %@  ↑ %@ · sum of physical devices ¦ ↓ %@  ↑ %@ · suma de los dispositivos físicos
-  Histórico de %@ amostras; último valor %@ ¦ History of %@ samples; last value %@ ¦ Historial de %@ muestras; último valor %@
   indisponível ¦ unavailable ¦ no disponible
   não suportados ¦ not supported ¦ no compatibles
   temporariamente indisponíveis ¦ temporarily unavailable ¦ temporalmente no disponibles
@@ -480,4 +479,69 @@ private let entries = """
   Remove o arquivo do disco. A gravação continua se estiver ligada. ¦ Removes the file from disk. Recording continues if it is on. ¦ Elimina el archivo del disco. La grabación continúa si está activada.
   Consulta ausente ¦ Missing query ¦ Consulta ausente
   Operação desconhecida ¦ Unknown operation ¦ Operación desconocida
+  %@ não está em execução. ¦ %@ is not running. ¦ %@ no se está ejecutando.
+  %@ parado. ¦ %@ stopped. ¦ %@ detenido.
+  %@ parados ¦ %@ stopped ¦ %@ detenidos
+  %@ reiniciado. ¦ %@ restarted. ¦ %@ reiniciado.
+  + %@ contêineres ¦ + %@ containers ¦ + %@ contenedores
+  Ação de contêiner inválida ¦ Invalid container action ¦ Acción de contenedor no válida
+  CPU %@ · %@ ¦ CPU %@ · %@ ¦ CPU %@ · %@
+  Com falha ¦ Unhealthy ¦ Con fallos
+  Contêiner ¦ Container ¦ Contenedor
+  Contêiner não encontrado ¦ Container not found ¦ Contenedor no encontrado
+  Contêineres ¦ Containers ¦ Contenedores
+  Criado ¦ Created ¦ Creado
+  Falha ao ler contêineres: %@ ¦ Could not read containers: %@ ¦ No se pudieron leer los contenedores: %@
+  Identificador de contêiner inválido ¦ Invalid container ID ¦ Identificador de contenedor no válido
+  Imagem ¦ Image ¦ Imagen
+  Iniciando ¦ Starting ¦ Iniciando
+  Lendo contêineres… ¦ Reading containers… ¦ Leyendo contenedores…
+  Lido do socket local do Docker Engine (OrbStack, Docker Desktop ou Colima) a cada 5 s enquanto visível. CPU em % de um núcleo; memória sem cache de arquivos, como em docker stats. ¦ Read from the local Docker Engine socket (OrbStack, Docker Desktop or Colima) every 5 s while visible. CPU in % of one core; memory excludes file cache, as in docker stats. ¦ Leído del socket local de Docker Engine (OrbStack, Docker Desktop o Colima) cada 5 s mientras está visible. CPU en % de un núcleo; memoria sin caché de archivos, como en docker stats.
+  Limite %@ ¦ Limit %@ ¦ Límite %@
+  Leitor de contêineres indisponível ¦ Container reader unavailable ¦ Lector de contenedores no disponible
+  Nenhum contêiner em %@. ¦ No containers in %@. ¦ No hay contenedores en %@.
+  Nenhum motor de contêineres encontrado (OrbStack, Docker Desktop ou Colima). ¦ No container engine found (OrbStack, Docker Desktop or Colima). ¦ No se encontró ningún motor de contenedores (OrbStack, Docker Desktop o Colima).
+  O motor de contêineres não respondeu ¦ The container engine did not respond ¦ El motor de contenedores no respondió
+  O motor recusou a ação ¦ The engine refused the action ¦ El motor rechazó la acción
+  Parado ¦ Stopped ¦ Detenido
+  Parando %@… ¦ Stopping %@… ¦ Deteniendo %@…
+  Parar ¦ Stop ¦ Detener
+  Parar o contêiner %@ ¦ Stop container %@ ¦ Detener el contenedor %@
+  Porta %@ do contêiner ¦ Container port %@ ¦ Puerto %@ del contenedor
+  Porta publicada pelo contêiner %@ (%@); o processo %@ apenas a encaminha. ¦ Port published by container %@ (%@); the %@ process only forwards it. ¦ Puerto publicado por el contenedor %@ (%@); el proceso %@ solo lo reenvía.
+  Reiniciando ¦ Restarting ¦ Reiniciando
+  Reiniciando %@… ¦ Restarting %@… ¦ Reiniciando %@…
+  Reiniciar ¦ Restart ¦ Reiniciar
+  Reiniciar o contêiner %@ ¦ Restart container %@ ¦ Reiniciar el contenedor %@
+  Rodando ¦ Running ¦ En ejecución
+  Sem permissão para o socket de %@. ¦ No permission for the %@ socket. ¦ Sin permiso para el socket de %@.
+  Serviço %@ ¦ Service %@ ¦ Servicio %@
+  Saudável ¦ Healthy ¦ Saludable
+  contêiner %@ ¦ container %@ ¦ contenedor %@
+  Histórico de %@ ¦ %@ history ¦ Historial de %@
+  último %@, pico %@ ¦ latest %@, peak %@ ¦ último %@, pico %@
+  Uso ¦ Usage ¦ Uso
+  Porta %@ ¦ Port %@ ¦ Puerto %@
+  %@ não pode ser encerrado ¦ %@ cannot be terminated ¦ %@ no se puede finalizar
+  Confirmar: encerrar %@ ¦ Confirm: terminate %@ ¦ Confirmar: finalizar %@
+  Confirmar: forçar %@ ¦ Confirm: force quit %@ ¦ Confirmar: forzar %@
+  Encerrar sessão %@ ¦ Terminate session %@ ¦ Finalizar sesión %@
+  Forçar encerramento de %@ ¦ Force quit %@ ¦ Forzar la finalización de %@
+  Abrir localhost:%@ no navegador ¦ Open localhost:%@ in the browser ¦ Abrir localhost:%@ en el navegador
+  Dispensar ¦ Dismiss ¦ Descartar
+  Ativado ¦ On ¦ Activado
+  Desativado ¦ Off ¦ Desactivado
+  Opções do painel ¦ Panel options ¦ Opciones del panel
+  Limpar busca ¦ Clear search ¦ Borrar búsqueda
+  Mostrar detalhes ¦ Show details ¦ Mostrar detalles
+  Ocultar detalhes ¦ Hide details ¦ Ocultar detalles
+  Expandir %@ ¦ Expand %@ ¦ Expandir %@
+  Recolher %@ ¦ Collapse %@ ¦ Contraer %@
+  Acompanhado ¦ Watched ¦ Seguido
+  Total com descendentes: %@ ¦ Total with descendants: %@ ¦ Total con descendientes: %@
+  Expandido ¦ Expanded ¦ Expandido
+  Recolhido ¦ Collapsed ¦ Contraído
+  Núcleo %@ ¦ Core %@ ¦ Núcleo %@
+  Núcleo %@ (%@) ¦ Core %@ (%@) ¦ Núcleo %@ (%@)
+  pior: %@ ¦ worst: %@ ¦ peor: %@
   """

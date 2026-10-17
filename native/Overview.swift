@@ -17,7 +17,7 @@ struct ResourceCard: View {
     Card {
       HStack(spacing: 6) {
         Image(systemName: symbol).font(.system(size: 11, weight: .semibold))
-          .foregroundStyle(series.first?.color ?? .secondary)
+          .foregroundStyle(series.first?.color ?? .secondary).accessibilityHidden(true)
         Text(title).font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
         Spacer()
         ForEach(legend, id: \.0) { item in
@@ -38,9 +38,10 @@ struct ResourceCard: View {
       } else {
         Color.clear.frame(height: 4)
       }
-      AreaChart(series: series, ceiling: ceiling).frame(height: 54)
+      AreaChart(series: series, ceiling: ceiling, title: title).frame(height: 54)
       Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(1)
     }.help(help)
+    .accessibilityElement(children: .combine)
   }
 }
 
@@ -60,12 +61,12 @@ struct OverviewView: View {
               title: L("CPU"), symbol: "cpu",
               value: s.cpu.value.map { String(format: "%.0f", $0) } ?? "—", unit: "%",
               detail: L("%@ núcleos · térmico %@", "\(s.cores)", "\(s.thermalLabel.lowercased())"),
-              series: [ChartSeries(values: s.history.map(\.cpu), color: Tint.cpu)], ceiling: 100,
+              series: [.cpu(s.history.map(\.cpu))], ceiling: 100,
               help: s.cpu.explanation)
             ResourceCard(
               title: L("Memória"), symbol: "memorychip", value: s.memorySummary,
               detail: L("de %@ · swap %@", "\(s.physical.bytes)", "\(s.swap.bytes)"),
-              series: [ChartSeries(values: s.history.map(\.memory), color: Tint.memory)],
+              series: [.memory(s.history.map(\.memory))],
               ceiling: s.physical.value, fraction: s.memoryFraction,
               help: L(
                 "Ativa + wired + compressor (%@). Pressão de memória: %@.", s.compressed.bytes,
@@ -74,8 +75,8 @@ struct OverviewView: View {
               title: L("Disco"), symbol: "internaldrive", value: s.diskRate,
               detail: "↓ \(s.disk_read.rate)  ↑ \(s.disk_write.rate)",
               series: [
-                ChartSeries(values: s.history.map(\.disk_read), color: Tint.diskRead),
-                ChartSeries(values: s.history.map(\.disk_write), color: Tint.diskWrite),
+                .diskRead(s.history.map(\.disk_read)),
+                .diskWrite(s.history.map(\.disk_write)),
               ], legend: [("leitura", Tint.diskRead), ("escrita", Tint.diskWrite)],
               help: s.disk_read.explanation)
             ResourceCard(
@@ -83,8 +84,8 @@ struct OverviewView: View {
               value: formatRate((s.net_in.value ?? 0) + (s.net_out.value ?? 0)),
               detail: "↓ \(s.net_in.rate)  ↑ \(s.net_out.rate)",
               series: [
-                ChartSeries(values: s.history.map(\.net_in), color: Tint.netIn),
-                ChartSeries(values: s.history.map(\.net_out), color: Tint.netOut),
+                .netIn(s.history.map(\.net_in)),
+                .netOut(s.history.map(\.net_out)),
               ], legend: [("entrada", Tint.netIn), ("saída", Tint.netOut)],
               help: s.net_in.explanation)
           }
@@ -104,6 +105,7 @@ struct OverviewView: View {
           }
           if Preferences.shared.limitsInOverview { LimitsCard() }
           AgentSessionsCard(snapshot: s)
+          ContainersCard()
           LazyVGrid(
             columns: Array(repeating: GridItem(.flexible(), spacing: 12, alignment: .top), count: 2),
             alignment: .leading, spacing: 12
@@ -149,7 +151,7 @@ private struct CoresCard: View {
             let values = items.compactMap(\.element.value)
             Text(values.isEmpty ? "—" : L("média %@", String(format: "%.0f%%", values.reduce(0, +) / Double(values.count))))
               .font(.caption).foregroundStyle(.secondary).monospacedDigit()
-          }
+          }.accessibilityElement(children: .combine).accessibilityAddTraits(.isHeader)
           HStack(alignment: .bottom, spacing: 5) {
             ForEach(items, id: \.offset) { index, core in
               CoreBar(index: index, core: core)
@@ -180,6 +182,9 @@ private struct CoreBar: View {
     }
     .frame(maxWidth: 26)
     .help(L("CPU %@ (%@): %@", "\(index)", core.kind.isEmpty ? "?" : core.kind, core.value.map { String(format: "%.0f%%", $0) } ?? "—"))
+    .accessibilityElement()
+    .accessibilityLabel(core.kind.isEmpty ? L("Núcleo %@", "\(index)") : L("Núcleo %@ (%@)", "\(index)", core.kind))
+    .accessibilityValue(core.value.map { String(format: "%.0f%%", $0) } ?? L("indisponível"))
   }
 }
 
@@ -207,32 +212,38 @@ private struct MemoryBreakdownCard: View {
           Spacer(minLength: 0)
         }.background(Color.primary.opacity(0.07))
       }.frame(height: 10).clipShape(RoundedRectangle(cornerRadius: 3))
+        // The stacked bar repeats the rows below; VoiceOver reads the rows instead.
+        .accessibilityHidden(true)
       Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 5) {
         ForEach(parts, id: \.0) { title, metric, color in
           GridRow {
             HStack(spacing: 5) {
-              Circle().fill(color).frame(width: 7, height: 7)
+              Circle().fill(color).frame(width: 7, height: 7).accessibilityHidden(true)
               Text(L(title))
             }
             Text(metric.bytes).monospacedDigit().foregroundStyle(.secondary).gridColumnAlignment(.trailing)
-          }.help(metric.explanation)
+          }.help(metric.explanation).accessibilityElement(children: .combine)
         }
         GridRow {
           HStack(spacing: 5) {
             Image(systemName: "arrow.left.arrow.right").font(.system(size: 8)).frame(width: 7)
+              .accessibilityHidden(true)
             Text(L("Swap usado"))
           }
           Text(s.swap.bytes).monospacedDigit().foregroundStyle(.secondary)
-        }.help(s.swap.explanation)
+        }.help(s.swap.explanation).accessibilityElement(children: .combine)
       }.font(.callout)
       Divider()
       HStack(spacing: 8) {
-        Text(L("Pressão de memória")).font(.callout)
+        Text(L("Pressão de memória")).font(.callout).accessibilityHidden(true)
         if let pct = s.pressure_percent.value {
           MeterBar(fraction: pct / 100, color: pct >= 80 ? Tint.danger : pct >= 60 ? Tint.warning : Tint.cpu)
             .frame(maxWidth: 140)
+            .accessibilityLabel(L("Pressão de memória"))
         }
         Text(s.pressure_percent.percent).monospacedDigit()
+          .accessibilityLabel(s.pressure_percent.value == nil ? L("Pressão de memória") : "")
+          .accessibilityHidden(s.pressure_percent.value != nil)
         Spacer()
         Badge(
           text: L("evento: %@", s.pressureLabel.lowercased()),
@@ -302,34 +313,38 @@ func devSubtitle(_ p: ProcessItem) -> String {
 
 private struct ServersCard: View {
   let groups: [(ProcessItem, Int)]
+  @ObservedObject var containers = ContainerStore.shared
   var body: some View {
+    let entries = serverEntries(groups, owners: containers.owners)
     Card {
-      CardHeader(title: L("Servidores em escuta"), symbol: "network", tint: Tint.netIn, count: groups.count) {
+      CardHeader(title: L("Servidores em escuta"), symbol: "network", tint: Tint.netIn, count: entries.count) {
         Button(L("Ver todos")) { navigate(.processes) }.buttonStyle(.link).font(.caption)
       }
-      if groups.isEmpty {
+      if entries.isEmpty {
         EmptyNote(text: L("Nenhuma porta TCP aberta por processos seus."))
       }
-      ForEach(groups.prefix(7), id: \.0.id) { p, instances in
-        ProcessLine(process: p, subtitle: devSubtitle(p)) {
-          HStack(spacing: 3) {
-            if instances > 1 {
-              Text(L("×%@", "\(instances)")).font(.caption2).foregroundStyle(.secondary)
-                .help(L("%@ processos compartilham estas portas", "\(instances)"))
+      ForEach(entries.prefix(7)) { entry in
+        switch entry {
+        case .container(let c, let via, let ports):
+          ContainerServerLine(container: c, via: via, ports: ports)
+        case .process(let p, let instances, let ports):
+          ProcessLine(process: p, subtitle: devSubtitle(p)) {
+            HStack(spacing: 3) {
+              if instances > 1 {
+                Text(L("×%@", "\(instances)")).font(.caption2).foregroundStyle(.secondary)
+                  .help(L("%@ processos compartilham estas portas", "\(instances)"))
+              }
+              ForEach(ports.prefix(2), id: \.port) { port in PortBadge(port: port) }
+              if let port = ports.first?.port { OpenPortButton(port: port) }
+              KillButton(process: p)
             }
-            ForEach(p.ports.prefix(2), id: \.port) { port in
-              Badge(text: ":\(port.port)", color: port.exposed ? .orange : Tint.netIn)
-                .help(port.exposed ? L("Acessível na rede") : L("Somente local"))
-            }
-            if let port = p.ports.first?.port { OpenPortButton(port: port) }
-            KillButton(process: p)
           }
         }
       }
-      if groups.count > 7 {
-        Text(L("+ %@ servidores", "\(groups.count - 7)")).font(.caption).foregroundStyle(.secondary)
+      if entries.count > 7 {
+        Text(L("+ %@ servidores", "\(entries.count - 7)")).font(.caption).foregroundStyle(.secondary)
       }
-    }
+    }.watchesContainers(stats: false)
   }
 }
 

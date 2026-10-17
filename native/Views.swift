@@ -163,8 +163,8 @@ struct StorageView: View {
             title: L("Atividade de disco"), symbol: "internaldrive", value: s.diskRate,
             detail: L("↓ %@  ↑ %@ · soma dos dispositivos físicos", "\(s.disk_read.rate)", "\(s.disk_write.rate)"),
             series: [
-              ChartSeries(values: s.history.map(\.disk_read), color: Tint.diskRead),
-              ChartSeries(values: s.history.map(\.disk_write), color: Tint.diskWrite),
+              .diskRead(s.history.map(\.disk_read)),
+              .diskWrite(s.history.map(\.disk_write)),
             ], legend: [("leitura", Tint.diskRead), ("escrita", Tint.diskWrite)])
           Card {
             CardHeader(title: L("Dispositivos"), symbol: "externaldrive", count: s.disks.count)

@@ -60,6 +60,7 @@ struct ProcessItem: Decodable, Identifiable {
   let start: UInt64
   let name: String
   var path: String
+  var signalPath: String?
   let cpu: Metric
   let memory: Metric
   let resident: Metric
@@ -105,7 +106,7 @@ struct ProcessItem: Decodable, Identifiable {
   var bundlePath: String? {
     path.range(of: ".app/").map { String(path[..<$0.lowerBound]) + ".app" }
   }
-  var project: String? { projectName(cwd) }
+  var project: String? { projectName(cwd, home: Demo.enabled ? demoHome : NSHomeDirectory()) }
   var shortCwd: String { abbreviateHome(cwd) }
   var portsLabel: String { ports.map { ":\($0.port)" }.joined(separator: " ") }
 }
@@ -626,7 +627,9 @@ final class Monitor: ObservableObject {
       var errors: [String] = []
       var sent: [ProcessItem] = []
       for p in targets {
-        guard let pointer = p.path.withCString({ cs_signal(p.pid, p.start, $0, force ? 1 : 0) })
+        guard let pointer = (p.signalPath ?? p.path).withCString({
+          cs_signal(p.pid, p.start, $0, force ? 1 : 0)
+        })
         else {
           errors.append("\(p.name): " + L("falha interna"))
           continue

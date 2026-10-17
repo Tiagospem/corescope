@@ -40,12 +40,15 @@ Argumentos e variáveis de ambiente **não são coletados**. Nomes, executáveis
 
 Possível órfão: processo seu, elegível, de runtime de desenvolvimento (node, python, php, bun, MCP…) fora de um app bundle, adotado pelo `launchd` há mais de 60 s — ou cuja mudança de pai foi observada. Confiança moderada: um serviço iniciado de propósito pode cumprir esses critérios. Nenhuma ação automática. O diretório de trabalho (cwd) e as portas TCP em escuta são lidos apenas de processos do próprio usuário, via `libproc`.
 
+Contêineres: lidos da API do Docker Engine pelo socket Unix local (OrbStack, Docker Desktop, Colima, `/var/run/docker.sock` ou `DOCKER_HOST` `unix://`), nunca por TCP e sem credenciais. Lista e uma leitura `stats?one-shot=true` por contêiner em execução, no máximo a cada 5 s e só enquanto alguma vista de contêineres está na tela. CPU em % de um núcleo (delta entre leituras); memória sem cache de arquivos inativo, como `docker stats`. Parar/Reiniciar exigem dois cliques e usam `POST /containers/{id}/stop|restart?t=10`.
+
 Encerramento: só usuário atual e processos elegíveis, com confirmação do executável e impacto. SIGTERM primeiro; SIGKILL é separado e avisa sobre perda de dados. Árvore usa lista fixa, filhos antes do pai, com revalidação de cada identidade. Não há `killall`, `pkill` ou sinalização de grupos. O macOS não oferece um identificador de processo atômico para `kill`: a revalidação reduz, mas não elimina matematicamente, a corrida residual de reutilização de PID.
 
 ## Organização
 
 | Diretório | Responsabilidade |
 |---|---|
+| `core/src/containers.rs` | cliente local da API do Docker Engine (socket Unix), stats e parar/reiniciar |
 | `core/src/lib.rs` | processamento Rust, diagnóstico, histórico, políticas de processo, FFI e testes |
 | `core/src/os.rs` | tipos ABI e acesso seguro aos registros brutos |
 | `core/src/macos.c` | adaptador mínimo para estruturas/API públicas do SDK |
@@ -58,4 +61,4 @@ Contrato de memória FFI em `native/CoreScopeFFI.h` e `docs/ARCHITECTURE.md`. A 
 
 ## Evidências da entrega
 
-[Funcionalidades e validação](VALIDATION.md) · [Consumo observado](CONSUMPTION.md) · [Investigação REA / Disk Drill](DISKDRILL-TEMPERATURE.md) · [Fontes das APIs](API-SOURCES.md) · [Capturas](screenshots/) · [Revisão visual](FINISH-REVIEW.md).
+[Funcionalidades e validação](VALIDATION.pt-BR.md) · [Consumo observado](CONSUMPTION.pt-BR.md) · [Investigação REA / Disk Drill](DISKDRILL-TEMPERATURE.pt-BR.md) · [Fontes das APIs](API-SOURCES.pt-BR.md) · [Capturas](screenshots/) · [Revisão visual](FINISH-REVIEW.pt-BR.md).

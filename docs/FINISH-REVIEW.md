@@ -1,40 +1,44 @@
-# Revisão final independente de interface
+# Independent final interface review
 
-Data: 16/10/2026. Código inspecionado: `d83bbf0`. Escopo: primeira versão funcional nativa de CoreScope. Revisão somente de leitura do produto e do código; este documento é o único arquivo escrito pelo revisor.
+*Português: [FINISH-REVIEW.pt-BR.md](FINISH-REVIEW.pt-BR.md)*
 
-## 1. Validade da captura
+> **Historical (v0.1.0).** This review inspected the first native version (commit `d83bbf0`). The UI has since changed (process tree, Agents page, inline ✕ kill, new floating panel layouts); the screens and line numbers below (such as `native/CoreScope.swift:115`) describe that version, and the `captures/` directory they cite is no longer in the repository.
 
-Foram abertas e inspecionadas as capturas reais fornecidas `captures/overview.png` (1080 × 1000) e `captures/sensors.png` (1080 × 760). Não há cortes ou sobreposições materiais nessas imagens. A captura de sensores apresenta horário próprio anterior ao da visão geral; ela valida a composição e o conteúdo capturado, não a atualidade das leituras no momento da revisão.
+Date: 2026-10-16. Code inspected: `d83bbf0`. Scope: first functional native version of CoreScope. Read-only review of the product and the code; this document is the only file written by the reviewer.
 
-O menu anterior foi removido após a correção. Não existe uma captura atual do menu ou do painel disponível para esta revisão. O raster antigo não representa a implementação corrigida. O checkpoint `overview-first.png` não foi usado como prova final.
+## 1. Capture validity
 
-Não houve operação de UI, coleta de novas capturas ou interação durante a medição de consumo do responsável pela implementação. Não foi verificada independentemente a correspondência do binário em execução com o commit; a inspeção de código confirmou o HEAD acima.
+The real captures provided, `captures/overview.png` (1080 × 1000) and `captures/sensors.png` (1080 × 760), were opened and inspected. There are no material crops or overlaps in these images. The sensors capture shows its own timestamp, earlier than the overview's; it validates the composition and captured content, not how current the readings were at the time of the review.
 
-## 2. Aderência ao brief e ao contrato
+The previous menu capture was removed after the fix. No current capture of the menu or panel is available for this review. The old raster does not represent the fixed implementation. The checkpoint `overview-first.png` was not used as final evidence.
 
-A direção observada é coerente com macOS nativo: fontes do sistema, SF Symbols, sidebar, controles convencionais e conteúdo compacto. A visão geral apresenta diagnóstico e ressalva antes das métricas; CPU total tem escala 0–100% e memória tem definição explícita sem ser chamada de pressão. Sensores separa estado térmico de temperatura e mostra identificação dos dispositivos, origem e horário das leituras, além da ausência de suporte para temperatura de CPU/SoC.
+There was no UI operation, collection of new captures or interaction during the implementer's resource-usage measurement. The correspondence between the running binary and the commit was not independently verified; code inspection confirmed the HEAD above.
 
-A aparência de seleção acompanha a cor de destaque observada do sistema. Nenhuma mudança estética foi solicitada com base em preferência pessoal. Não há mockup aprovado; a avaliação usa PRODUCT.md, docs/BRIEF.txt, docs/SURFACE.md e o craft-floor da skill Impeccable. Detectores web não foram executados porque a implementação é nativa.
+## 2. Adherence to the brief and the contract
 
-O código de controles de processo apresenta confirmação separada de SIGTERM/SIGKILL e lista explícita de alvos. Esta revisão de interface não certifica execução de sinais nem a segurança da implementação do coletor.
+The observed direction is consistent with native macOS: system fonts, SF Symbols, sidebar, conventional controls and compact content. The overview presents the diagnosis and caveat before the metrics; total CPU has a 0–100% scale and memory has an explicit definition without being called pressure. Sensors separates thermal state from temperature and shows device identification, source and timestamp of readings, as well as the lack of support for CPU/SoC temperature.
 
-## 3. Achados materiais e correções
+The selection appearance follows the observed system accent color. No aesthetic change was requested on the basis of personal preference. There is no approved mockup; the evaluation uses PRODUCT.md, docs/BRIEF.txt, docs/SURFACE.md and the Impeccable skill's craft floor. Web detectors were not run because the implementation is native.
 
-Os dois achados anteriores foram tratados no código:
+The process-control code presents separate SIGTERM/SIGKILL confirmation and an explicit list of targets. This interface review does not certify signal execution or the safety of the collector's implementation.
 
-- **Menu com contraste insuficiente no raster anterior:** `native/CoreScope.swift:115` agora aplica `Color(nsColor: .windowBackgroundColor)` como fundo opaco de MenuSummary. A correção elimina a dependência do material translúcido que motivou o achado. Correção confirmada por código; contraste final renderizado ainda não medido. O contraste aproximado de 2,5:1 medido anteriormente pertence somente à captura descartada e não deve ser atribuído ao build corrigido.
-- **Aviso de dados antigos condicionado à opção térmica:** `native/Panel.swift:119` agora mantém “Pausado”/“Ao vivo” no cabeçalho, fora de `thermalInPanel`. O esmaecimento geral de 0,65 foi retirado em `native/Panel.swift:156–159`. A leitura antiga passa a ter rótulo independente da seleção térmica. Correção confirmada por código; estado final não capturado.
+## 3. Material findings and fixes
 
-Não foram encontrados novos defeitos materiais nas duas imagens atuais. Não se abriu nova rodada de polimento.
+The two previous findings were addressed in code:
 
-## 4. Limites da revisão
+- **Menu with insufficient contrast in the previous raster:** `native/CoreScope.swift:115` now applies `Color(nsColor: .windowBackgroundColor)` as an opaque background for MenuSummary. The fix removes the dependence on the translucent material that prompted the finding. Fix confirmed by code; final rendered contrast not yet measured. The approximate 2.5:1 contrast measured earlier belongs only to the discarded capture and must not be attributed to the fixed build.
+- **Stale-data notice dependent on the thermal option:** `native/Panel.swift:119` now keeps “Pausado”/“Ao vivo” (Paused/Live) in the header, outside `thermalInPanel`. The overall 0.65 dimming was removed in `native/Panel.swift:156–159`. A stale reading now has a label independent of the thermal selection. Fix confirmed by code; final state not captured.
 
-Aprovação visual limitada à visão geral e sensores nas dimensões e no tema escuro capturados. Sem aprovação visual final para menu, painel, processos, armazenamento, ajustes, modo claro, tamanho mínimo, foco de teclado, VoiceOver, aumento de contraste, redução de transparência ou estados de erro/pausa. Implementação por código não equivale a teste desses estados.
+No new material defects were found in the two current images. No new polishing round was opened.
 
-Spaces, tela cheia, múltiplos monitores, desconexão física e repouso/retorno físicos permanecem fora desta revisão. Compilação, assinatura, consumo e testes funcionais pertencem aos relatórios do implementador, não foram repetidos pelo revisor.
+## 4. Review limits
 
-## 5. Disposição única
+Visual approval is limited to the overview and sensors at the captured dimensions and in dark mode. No final visual approval for the menu, panel, processes, storage, settings, light mode, minimum size, keyboard focus, VoiceOver, increased contrast, reduced transparency or error/pause states. Implementation in code is not equivalent to testing those states.
+
+Spaces, full screen, multiple monitors, physical disconnection and physical sleep/wake remain outside this review. Build, signing, resource usage and functional tests belong to the implementer's reports and were not repeated by the reviewer.
+
+## 5. Single disposition
 
 **recapture**
 
-As duas correções estão aceitas por inspeção de código e as superfícies atuais capturadas não apresentam impedimento material. Falta somente evidência renderizada do menu corrigido e do painel pausado com a opção térmica desligada para fechar os achados visuais. Esta disposição não solicita redesenho, reconstrução nem nova caça de polimento. A primeira versão funcional pode ser entregue com essa pendência visual explicitamente declarada; não deve ser descrita como visualmente validada em todas as superfícies.
+The two fixes are accepted by code inspection, and the current captured surfaces show no material blocker. All that is missing is rendered evidence of the fixed menu and of the paused panel with the thermal option off to close the visual findings. This disposition does not request a redesign, a rebuild or a new polishing hunt. The first functional version can ship with this visual item explicitly declared as pending; it must not be described as visually validated on every surface.

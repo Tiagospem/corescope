@@ -98,6 +98,33 @@ struct ProcessForest {
   }
 }
 
+/// Groups ports by owner in order of first appearance; ports without an owner stay in `rest`.
+func splitPorts(_ ports: [UInt16], owner: (UInt16) -> String?) -> (
+  owned: [(owner: String, ports: [UInt16])], rest: [UInt16]
+) {
+  var owned: [(owner: String, ports: [UInt16])] = []
+  var rest: [UInt16] = []
+  for port in ports {
+    guard let id = owner(port) else {
+      rest.append(port)
+      continue
+    }
+    if let index = owned.firstIndex(where: { $0.owner == id }) {
+      owned[index].ports.append(port)
+    } else {
+      owned.append((id, [port]))
+    }
+  }
+  return (owned, rest)
+}
+
+/// Port → owner for ports claimed by exactly one owner; shared ports are left out.
+func uniqueOwners(_ pairs: [(port: UInt16, owner: String)]) -> [UInt16: String] {
+  var owners: [UInt16: Set<String>] = [:]
+  for pair in pairs { owners[pair.port, default: []].insert(pair.owner) }
+  return owners.compactMapValues { $0.count == 1 ? $0.first : nil }
+}
+
 func formatBytes(_ value: Double) -> String {
   ByteCountFormatter.string(fromByteCount: Int64(max(0, value)), countStyle: .memory)
 }
@@ -116,11 +143,50 @@ func abbreviateHome(_ path: String) -> String {
   return path.hasPrefix(home) ? "~" + path.dropFirst(home.count) : path
 }
 /// Last component of a working directory when it looks like a project (not / or the home folder).
-func projectName(_ cwd: String) -> String? {
-  let home = NSHomeDirectory()
+/// Demo mode passes `demoHome`, since its paths no longer start with the real home.
+func projectName(_ cwd: String, home: String = NSHomeDirectory()) -> String? {
   // App sandboxes and support folders are not projects.
   guard !cwd.isEmpty, cwd != "/", cwd != home, !cwd.hasPrefix(home + "/Library/"),
     !cwd.hasPrefix("/private/"), !cwd.hasPrefix("/Library/"), !cwd.hasPrefix("/System/")
   else { return nil }
   return (cwd as NSString).lastPathComponent
+}
+
+/// Home folder shown in demo mode (`CORESCOPE_DEMO=1`).
+let demoHome = "/Users/dev"
+/// Stable stand-in from `list` for `key`, so a name always maps to the same fake one.
+func demoPick(_ list: [String], _ key: String) -> String {
+  list[Int(key.utf8.reduce(UInt32(7)) { $0 &* 31 &+ UInt32($1) } % UInt32(list.count))]
+}
+/// Demo-mode stand-in for a path. System locations stay readable; the home becomes `demoHome`,
+/// ~/Library becomes a generic support folder, and every other folder (home subfolders, external
+/// volumes, other users) becomes `demoHome/code/<fake project>`, so no real folder name is shown.
+/// Executables keep their file name, which is already shown as the process name.
+func demoPath(_ path: String, home: String, projects: [String], executable: Bool = false) -> String {
+  func withoutDataVolumePrefix(_ value: String) -> String {
+    let prefix = "/System/Volumes/Data"
+    if value == prefix { return "/" }
+    return value.hasPrefix(prefix + "/") ? String(value.dropFirst(prefix.count)) : value
+  }
+  let path = withoutDataVolumePrefix(path)
+  let home = withoutDataVolumePrefix(home)
+  guard path.hasPrefix("/") else { return path }
+  let name = (path as NSString).lastPathComponent
+  let file = executable ? "/" + name : ""
+  if path == home { return demoHome }
+  if path.hasPrefix(home + "/") {
+    if path == home + "/Library" || path.hasPrefix(home + "/Library/") {
+      return demoHome + "/Library/Application Support" + file
+    }
+  } else {
+    let system = [
+      "/System", "/usr", "/bin", "/sbin", "/Applications", "/Library", "/private", "/opt", "/tmp",
+      "/var", "/etc", "/dev", "/cores",
+    ]
+    if path == "/" || system.contains(where: { path == $0 || path.hasPrefix($0 + "/") }) {
+      return path
+    }
+  }
+  let folder = executable ? ((path as NSString).deletingLastPathComponent as NSString).lastPathComponent : name
+  return demoHome + "/code/" + demoPick(projects, folder) + file
 }

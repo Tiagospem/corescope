@@ -1,61 +1,65 @@
-# Validação — CoreScope 0.1.0
+# Validation — CoreScope 0.1.0
 
-Data: 16/10/2026. Host observado: macOS 27.0.1 arm64, 16 GiB físicos, 10 núcleos lógicos. Rust 1.98.1 e Swift 6.4. Deployment target 14, sem validação física de macOS 14 ou Intel.
+*Português: [VALIDATION.pt-BR.md](VALIDATION.pt-BR.md)*
 
-## Testes automatizados
+> **Historical (v0.1.0).** This document records validation of the first native version (commit `d83bbf0`). The UI has since changed (process tree, Agents page, inline ✕ kill, new floating panel layouts); the screens, paths and observations below describe that version, and the `captures/` directory they cite is no longer in the repository. Current resource numbers are in the [README](../README.md#resource-usage).
 
-`./scripts/test.sh`: **15 testes Rust + 6 verificações nativas passaram**. `cargo fmt --check` e Clippy com `-D warnings` passaram.
+Date: 2026-10-16. Observed host: macOS 27.0.1 arm64, 16 GiB physical, 10 logical cores. Rust 1.98.1 and Swift 6.4. Deployment target 14, with no physical validation on macOS 14 or Intel.
 
-Cobertura: ticks de CPU/normalização; conversão Mach com carga real descartável; contadores reiniciados; intervalo após repouso; histerese; limites por quantidade/idade do histórico; Celsius NVMe válido, inválido, indisponível e negado; ausência de falsos candidatos com apenas PPID/idade; critérios combinados para candidato; rejeição de PID inválido/próprio; início/executável divergentes; SIGTERM e SIGKILL em filhos criados pelo teste; amostra real; reset; JSON/ownership FFI; conjunto exato de descendentes, ordem e ciclos; painel fora da tela e tela com origem negativa.
+## Automated tests
 
-Nenhum teste sinalizou processos reais de trabalho. A carga do teste usa `/usr/bin/yes` criado pelo teste, por 500 ms, com stdout descartado; encerramentos usam `/bin/sleep` criado pelo teste. Não se chama killall/pkill/grupos.
+`./scripts/test.sh`: **15 Rust tests + 6 native checks passed**. `cargo fmt --check` and Clippy with `-D warnings` passed.
 
-## Métricas observadas
+Coverage: CPU ticks/normalization; Mach conversion with a real disposable load; reset counters; interval after sleep; hysteresis; history limits by count/age; valid, invalid, unavailable and denied NVMe Celsius; no false candidates from PPID/age alone; combined criteria for candidates; rejection of invalid/own PID; mismatched start time/executable; SIGTERM and SIGKILL on children created by the test; real sample; reset; FFI JSON/ownership; exact descendant set, order and cycles; off-screen panel and a screen with a negative origin.
 
-- CPU, RAM, compressor, swap e aproximadamente 430–530 processos disponíveis durante o trabalho, com variação real do sistema.
-- CPU por processo corrigida/validada para tempo absoluto Mach em Apple Silicon; 100% equivale a um núcleo.
-- Dispositivos físicos identificados como APPLE SSD AP0256Z Media e KINGSTON SNV3S1000G Media. Volumes APFS listados separadamente.
-- Leitura NVMe sem root às 09:55:31: Apple **50,85 °C**, Kingston **47,85 °C**, convertidos de 324 K e 321 K. Temperaturas pontuais, não benchmark térmico; resolução original 1 K.
-- Pressão de memória permaneceu “aguardando evento” na sessão: não foi forçado um evento por consumo artificial de RAM.
-- Estado térmico “Moderado” observado; não é valor de temperatura.
+No test signaled real work processes. The test load uses `/usr/bin/yes` spawned by the test, for 500 ms, with stdout discarded; terminations use `/bin/sleep` spawned by the test. killall/pkill/process groups are never called.
 
-## Estado das funcionalidades
+## Observed metrics
 
-| Funcionalidade | Implementação / validação | Limitação |
+- CPU, RAM, compressor, swap and roughly 430–530 processes available during the work, with real system variation.
+- Per-process CPU corrected/validated for Mach absolute time on Apple Silicon; 100% equals one core.
+- Physical devices identified as APPLE SSD AP0256Z Media and KINGSTON SNV3S1000G Media. APFS volumes listed separately.
+- NVMe read without root at 09:55:31: Apple **50.85 °C**, Kingston **47.85 °C**, converted from 324 K and 321 K. Point-in-time temperatures, not a thermal benchmark; original resolution 1 K.
+- Memory pressure remained “waiting for event” during the session: no event was forced through artificial RAM consumption.
+- Thermal state “Moderate” observed; it is not a temperature value.
+
+## Feature status
+
+| Feature | Implementation / validation | Limitation |
 |---|---|---|
-| Núcleo e FFI | Compilados e exercitados; testes Rust | Ponteiros do contrato devem ser válidos; catch_unwind não transforma UB em erro |
-| CPU/memória/processos | Dados reais e teste de escala | Alguns processos protegidos ficam sem métricas/sem permissão |
-| Diagnósticos e histerese | Testes de janelas e recuperação | Heurísticas explicáveis, não prova causal de lentidão |
-| Pressão de memória | Dispatch com disponibilidade explícita | Nenhum evento crítico real provocado |
-| Menu configurável | MenuBarExtra nativo, dados compartilhados | Espaço da barra depende do macOS e dos outros apps |
-| Janela, filtros, árvore e detalhes | SwiftUI nativo; busca CoreScope retornou um resultado, detalhes abertos e encerramento próprio desabilitado | Árvore observada; não foi exercitada toda combinação de filtros |
-| SIGTERM/SIGKILL | Revalidação e confirmação, testes com descartáveis | Corrida residual entre revalidação e kill; sem helper privilegiado |
-| Árvore de encerramento | Lista fixa, revalidação por alvo, teste de descendentes | Novos filhos posteriores à confirmação não são incluídos |
-| Candidatos a abandono | Mudança de pai observada + sinais adicionais | Sem histórico anterior ao lançamento; não comprova abandono |
-| Histórico acompanhado | Até 12 identidades; até 120 pontos/10 min | Não persiste histórico nem segue PID reutilizado |
-| I/O e volumes | APIs reais; nomes dos dois dispositivos conferidos | Sem diagnóstico de latência/saturação; inventário cacheado em 30 s |
-| Temperatura NVMe | **Leitura real dos dois SSDs, sem root** | SATA, bridges incompatíveis e temperatura do adaptador não implementados |
-| Seleção de sensor | Sensor suportado selecionável para menu/painel | ID IOKit muda após reconexão; pode ser necessário selecionar novamente |
-| Painel flutuante | NSPanel não ativador, tamanho/opacidade/trava, UUID da tela | Troca física de monitor/Spaces/tela cheia ainda exige matriz manual |
-| Repouso/retorno | Notificações e reset de deltas; testes de reset | Não suspendemos a máquina com o trabalho do usuário ativo |
-| Temas/acessibilidade | Cores/controles de sistema, teclado, redução de transparência, sem animações próprias | VoiceOver completo e todas as combinações de contraste ainda não certificados |
-| Início de sessão | SMAppService opcional, inicialmente desligado | Não ativado para não mudar a sessão do usuário; ad hoc pode ser recusado |
-| Energia | Limitação explicitada | Sem watts/joules/Energy Impact confiável por API integrada |
+| Core and FFI | Built and exercised; Rust tests | Contract pointers must be valid; catch_unwind does not turn UB into an error |
+| CPU/memory/processes | Real data and scale test | Some protected processes have no metrics/no permission |
+| Diagnostics and hysteresis | Window and recovery tests | Explainable heuristics, not causal proof of slowness |
+| Memory pressure | Dispatch with explicit availability | No real critical event provoked |
+| Configurable menu | Native MenuBarExtra, shared data | Menu bar space depends on macOS and other apps |
+| Window, filters, tree and details | Native SwiftUI; searching for CoreScope returned one result, details opened and termination of itself disabled | Tree observed; not every filter combination was exercised |
+| SIGTERM/SIGKILL | Revalidation and confirmation, tests with disposable processes | Residual race between revalidation and kill; no privileged helper |
+| Tree termination | Fixed list, per-target revalidation, descendant test | New children spawned after confirmation are not included |
+| Abandonment candidates | Observed parent change + additional signals | No history from before launch; does not prove abandonment |
+| Tracked history | Up to 12 identities; up to 120 points/10 min | Does not persist history or follow a reused PID |
+| I/O and volumes | Real APIs; names of both devices checked | No latency/saturation diagnostics; inventory cached for 30 s |
+| NVMe temperature | **Real read of both SSDs, without root** | SATA, incompatible bridges and adapter temperature not implemented |
+| Sensor selection | Supported sensor selectable for menu/panel | IOKit ID changes after reconnection; reselection may be needed |
+| Floating panel | Non-activating NSPanel, size/opacity/lock, screen UUID | Physical monitor swaps/Spaces/full screen still require a manual matrix |
+| Sleep/wake | Notifications and delta reset; reset tests | We did not put the machine to sleep with the user's work active |
+| Themes/accessibility | System colors/controls, keyboard, reduced transparency, no custom animations | Full VoiceOver and all contrast combinations not yet certified |
+| Launch at login | Optional SMAppService, off by default | Not enabled, to avoid changing the user's session; ad hoc signing may be rejected |
+| Energy | Limitation made explicit | No reliable watts/joules/Energy Impact via an integrated API |
 
-## Roteiro de aceitação física restante
+## Remaining physical acceptance checklist
 
-1. Arrastar painel entre dois monitores, travar, desconectar/reconectar monitor, verificar recuperação e preferências por UUID.
-2. Alternar Spaces e aplicativos em tela cheia com painel habilitado; confirmar que não toma foco. Os flags foram configurados, não equivalem a este teste.
-3. Repousar e retomar com o monitor ligado, conferir lacuna/primeira amostra sem delta.
-4. Desconectar/reconectar um disco externo ocioso e seguro para remoção; não desconectamos o volume onde está o trabalho do usuário.
-5. Verificar VoiceOver/Full Keyboard Access, launch at login e sistema mínimo em máquina de teste.
+1. Drag the panel between two monitors, lock it, disconnect/reconnect a monitor, verify recovery and per-UUID preferences.
+2. Switch Spaces and full-screen apps with the panel enabled; confirm it does not take focus. The flags were configured; that is not equivalent to this test.
+3. Sleep and wake with the monitor on; check the gap/first sample without a delta.
+4. Disconnect/reconnect an idle external disk that is safe to remove; we did not disconnect the volume holding the user's work.
+5. Verify VoiceOver/Full Keyboard Access, launch at login and the minimum system on a test machine.
 
-As limitações acima são fronteiras de validação, não simulações ou resultados inventados.
+The limitations above are validation boundaries, not simulations or invented results.
 
-## Interface exercitada
+## Exercised interface
 
-Aplicativo empacotado aberto pelo caminho `build/CoreScope.app`. Capturas reais em `captures/`: visão geral com históricos em atualização, sensores com os dois NVMe e detalhes do próprio CoreScope. Busca por “CoreScope” reduziu a lista a um resultado; duplo clique abriu os detalhes com origem, início, memória e ações de encerramento bloqueadas. Atalhos de navegação para Processos, Ajustes, Visão geral e Sensores foram exercitados.
+Packaged app opened from the path `build/CoreScope.app`. Real captures in `captures/`: overview with updating histories, sensors with both NVMe drives, and CoreScope's own details. Searching for “CoreScope” narrowed the list to one result; double-clicking opened the details with origin, start time, memory and blocked termination actions. Navigation shortcuts to Processes, Settings, Overview and Sensors were exercised.
 
-A revisão visual encontrou contraste insuficiente no menu e indicador de pausa condicionado à opção térmica do painel. Ambos foram corrigidos, recompilados e revisados por código; a recaptura específica desses dois estados ainda está pendente. Ver `FINISH-REVIEW.md`. Não equiparar isso a uma aprovação visual completa de todas as preferências.
+The visual review found insufficient contrast in the menu and a pause indicator that depended on the panel's thermal option. Both were fixed, rebuilt and reviewed in code; a specific recapture of those two states is still pending. See `FINISH-REVIEW.md`. Do not equate this with full visual approval of every preference.
 
-Consumo medido externamente, com deltas de libproc e relógio monotônico: metodologia e resultados em `CONSUMPTION.md`. Consultas de acessibilidade à tabela completa produziram custo adicional visível; não houve novas chamadas de UI durante as janelas do medidor, mas uma amostragem de pilha posterior ainda encontrou requisições de acessibilidade à tabela. Portanto essas janelas não comprovam um baseline sem observadores externos.
+Resource usage measured externally, with libproc deltas and a monotonic clock: methodology and results in `CONSUMPTION.md`. Accessibility queries against the full table produced visible additional cost; there were no new UI calls during the meter's windows, but a later stack sample still found accessibility requests against the table. These windows therefore do not prove a baseline free of external observers.

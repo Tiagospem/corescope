@@ -238,6 +238,7 @@ struct HistoryView: View {
   @ViewBuilder private func charts(_ s: HistorySeries) -> some View {
     let p = s.points
     let physical = Monitor.shared.snapshot?.physical.value
+    let percent: (Double) -> String = { String(format: "%.0f%%", $0) }
     TimeAxis(series: s, selected: selected)
     LazyVGrid(
       columns: Array(repeating: GridItem(.flexible(), spacing: 12, alignment: .top), count: 2),
@@ -247,29 +248,27 @@ struct HistoryView: View {
         title: L("CPU"), symbol: "cpu", value: summary(
           p, \.cpu, \.cpu_max, format: { String(format: "%.0f%%", $0) }, labels: ("", L("pico")), secondIsPeak: true),
         series: [
-          ChartSeries(values: p.map(\.cpu_max), color: Tint.cpu.opacity(0.45)),
-          ChartSeries(values: p.map(\.cpu), color: Tint.cpu),
+          ChartSeries(values: p.map(\.cpu_max), color: Tint.cpu.opacity(0.45), name: L("pico"), format: percent),
+          ChartSeries(values: p.map(\.cpu), color: Tint.cpu, name: L("média"), format: percent),
         ], ceiling: 100, legend: [("média", Tint.cpu), ("pico", Tint.cpu.opacity(0.45))], selected: $selected)
       HistoryChart(
         title: L("Memória"), symbol: "memorychip", value: summary(
           p, \.memory, \.swap, format: formatBytes, labels: ("", L("swap")), secondIsPeak: true),
         series: [
-          ChartSeries(values: p.map(\.memory), color: Tint.memory),
-          ChartSeries(values: p.map(\.swap), color: .orange),
+          ChartSeries(values: p.map(\.memory), color: Tint.memory, name: L("usada"), format: formatBytes),
+          ChartSeries(values: p.map(\.swap), color: .orange, name: L("swap"), format: formatBytes),
         ], ceiling: physical, legend: [("usada", Tint.memory), ("swap", .orange)], selected: $selected)
       HistoryChart(
         title: L("Disco"), symbol: "internaldrive", value: summary(
           p, \.disk_read, \.disk_write, format: formatRate, labels: ("↓", "↑"), secondIsPeak: false),
         series: [
-          ChartSeries(values: p.map(\.disk_read), color: Tint.diskRead),
-          ChartSeries(values: p.map(\.disk_write), color: Tint.diskWrite),
+          .diskRead(p.map(\.disk_read)), .diskWrite(p.map(\.disk_write)),
         ], legend: [("leitura", Tint.diskRead), ("escrita", Tint.diskWrite)], selected: $selected)
       HistoryChart(
         title: L("Rede"), symbol: "arrow.up.arrow.down", value: summary(
           p, \.net_in, \.net_out, format: formatRate, labels: ("↓", "↑"), secondIsPeak: false),
         series: [
-          ChartSeries(values: p.map(\.net_in), color: Tint.netIn),
-          ChartSeries(values: p.map(\.net_out), color: Tint.netOut),
+          .netIn(p.map(\.net_in)), .netOut(p.map(\.net_out)),
         ], legend: [("entrada", Tint.netIn), ("saída", Tint.netOut)], selected: $selected)
     }
     StateStrips(points: p, selected: $selected)
@@ -369,21 +368,28 @@ private struct HistoryChart: View {
     Card {
       HStack(spacing: 6) {
         Image(systemName: symbol).font(.system(size: 11, weight: .semibold))
-          .foregroundStyle(series.last?.color ?? .secondary)
+          .foregroundStyle(series.last?.color ?? .secondary).accessibilityHidden(true)
         Text(title).font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
+          .accessibilityAddTraits(.isHeader)
         Spacer()
         ForEach(legend, id: \.0) { item in
           HStack(spacing: 3) {
-            Circle().fill(item.1).frame(width: 6, height: 6)
+            Circle().fill(item.1).frame(width: 6, height: 6).accessibilityHidden(true)
             Text(L(item.0)).font(.system(size: 10)).foregroundStyle(.secondary)
           }
         }
       }
       Text(value).font(.system(size: 17, weight: .semibold, design: .rounded)).monospacedDigit()
         .lineLimit(1).minimumScaleFactor(0.7)
-      AreaChart(series: series, ceiling: ceiling, capacity: max(2, count))
+      AreaChart(series: series, ceiling: ceiling, capacity: max(2, count), title: title)
         .frame(height: 96)
         .overlay { SelectionLayer(count: count, selected: $selected) }
+        // VoiceOver: swipe up/down moves the selected moment, like dragging across the chart.
+        .accessibilityAdjustableAction { direction in
+          guard count > 0 else { return }
+          let current = selected ?? count - 1
+          selected = direction == .increment ? min(count - 1, current + 1) : max(0, current - 1)
+        }
     }
   }
 }
@@ -396,9 +402,9 @@ private struct SelectionLayer: View {
       ZStack(alignment: .topLeading) {
         if let selected {
           Rectangle().fill(Color.accentColor.opacity(0.8)).frame(width: 1.5, height: g.size.height)
-            .offset(x: CGFloat(selected) * step - 0.75)
+            .offset(x: CGFloat(selected) * step - 0.75).accessibilityHidden(true)
         }
-        Color.clear.contentShape(Rectangle())
+        Color.clear.contentShape(Rectangle()).accessibilityHidden(true)
           .gesture(
             DragGesture(minimumDistance: 0).onChanged { v in
               guard count > 0 else { return }
@@ -416,17 +422,19 @@ private struct StateStrips: View {
   var body: some View {
     Card {
       CardHeader(title: L("Térmico e pressão de memória"), symbol: "thermometer.medium", tint: .orange)
-      strip(L("Térmico"), values: points.map(\.thermal)) { v in
+      strip(L("Térmico"), values: points.map(\.thermal), names: ["Nominal", "Moderado", "Sério", "Crítico"]) { v in
         [Color.green.opacity(0.35), .yellow, .orange, .red][min(3, max(0, v))]
       }
-      strip(L("Eventos de pressão"), values: points.map(\.pressure)) { v in
+      strip(L("Eventos de pressão"), values: points.map(\.pressure), names: ["Normal", "Atenção", "Crítica"]) { v in
         [Color.green.opacity(0.35), .orange, .red][min(2, max(0, v))]
       }
       HStack(alignment: .top, spacing: 8) {
         Text(L("Pressão %")).font(.caption).foregroundStyle(.secondary).frame(width: 120, alignment: .leading)
+          .accessibilityHidden(true)
         AreaChart(
-          series: [ChartSeries(values: points.map(\.pressure_pct), color: .orange)], ceiling: 100,
-          capacity: max(2, points.count), grid: false
+          series: [
+            ChartSeries(values: points.map(\.pressure_pct), color: .orange, format: { String(format: "%.0f%%", $0) })
+          ], ceiling: 100, capacity: max(2, points.count), grid: false, title: L("Pressão %")
         ).frame(height: 36).overlay { SelectionLayer(count: points.count, selected: $selected) }
       }
       Text(
@@ -434,8 +442,9 @@ private struct StateStrips: View {
       ).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
     }
   }
-  private func strip(_ title: String, values: [Int?], color: @escaping (Int) -> Color) -> some View {
-    HStack(spacing: 8) {
+  private func strip(_ title: String, values: [Int?], names: [String], color: @escaping (Int) -> Color) -> some View {
+    let worst = values.compactMap { $0 }.max()
+    return HStack(spacing: 8) {
       Text(title).font(.caption).foregroundStyle(.secondary).frame(width: 120, alignment: .leading)
       Canvas { context, size in
         let width = size.width / CGFloat(max(1, values.count))
@@ -447,6 +456,10 @@ private struct StateStrips: View {
       }.frame(height: 12).background(Color.primary.opacity(0.05))
         .clipShape(RoundedRectangle(cornerRadius: 3))
     }
+    // Spoken as the worst state of the window; the cells are visual only.
+    .accessibilityElement()
+    .accessibilityLabel(title)
+    .accessibilityValue(worst.map { L("pior: %@", L(names[min(names.count - 1, max(0, $0))])) } ?? L("Sem dados"))
   }
 }
 
@@ -484,6 +497,7 @@ private struct DominatorsCard: View {
   ) -> some View {
     VStack(alignment: .leading, spacing: 7) {
       Text(title.uppercased()).font(.system(size: 10, weight: .bold)).foregroundStyle(tint)
+        .accessibilityAddTraits(.isHeader)
       ForEach(items) { p in
         HStack(spacing: 8) {
           HistoryIcon(path: p.path, origin: p.origin)
@@ -500,6 +514,7 @@ private struct DominatorsCard: View {
             Text(detail).font(.caption2).foregroundStyle(.secondary).monospacedDigit()
           }
         }.font(.callout).help([p.path, abbreviateHome(p.cwd)].filter { !$0.isEmpty }.joined(separator: "\n"))
+          .accessibilityElement(children: .combine)
       }
     }.frame(maxWidth: .infinity, alignment: .topLeading)
   }
@@ -508,6 +523,9 @@ private struct HistoryIcon: View {
   let path: String
   let origin: String
   var body: some View {
+    icon.accessibilityHidden(true)
+  }
+  @ViewBuilder private var icon: some View {
     if let range = path.range(of: ".app/") {
       Image(nsImage: IconCache.image(for: String(path[..<range.lowerBound]) + ".app")).resizable()
         .frame(width: 18, height: 18)
