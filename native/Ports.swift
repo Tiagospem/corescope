@@ -97,7 +97,7 @@ struct PortsView: View {
           Badge(text: L(e.risk == "high" ? "alto" : e.risk == "medium" ? "médio" : "baixo"),
                 color: e.risk == "high" ? .red : e.risk == "medium" ? .orange : .secondary)
             .frame(width: 54, alignment: .leading)
-          Text(":\(e.port)").font(.callout.weight(.semibold)).monospacedDigit().frame(width: 64, alignment: .leading)
+          Text(verbatim: ":\(e.port)").font(.callout.weight(.semibold)).monospacedDigit().frame(width: 64, alignment: .leading)
           VStack(alignment: .leading, spacing: 2) {
             Text([e.owner, e.project].compactMap { $0 }.joined(separator: " · ")).font(.callout).lineLimit(1)
             Text(e.advice).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -119,7 +119,7 @@ struct PortsView: View {
           TextField("3000", text: $from).textFieldStyle(.roundedBorder).frame(width: 64).onSubmit(findFree)
           Button(L("Achar porta livre"), action: findFree).controlSize(.small)
           if let free {
-            Button(":\(free)") {
+            Button(":" + String(free)) {
               NSPasteboard.general.clearContents()
               NSPasteboard.general.setString("\(free)", forType: .string)
             }.controlSize(.small).help(L("Copiar"))
@@ -135,7 +135,7 @@ struct PortsView: View {
             .frame(width: 8, height: 8)
           Text(c.project).font(.callout.weight(.medium)).frame(width: 150, alignment: .leading).lineLimit(1)
           Text(c.role).font(.caption).foregroundStyle(.secondary).frame(width: 70, alignment: .leading)
-          Text(":\(c.port)").font(.callout).monospacedDigit().frame(width: 60, alignment: .leading)
+          Text(verbatim: ":\(c.port)").font(.callout).monospacedDigit().frame(width: 60, alignment: .leading)
           Text(
             c.state == "free" ? L("livre") : c.state == "ours" ? L("em uso pelo projeto") : L("ocupada por %@", c.held_by ?? "?")
           ).font(.caption).foregroundStyle(c.state == "taken" ? .orange : .secondary).lineLimit(1)

@@ -170,7 +170,7 @@ private struct DatabaseCard: View {
               .lineLimit(1)
             Text(q.query).font(.system(.caption, design: .monospaced)).lineLimit(2).textSelection(.enabled)
             Spacer(minLength: 0)
-            Text("#\(q.id)").font(.caption2).foregroundStyle(.tertiary)
+            Text(verbatim: "#\(q.id)").font(.caption2).foregroundStyle(.tertiary)
           }
         }
       }
