@@ -356,10 +356,12 @@ private struct ProfileEditor: View {
           }
         }
         Section(L("Comandos")) {
-          ForEach($profile.commands) { $command in
+          // Bindings by id, not by index: a field that updates after its row was removed would
+          // otherwise read past the end of the array and crash.
+          ForEach(profile.commands) { command in
             HStack {
-              TextField(L("Nome"), text: $command.name, prompt: Text(L("Nome"))).frame(width: 110)
-              TextField(L("Comando"), text: $command.command, prompt: Text(L("Comando, ex.: npm run dev")))
+              TextField(L("Nome"), text: field(command.id, \.name), prompt: Text(L("Nome"))).frame(width: 110)
+              TextField(L("Comando"), text: field(command.id, \.command), prompt: Text(L("Comando, ex.: npm run dev")))
                 .font(.system(.body, design: .monospaced))
               Button {
                 profile.commands.removeAll { $0.id == command.id }
@@ -388,8 +390,9 @@ private struct ProfileEditor: View {
         Spacer()
         Button(L("Cancelar"), action: cancel).keyboardShortcut(.cancelAction)
         Button(L("Salvar")) {
-          profile.commands.removeAll { $0.command.trimmingCharacters(in: .whitespaces).isEmpty }
-          save(profile)
+          var saved = profile
+          saved.commands.removeAll { $0.command.trimmingCharacters(in: .whitespaces).isEmpty }
+          save(saved)
         }
         .keyboardShortcut(.defaultAction)
         .disabled(profile.name.trimmingCharacters(in: .whitespaces).isEmpty || profile.folder.isEmpty)
@@ -398,6 +401,13 @@ private struct ProfileEditor: View {
     .padding(20)
     .frame(width: 620, height: 560)
     .watchesContainers(stats: false)
+  }
+  private func field(_ id: UUID, _ key: WritableKeyPath<ProfileCommand, String>) -> Binding<String> {
+    Binding(
+      get: { profile.commands.first { $0.id == id }?[keyPath: key] ?? "" },
+      set: { value in
+        if let i = profile.commands.firstIndex(where: { $0.id == id }) { profile.commands[i][keyPath: key] = value }
+      })
   }
   private func chooseFolder() {
     let panel = NSOpenPanel()
