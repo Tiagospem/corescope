@@ -81,7 +81,7 @@ struct TranscriptTally {
     var skipping = false
     while position < size {
       if filled == buffer.count {
-        let keep = buffer.withUnsafeBytes { wants(UnsafeRawBufferPointer(rebasing: $0[0..<512])) }
+        let keep = buffer.withUnsafeBytes { wants(UnsafeRawBufferPointer(rebasing: $0[0..<min($0.count, 512)])) }
         if keep && buffer.count < maxLine {
           buffer += [UInt8](repeating: 0, count: buffer.count)
         } else {
