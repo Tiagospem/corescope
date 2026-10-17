@@ -89,7 +89,7 @@ final class HistoryStore: ObservableObject {
   }
   /// Writes the minute in progress; used on quit.
   static func flush() { _ = try? call(["op": "flush"]) }
-  func load(range: HistoryRange, end: Date) {
+  func load(range: HistoryRange, end: Date, then: ((HistorySeries?) -> Void)? = nil) {
     let to = (end.timeIntervalSince1970 / range.bucket).rounded(.up) * range.bucket
     let from = to - range.span
     generation += 1
@@ -107,7 +107,10 @@ final class HistoryStore: ObservableObject {
           self.series = s
           self.info = s.info
           self.error = nil
-        case .failure(let e): self.error = e.localizedDescription
+          then?(s)
+        case .failure(let e):
+          self.error = e.localizedDescription
+          then?(nil)
         }
       }
     }
@@ -187,9 +190,21 @@ struct HistoryView: View {
     .onReceive(tick) { _ in if end == nil { reload(keepSelection: true) } }
   }
   private func reload(keepSelection: Bool = false) {
+    let selectedAt: Double?
+    if keepSelection, let selected, let series = store.series, series.points.indices.contains(selected) {
+      selectedAt = series.points[selected].at
+    } else {
+      selectedAt = nil
+    }
     if !keepSelection { selected = nil }
-    store.load(range: range, end: end ?? Date())
-    loadTop()
+    store.load(range: range, end: end ?? Date()) { series in
+      if let selectedAt, let index = series?.points.firstIndex(where: { $0.at == selectedAt }) {
+        selected = index
+      } else {
+        selected = nil
+      }
+      loadTop()
+    }
   }
   private func loadTop() {
     let to = ((end ?? Date()).timeIntervalSince1970 / range.bucket).rounded(.up) * range.bucket
