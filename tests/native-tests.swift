@@ -44,6 +44,7 @@ import Foundation
     precondition(work.hasPrefix("/Users/dev/code/") && !work.contains("client-x"))
     precondition(fakes.contains(projectName(work, home: demoHome) ?? ""))
     precondition(demo("/Users/me/other/client-x") == work && demo("/Volumes/Work/client-x") == work)
+    precondition(demo("/System/Volumes/Data/Users/me/code/client-x") == work)
     let binary = demo("/Users/me/code/client-x/target/debug/server", executable: true)
     precondition(binary.hasPrefix("/Users/dev/code/") && binary.hasSuffix("/server") && !binary.contains("client-x"))
     let derived = demo("/Users/me/Library/Developer/Xcode/DerivedData/ClientX-abc")
@@ -54,7 +55,7 @@ import Foundation
     }
     precondition(demo("") == "")
     print(
-      "16 native assertions passed: descendants, cycle, ordering, off-screen recovery, negative-origin monitor, forest roots, flatten, collapse, totals, ancestors, filter, formatting, demo paths"
+      "17 native assertions passed: descendants, cycle, ordering, off-screen recovery, negative-origin monitor, forest roots, flatten, collapse, totals, ancestors, filter, formatting, demo paths"
     )
   }
 }
