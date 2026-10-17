@@ -276,6 +276,27 @@ enum ControlAPI {
       }
       MachineStore.shared.hosts.removeAll { $0 == host }
       reply(["removed": host])
+    case "machines.recipes":
+      guard let host = args["host"] as? String, MachineStore.shared.hosts.contains(host) else {
+        return reply(["error": "no such machine; list_machines shows the hosts"])
+      }
+      reply(["host": host, "recipes": MachineStore.shared.recipes(host).map { ["name": $0.name, "command": $0.command] }])
+    case "machines.run":
+      guard let host = args["host"] as? String, MachineStore.shared.hosts.contains(host) else {
+        return reply(["error": "no such machine; list_machines shows the hosts"])
+      }
+      let name = args["recipe"] as? String ?? ""
+      guard let recipe = MachineStore.shared.recipes(host).first(where: { $0.name == name }) else {
+        return reply(["error": "no recipe named \(name); list_recipes shows them (agents cannot run free-form commands)"])
+      }
+      DispatchQueue.global(qos: .userInitiated).async {
+        let (out, error) = MachineStore.shared.run(recipe, on: host)
+        DispatchQueue.main.async {
+          var r: [String: Any] = ["host": host, "recipe": name, "output": out]
+          if let error { r["error_note"] = error }
+          reply(r)
+        }
+      }
     case "machines.refresh":
       MachineStore.shared.refreshAll()
       waitForMachines(reply) { ["machines": MachineStore.shared.hosts.map(machineJSON)] }
@@ -439,6 +460,11 @@ enum ControlAPI {
       row["detail"] = r.detail
       row["latency_ms"] = r.latency.map { ($0 * 10).rounded() / 10 } ?? NSNull()
       row["checked_at"] = ISO8601DateFormatter().string(from: r.at)
+      row["uptime_24h_percent"] = HealthStore.shared.uptime(c.id, hours: 24).map { ($0 * 1000).rounded() / 10 } ?? NSNull()
+      row["uptime_7d_percent"] = HealthStore.shared.uptime(c.id, hours: 168).map { ($0 * 1000).rounded() / 10 } ?? NSNull()
+      row["incidents_7d"] = HealthStore.shared.incidents(c.id).prefix(10).map {
+        ["start": ISO8601DateFormatter().string(from: $0.start), "minutes": Int($0.end.timeIntervalSince($0.start) / 60)]
+      }
     } else {
       row["status"] = "not checked yet"
     }
@@ -459,9 +485,17 @@ enum ControlAPI {
       row["disk_total"] = s.diskTotal ?? NSNull()
       row["disk_used"] = s.diskUsed ?? NSNull()
       row["containers"] = s.containers ?? NSNull()
+      row["os_name"] = s.osName
+      row["swap_total"] = s.swapTotal ?? NSNull()
+      row["swap_free"] = s.swapFree ?? NSNull()
+      row["disks"] = s.disks.map { ["mount": $0.mount, "total": $0.total, "used": $0.used] }
+      row["failed_units"] = s.failedUnits
+      row["container_list"] = s.containerList.map { ["name": $0.name, "state": $0.state, "status": $0.status] }
+      row["top_memory"] = s.memoryProcesses.map { ["name": $0.name, "cpu_percent": $0.cpu, "memory_percent": $0.memory] }
       row["top_processes"] = s.processes.map { ["name": $0.name, "cpu_percent": $0.cpu, "memory_percent": $0.memory] }
     }
     row["read_at"] = ISO8601DateFormatter().string(from: state.at)
+    row["alerts"] = state.alerts.map(\.text)
     return row
   }
   private static func waitForMachines(_ reply: @escaping Reply, attempts: Int = 0, _ value: @escaping () -> [String: Any]) {
@@ -506,7 +540,7 @@ enum AgentSettings {
     "notify_orphans": \.notifyOrphans, "notify_heavy_processes": \.notifyHeavy,
     "notify_memory_pressure": \.notifyPressure, "notify_stuck_agents": \.notifyStalls,
     "notify_service_down": \.notifyServiceDown, "notify_agent_battery_drain": \.notifyAgentDrain,
-    "economy_mode_on_battery": \.economyMode,
+    "economy_mode_on_battery": \.economyMode, "notify_machine_alerts": \.notifyMachines,
   ]
   private static let numbers: [String: (ReferenceWritableKeyPath<Preferences, Double>, ClosedRange<Double>)] = [
     "stuck_agent_minutes": (\.stallMinutes, 1...240), "agent_drain_watts": (\.drainWatts, 0.5...50),

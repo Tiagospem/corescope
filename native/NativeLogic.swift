@@ -658,6 +658,12 @@ struct RemoteStats: Equatable {
   var diskTotal: Double?, diskUsed: Double?
   var containers: Int?
   var processes: [(cpu: Double, memory: Double, name: String)] = []
+  var memoryProcesses: [(cpu: Double, memory: Double, name: String)] = []
+  var osName = ""
+  var swapTotal: Double?, swapFree: Double?
+  var disks: [(mount: String, total: Double, used: Double)] = []
+  var failedUnits: [String] = []
+  var containerList: [(name: String, state: String, status: String)] = []
   static func == (a: Self, b: Self) -> Bool {
     a.os == b.os && a.host == b.host && a.load == b.load && a.cpus == b.cpus && a.uptime == b.uptime
       && a.memoryTotal == b.memoryTotal && a.memoryAvailable == b.memoryAvailable && a.diskTotal == b.diskTotal
@@ -680,11 +686,24 @@ struct RemoteStats: Equatable {
       case "disktotal": diskTotal = Double(value)
       case "diskused": diskUsed = Double(value)
       case "containers": containers = Int(value)
-      case "proc":
+      case "proc", "mproc":
         let parts = value.split(separator: "|", maxSplits: 2).map(String.init)
         if parts.count == 3, let cpu = Double(parts[0]), let mem = Double(parts[1]) {
-          processes.append((cpu, mem, (parts[2] as NSString).lastPathComponent))
+          let entry = (cpu, mem, (parts[2] as NSString).lastPathComponent)
+          if key == "proc" { processes.append(entry) } else { memoryProcesses.append(entry) }
         }
+      case "osname": osName = value
+      case "swaptotal": swapTotal = Double(value)
+      case "swapfree": swapFree = Double(value)
+      case "disk":
+        let parts = value.split(separator: "|").map(String.init)
+        if parts.count == 3, let total = Double(parts[1]), let used = Double(parts[2]), total > 0 {
+          disks.append((parts[0], total, used))
+        }
+      case "failed": if !value.isEmpty { failedUnits.append(value) }
+      case "container":
+        let parts = value.split(separator: "|", maxSplits: 2).map(String.init)
+        if parts.count == 3 { containerList.append((parts[0], parts[1], parts[2])) }
       default: break
       }
     }
@@ -761,5 +780,83 @@ enum ClaudeGateHook {
     }
     let nextHooks = hooks.setting("PreToolUse", kept.isEmpty ? nil : .array(kept))
     return settings.setting("hooks", nextHooks == .object([]) ? nil : nextHooks)
+  }
+}
+
+/// A problem worth an alert on a remote machine.
+enum MachineAlert: Equatable {
+  case disk(mount: String, percent: Int)
+  case load(Double, cores: Int)
+  case failedUnits([String])
+  case containerStopped(String, status: String)
+  case containerUnhealthy(String)
+}
+/// `before` is the previous reading, for sustained load and containers that stopped since.
+func machineAlerts(_ now: RemoteStats, before: RemoteStats?) -> [MachineAlert] {
+  var out: [MachineAlert] = []
+  // Volumes under 1 GB are disk images and recovery partitions: always nearly full.
+  for d in now.disks where d.total >= 1e9 && d.used / d.total >= 0.9 {
+    out.append(.disk(mount: d.mount, percent: Int((d.used / d.total * 100).rounded())))
+  }
+  if now.disks.isEmpty, let total = now.diskTotal, let used = now.diskUsed, total > 0, used / total >= 0.9 {
+    out.append(.disk(mount: "/", percent: Int((used / total * 100).rounded())))
+  }
+  let cores = Double(max(now.cpus, 1))
+  if let load = now.load.first, load / cores >= 1.5, let previous = before?.load.first, previous / cores >= 1.5 {
+    out.append(.load(load, cores: now.cpus))
+  }
+  if !now.failedUnits.isEmpty { out.append(.failedUnits(now.failedUnits)) }
+  let running = Set(before?.containerList.filter { $0.state == "running" }.map(\.name) ?? [])
+  for c in now.containerList where running.contains(c.name) && c.state != "running" {
+    out.append(.containerStopped(c.name, status: c.status))
+  }
+  for c in now.containerList where c.status.contains("unhealthy") {
+    out.append(.containerUnhealthy(c.name))
+  }
+  return out
+}
+
+/// Five minutes of a Services check: how many checks were up and down, and the summed latency.
+struct HealthBucket: Codable, Equatable {
+  var up = 0
+  var down = 0
+  var latencySum = 0.0
+  var latencyCount = 0
+  var latency: Double? { latencyCount > 0 ? latencySum / Double(latencyCount) : nil }
+}
+enum HealthHistory {
+  static let bucketSeconds = 300.0
+  static let keep = 7 * 24 * 12
+  static func bucket(_ date: Date) -> Int { Int(date.timeIntervalSince1970 / bucketSeconds) }
+  /// Adds one result and drops buckets older than a week.
+  static func record(_ buckets: inout [Int: HealthBucket], at: Date, up: Bool, latency: Double?) {
+    let key = bucket(at)
+    var b = buckets[key] ?? HealthBucket()
+    if up { b.up += 1 } else { b.down += 1 }
+    if let latency {
+      b.latencySum += latency
+      b.latencyCount += 1
+    }
+    buckets[key] = b
+    let oldest = key - keep
+    if buckets.keys.contains(where: { $0 < oldest }) { buckets = buckets.filter { $0.key >= oldest } }
+  }
+  /// Share of checks that were up in the window ending now; nil without data.
+  static func uptime(_ buckets: [Int: HealthBucket], now: Date, seconds: Double) -> Double? {
+    let from = bucket(now.addingTimeInterval(-seconds))
+    let inWindow = buckets.filter { $0.key > from }.values
+    let up = inWindow.reduce(0) { $0 + $1.up }, total = inWindow.reduce(0) { $0 + $1.up + $1.down }
+    return total > 0 ? Double(up) / Double(total) : nil
+  }
+  /// Down periods (buckets where most checks failed), consecutive ones merged, newest first.
+  static func incidents(_ buckets: [Int: HealthBucket]) -> [(start: Date, end: Date)] {
+    let bad = buckets.filter { $0.value.down > $0.value.up }.keys.sorted()
+    var out: [(Int, Int)] = []
+    for k in bad {
+      if let last = out.last, last.1 == k - 1 { out[out.count - 1].1 = k } else { out.append((k, k)) }
+    }
+    return out.reversed().map {
+      (Date(timeIntervalSince1970: Double($0.0) * bucketSeconds), Date(timeIntervalSince1970: Double($0.1 + 1) * bucketSeconds))
+    }
   }
 }

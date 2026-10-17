@@ -53,6 +53,11 @@ final class HealthStore: ObservableObject {
     schedule()
   }
   @Published private(set) var results: [UUID: HealthResult] = [:]
+  /// A week of 5-minute buckets per check, kept on disk (counts and latency only).
+  @Published private(set) var buckets: [UUID: [Int: HealthBucket]] = [:]
+  private var lastSave = Date.distantPast
+  private static let historyFile = FileManager.default.homeDirectoryForCurrentUser
+    .appendingPathComponent("Library/Application Support/CoreScope/services-history.json")
   /// Recent latencies per check (nil = failed), oldest first.
   @Published private(set) var history: [UUID: [Double?]] = [:]
   private var failures: [UUID: Int] = [:]
@@ -70,6 +75,11 @@ final class HealthStore: ObservableObject {
   private init() {
     let data = UserDefaults.standard.data(forKey: "healthChecks")
     checks = data.flatMap { try? JSONDecoder().decode([HealthCheck].self, from: $0) } ?? []
+    if let saved = try? Data(contentsOf: Self.historyFile),
+      let decoded = try? JSONDecoder().decode([UUID: [Int: HealthBucket]].self, from: saved)
+    {
+      buckets = decoded
+    }
     schedule()
   }
   var worst: HealthLevel? { allChecks.compactMap { results[$0.id]?.level }.max() }
@@ -121,6 +131,8 @@ final class HealthStore: ObservableObject {
     var recent = history[check.id] ?? []
     recent.append(result.level == .down ? nil : result.latency)
     history[check.id] = Array(recent.suffix(40))
+    HealthHistory.record(&buckets[check.id, default: [:]], at: result.at, up: result.level != .down, latency: result.latency)
+    if Date().timeIntervalSince(lastSave) > 120 { saveHistory() }
     // Two failures in a row before alerting, so one slow answer does not page anyone.
     failures[check.id] = result.level == .down ? (failures[check.id] ?? 0) + 1 : 0
     guard Preferences.shared.notifyServiceDown else { return }
@@ -133,6 +145,22 @@ final class HealthStore: ObservableObject {
         key: check.id.uuidString, title: L("%@ voltou", check.name), body: "\(check.target) · \(result.detail)")
     }
   }
+
+  /// Written at most every 2 minutes; checks that no longer exist are dropped.
+  func saveHistory() {
+    lastSave = Date()
+    let ids = Set(allChecks.map(\.id))
+    let snapshot = buckets.filter { ids.contains($0.key) }
+    DispatchQueue.global(qos: .utility).async {
+      try? FileManager.default.createDirectory(
+        at: Self.historyFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+      if let data = try? JSONEncoder().encode(snapshot) { try? data.write(to: Self.historyFile, options: .atomic) }
+    }
+  }
+  func uptime(_ id: UUID, hours: Double) -> Double? {
+    HealthHistory.uptime(buckets[id] ?? [:], now: Date(), seconds: hours * 3600)
+  }
+  func incidents(_ id: UUID) -> [(start: Date, end: Date)] { HealthHistory.incidents(buckets[id] ?? [:]) }
 
   private static func describe(_ error: Error?) -> String {
     guard let error = error as? URLError else { return L("sem resposta") }
@@ -301,6 +329,7 @@ private struct HealthRow: View {
   let history: [Double?]
   let edit: () -> Void
   let remove: () -> Void
+  @ViewState private var showHistory = false
   var body: some View {
     HStack(spacing: 10) {
       Circle().fill(result?.level.color ?? .secondary).frame(width: 9, height: 9)
@@ -315,6 +344,15 @@ private struct HealthRow: View {
       }
       Spacer(minLength: 8)
       LatencyStrip(values: history).frame(width: 120, height: 18)
+      Button {
+        showHistory = true
+      } label: {
+        VStack(alignment: .trailing, spacing: 1) {
+          Text(HealthStore.shared.uptime(check.id, hours: 24).map { String(format: "%.1f%%", $0 * 100) } ?? "—")
+            .font(.callout).monospacedDigit()
+          Text(L("24 h")).font(.caption2).foregroundStyle(.secondary)
+        }
+      }.buttonStyle(.plain).help(L("Disponibilidade e incidentes"))
       VStack(alignment: .trailing, spacing: 2) {
         Text(result?.latency.map { String(format: "%.0f ms", $0) } ?? "—").font(.callout).monospacedDigit()
         Text(result.map { "\($0.detail) · \($0.at.formatted(date: .omitted, time: .standard))" } ?? L("Verificando…"))
@@ -339,6 +377,7 @@ private struct HealthRow: View {
         Image(systemName: "ellipsis.circle")
       }.menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
     }.padding(.vertical, 3)
+    .sheet(isPresented: $showHistory) { ServiceHistorySheet(check: check) }
   }
 }
 
@@ -383,6 +422,63 @@ struct HealthCard: View {
           }
         }
       }
+    }
+  }
+}
+
+/// A week of one check: uptime, incidents and today's latency.
+private struct ServiceHistorySheet: View {
+  let check: HealthCheck
+  @ObservedObject var store = HealthStore.shared
+  @Environment(\.dismiss) private var dismiss
+  var body: some View {
+    let buckets = store.buckets[check.id] ?? [:]
+    let today = (0..<288).map { i -> Double? in
+      buckets[HealthHistory.bucket(Date()) - 287 + i].flatMap { $0.down > $0.up ? nil : $0.latency }
+    }
+    let incidents = store.incidents(check.id)
+    VStack(alignment: .leading, spacing: 14) {
+      HStack {
+        Text(check.name).font(.title3.weight(.semibold))
+        Spacer()
+        Button(L("Fechar")) { dismiss() }.keyboardShortcut(.cancelAction)
+      }
+      HStack(spacing: 24) {
+        figure(L("24 h"), store.uptime(check.id, hours: 24))
+        figure(L("7 dias"), store.uptime(check.id, hours: 168))
+        VStack(alignment: .leading, spacing: 2) {
+          Text("\(incidents.count)").font(.system(size: 22, weight: .semibold, design: .rounded))
+          Text(L("incidentes na semana")).font(.caption).foregroundStyle(.secondary)
+        }
+      }
+      Text(L("Latência nas últimas 24 h")).font(.caption.weight(.semibold))
+      LatencyStrip(values: today.map { $0 ?? 0 }).frame(height: 60)
+      Text(L("Incidentes")).font(.caption.weight(.semibold))
+      ScrollView {
+        VStack(alignment: .leading, spacing: 4) {
+          if incidents.isEmpty { EmptyNote(text: L("Nenhum incidente registrado.")) }
+          ForEach(Array(incidents.prefix(50).enumerated()), id: \.offset) { _, i in
+            HStack {
+              Circle().fill(Color.red).frame(width: 6, height: 6)
+              Text(i.start.formatted(date: .abbreviated, time: .shortened))
+              Text("→ \(i.end.formatted(date: .omitted, time: .shortened))").foregroundStyle(.secondary)
+              Spacer()
+              Text(formatDuration(i.end.timeIntervalSince(i.start))).foregroundStyle(.secondary)
+            }.font(.callout)
+          }
+        }
+      }
+      Text(L("Guardado em blocos de 5 minutos por 7 dias (contagens e latência, nada mais).")).font(.caption)
+        .foregroundStyle(.secondary)
+    }
+    .padding(20)
+    .frame(width: 560, height: 520)
+  }
+  private func figure(_ label: String, _ value: Double?) -> some View {
+    VStack(alignment: .leading, spacing: 2) {
+      Text(value.map { String(format: "%.2f%%", $0 * 100) } ?? "—").font(.system(size: 22, weight: .semibold, design: .rounded))
+        .monospacedDigit()
+      Text(label).font(.caption).foregroundStyle(.secondary)
     }
   }
 }

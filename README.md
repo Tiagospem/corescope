@@ -139,6 +139,7 @@ agents:
 
 Watch the things your work depends on: a local API's `/health`, a database port, a staging URL. Each check runs every 30 s while CoreScope is open — an HTTP GET (2xx/3xx up, 4xx answered with an error, 5xx or no answer down) or a TCP connect — with latency, a strip of the last 40 results, an Overview summary and optional notifications when a service goes down (two failures in a row) or comes back. Ports you have open right now are offered as one-click suggestions.
 
+Each check keeps a week of history in 5-minute buckets (counts and latency only): uptime over 24 h and 7 days next to it, and a sheet with incidents and the day's latency. MCP `list_services` includes uptime and recent incidents.
 ### ▶️ Profiles
 
 One click to bring a project's environment up or down. A profile is a folder, the commands you run there every day (`npm run dev`, `php artisan serve`, `cargo watch -x run`…) and the containers it needs. *Start* runs each command in your login shell inside the folder, in a session of its own, with output in `~/Library/Application Support/CoreScope/logs`, and starts the containers. Everything a command starts keeps that session, so servers it leaves running in the background still belong to the profile — after the shell exits and after CoreScope restarts — with their PIDs and ports on the card. Setup commands that exit (`make env-up`, `docker compose up -d`) count as done when they exit 0 (failed otherwise), and can have an *on stop* command (`make env-down`) that Stop runs. *Stop* (after confirmation) sends SIGTERM only to the processes in the sessions CoreScope started for that profile — identity-checked like every other termination — and stops its containers — only the ones a profile started, and never one another started profile still uses: shared containers (one database for several projects) stay up until the last profile using them stops, and the confirmation lists what stops and what stays. *Stop everything* is there when you want it all down.
@@ -153,7 +154,10 @@ The MySQL/MariaDB, PostgreSQL and Redis servers running on this Mac — as proce
 
 ### 🖥️ Machines
 
-Servers you reach over ssh — add an alias from `~/.ssh/config` (offered as suggestions) or `user@host` — with OS, uptime, load against cores, memory, root disk, the top processes and running containers, refreshed every 60 s while the page is open. CoreScope runs **your own `ssh` in BatchMode** with a fixed, read-only script (`uname`, load, memory, `df`, `ps`, `docker ps`) piped to `sh -s`: keys and agent stay with ssh, nothing prompts for a password, and a host whose key is unknown fails instead of being accepted. Only `Host` names are read from your ssh config.
+Servers you reach over ssh — add an alias from `~/.ssh/config` (offered as suggestions) or `user@host` — refreshed every 60 s while the page is open: distribution, uptime, load against cores, memory and swap, every disk, top processes by CPU and by memory, failed systemd units and the containers with their state. CoreScope runs **your own `ssh` in BatchMode** with a fixed, read-only script piped to `sh -s`: keys and agent stay with ssh, nothing prompts for a password, and a host whose key is unknown fails instead of being accepted. Only `Host` names are read from your ssh config.
+
+- **Alerts** on the card (and optional notifications): a disk above 90%, load sustained above 1.5× the cores, failed systemd units, a container that stopped or fails its health check.
+- **Recipes**: commands that run on demand — built-in read-only ones (journal, failed units, `df`, memory, containers, top, listening ports, nginx errors) and your own. Agents run them by name over MCP (`list_recipes`, `run_recipe`), never free-form commands.
 
 ### 🔋 Energy
 
@@ -251,6 +255,7 @@ Off by default. *Settings → MCP server for agents → Enable* registers `cores
 | `list_my_processes` | What the calling agent session started, including servers it detached |
 | `power_usage` | Battery, total watts, top processes and agent sessions by power |
 | `list_databases` | Local MySQL/PostgreSQL/Redis status (read-only, no passwords) |
+| `list_recipes` / `run_recipe` | Read-only commands on a machine, run by name over your ssh |
 | `exposure_report` / `port_conflicts` | What listens beyond localhost (risk and fix); projects' preferred ports and who holds them |
 | `list_worktrees` | Git worktrees agents left: branch, merged, uncommitted changes, in use |
 | `system_capacity` / `wait_for_capacity` | Whether the Mac has room for heavy work under the project's rule; wait until it does |

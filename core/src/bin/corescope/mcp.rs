@@ -275,6 +275,22 @@ fn app_tools() -> Vec<(
             vec!["host"],
         ),
         (
+            "list_recipes",
+            "machines.recipes",
+            "Read-only commands that can run on a machine (journal, failed systemd units, disk, memory, \
+          containers, top, listening ports, nginx errors, plus the user's own).",
+            json!({"host": {"type": "string"}}),
+            vec!["host"],
+        ),
+        (
+            "run_recipe",
+            "machines.run",
+            "Run one recipe by name on a machine over the user's ssh and return its output (up to \
+          128 KB). Only named recipes: free-form commands are not possible.",
+            json!({"host": {"type": "string"}, "recipe": {"type": "string"}}),
+            vec!["host", "recipe"],
+        ),
+        (
             "refresh_machines",
             "machines.refresh",
             "Read every machine again and return the results.",

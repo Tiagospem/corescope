@@ -474,6 +474,10 @@ final class Preferences: ObservableObject {
       ControlServer.shared.apply()
     }
   }
+  /// Notify when a remote machine needs attention (disk, load, failed units, containers).
+  @Published var notifyMachines = UserDefaults.standard.bool(forKey: "notifyMachines") {
+    didSet { save("notifyMachines", notifyMachines) }
+  }
   /// On battery, run busy agent-started processes at background priority.
   @Published var economyMode = UserDefaults.standard.bool(forKey: "economyMode") {
     didSet { save("economyMode", economyMode) }

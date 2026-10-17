@@ -56,6 +56,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // Keeps the minute in progress instead of dropping it on quit.
     if Preferences.shared.historyEnabled { HistoryStore.flush() }
     ControlServer.shared.stop()
+    HealthStore.shared.saveHistory()
   }
   func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
   func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {

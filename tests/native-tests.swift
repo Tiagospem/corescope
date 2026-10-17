@@ -182,8 +182,26 @@ import Foundation
     precondition(ClaudeGateHook.removing(from: twice) == userHooks)
     let bare = try! OrderedJSON.parse(#"{"model":"x"}"#)
     precondition(ClaudeGateHook.removing(from: ClaudeGateHook.installing(into: bare, binary: "/c/corescope")) == bare)
+    let before = RemoteStats(parsing: "os=Linux\ncpus=2\nload=4.0 3 2\ncontainer=web|running|Up 2 hours\ncontainer=db|running|Up 2 hours (unhealthy)\n")
+    let now = RemoteStats(parsing: "os=Linux\ncpus=2\nload=3.5 3 2\ndisk=/|100000000000|95000000000\ndisk=/data|100000000000|50000000000\nfailed=nginx.service\ncontainer=web|exited|Exited (1) 1 minute ago\ncontainer=db|running|Up 2 hours (unhealthy)\nosname=Ubuntu 24.04 LTS\nmproc=1.0|40.5|/usr/sbin/mysqld\n")
+    precondition(now.osName == "Ubuntu 24.04 LTS" && now.memoryProcesses.first?.name == "mysqld" && now.disks.count == 2)
+    precondition(machineAlerts(now, before: before) == [
+      .disk(mount: "/", percent: 95), .load(3.5, cores: 2), .failedUnits(["nginx.service"]),
+      .containerStopped("web", status: "Exited (1) 1 minute ago"), .containerUnhealthy("db"),
+    ])
+    precondition(machineAlerts(now, before: nil).contains(.load(3.5, cores: 2)) == false, "load must be sustained")
+    // Services history: 5-minute buckets, uptime windows and merged incidents.
+    var buckets: [Int: HealthBucket] = [:]
+    let t0 = Date(timeIntervalSince1970: 1_800_000_000)
+    for i in 0..<12 { HealthHistory.record(&buckets, at: t0.addingTimeInterval(Double(i) * 300), up: i < 8, latency: i < 8 ? 10 : nil) }
+    let end = t0.addingTimeInterval(12 * 300)
+    precondition(abs((HealthHistory.uptime(buckets, now: end, seconds: 86400) ?? 0) - 8.0 / 12.0) < 0.001)
+    let incidents = HealthHistory.incidents(buckets)
+    precondition(incidents.count == 1 && incidents[0].end.timeIntervalSince(incidents[0].start) == 4 * 300)
+    HealthHistory.record(&buckets, at: t0.addingTimeInterval(8 * 86400), up: true, latency: 5)
+    precondition(buckets.count == 1, "older than a week is dropped")
     print(
-      "25 native assertions passed: descendants, cycle, ordering, off-screen recovery, negative-origin monitor, forest roots, flatten, collapse, totals, ancestors, filter, formatting, container ports, shared ports, demo paths, debounce, sustained thresholds, new arrivals, port parsing, shortcut label, agent stalls, health targets, shared containers, ssh stats, gate hook; plus settings JSON, Unicode escapes, status line install/chain, Claude limits"
+      "25 native assertions passed: descendants, cycle, ordering, off-screen recovery, negative-origin monitor, forest roots, flatten, collapse, totals, ancestors, filter, formatting, container ports, shared ports, demo paths, debounce, sustained thresholds, new arrivals, port parsing, shortcut label, agent stalls, health targets, shared containers, ssh stats, gate hook, machine alerts, service history; plus settings JSON, Unicode escapes, status line install/chain, Claude limits"
     )
     print(
       "token usage assertions passed: timestamps, formatting, Claude block dedupe, embedded entries, partial lines, long-line skip, fast/full parity, Codex repeats and forks"

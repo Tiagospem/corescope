@@ -201,7 +201,8 @@ final class Notifier: NSObject, ObservableObject, UNUserNotificationCenterDelega
         } else {
           let id = response.notification.request.identifier
           WindowOpener.shared.showMain(
-            page: id.hasPrefix("stall.") ? .agents : id.hasPrefix("service.") ? .health : id.hasPrefix("drain.") ? .energy : .processes)
+            page: id.hasPrefix("stall.") ? .agents : id.hasPrefix("service.machine.") ? .machines
+              : id.hasPrefix("service.") ? .health : id.hasPrefix("drain.") ? .energy : .processes)
         }
       }
       completionHandler()

@@ -37,6 +37,12 @@ section as the GitHub release notes.
   by risk with how to bind it to 127.0.0.1; projects' preferred ports from `.corescope.yml`
   (free, ours or taken, with a free alternative); free port finder; every listening server.
   `corescope exposure`, `corescope ports --check`, MCP `exposure_report` and `port_conflicts`.
+- **Machines**: distribution, swap, every disk, top processes by memory, failed systemd units and
+  the container list; alerts (disk over 90%, sustained load, failed units, stopped or unhealthy
+  containers) with optional notifications; recipes — read-only commands run on demand, built-in
+  or your own — also over MCP (`list_recipes`, `run_recipe`, by name only).
+- **Services history**: a week of 5-minute buckets per check with uptime over 24 h / 7 days,
+  incidents and the day's latency; included in MCP `list_services`.
 
 ## [0.4.0] - 2026-10-17
 

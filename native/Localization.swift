@@ -914,4 +914,32 @@ private let entries = """
   em uso pelo projeto ¦ in use by the project ¦ en uso por el proyecto
   ocupada por %@ ¦ taken by %@ ¦ ocupado por %@
   livre: :%@ ¦ free: :%@ ¦ libre: :%@
+  Disco %@ em %@%% ¦ Disk %@ at %@%% ¦ Disco %@ al %@%%
+  Carga %@ em %@ núcleos ¦ Load %@ on %@ cores ¦ Carga %@ en %@ núcleos
+  Serviços do systemd com falha: %@ ¦ Failed systemd units: %@ ¦ Servicios de systemd con fallo: %@
+  Contêiner %@ parou (%@) ¦ Container %@ stopped (%@) ¦ El contenedor %@ se detuvo (%@)
+  Contêiner %@ com falha no health check ¦ Container %@ is failing its health check ¦ El contenedor %@ falla su health check
+  %@ precisa de atenção ¦ %@ needs attention ¦ %@ necesita atención
+  Sem resposta em 30 s ¦ No answer in 30 s ¦ Sin respuesta en 30 s
+  Saiu com %@ ¦ Exited with %@ ¦ Salió con %@
+  Receitas ¦ Recipes ¦ Recetas
+  Comandos de leitura que rodam sob demanda (journal, df, contêineres…) ¦ Read-only commands that run on demand (journal, df, containers…) ¦ Comandos de lectura que se ejecutan a demanda (journal, df, contenedores…)
+  Swap ¦ Swap ¦ Swap
+  Discos ¦ Disks ¦ Discos
+  Sem discos além do /. ¦ No disks besides /. ¦ Sin discos además de /.
+  Nenhum contêiner (ou Docker indisponível). ¦ No containers (or Docker unavailable). ¦ Ningún contenedor (o Docker no disponible).
+  Receitas · %@ ¦ Recipes · %@ ¦ Recetas · %@
+  Fechar ¦ Close ¦ Cerrar
+  Rodar ¦ Run ¦ Ejecutar
+  Escolha uma receita. ¦ Choose a recipe. ¦ Elige una receta.
+  Comando, ex.: tail -n 100 /var/www/app/storage/logs/laravel.log ¦ Command, e.g. tail -n 100 /var/www/app/storage/logs/laravel.log ¦ Comando, p. ej. tail -n 100 /var/www/app/storage/logs/laravel.log
+  Rodam pelo seu ssh em BatchMode. As receitas prontas só leem; as suas são comandos seus — prefira comandos de leitura. Agentes podem rodar receitas pelo nome (MCP run_recipe), nunca comandos livres. ¦ They run through your ssh in BatchMode. Built-in recipes only read; yours are your own commands — prefer read-only ones. Agents can run recipes by name (MCP run_recipe), never free-form commands. ¦ Se ejecutan con tu ssh en BatchMode. Las recetas incluidas solo leen; las tuyas son comandos tuyos — prefiere comandos de lectura. Los agentes pueden ejecutar recetas por nombre (MCP run_recipe), nunca comandos libres.
+  Notificar quando uma máquina precisar de atenção ¦ Notify when a machine needs attention ¦ Notificar cuando una máquina necesite atención
+  24 h ¦ 24 h ¦ 24 h
+  Disponibilidade e incidentes ¦ Uptime and incidents ¦ Disponibilidad e incidentes
+  incidentes na semana ¦ incidents this week ¦ incidentes en la semana
+  Latência nas últimas 24 h ¦ Latency over the last 24 h ¦ Latencia en las últimas 24 h
+  Incidentes ¦ Incidents ¦ Incidentes
+  Nenhum incidente registrado. ¦ No incidents recorded. ¦ Ningún incidente registrado.
+  Guardado em blocos de 5 minutos por 7 dias (contagens e latência, nada mais). ¦ Kept in 5-minute buckets for 7 days (counts and latency, nothing else). ¦ Guardado en bloques de 5 minutos durante 7 días (conteos y latencia, nada más).
   """
