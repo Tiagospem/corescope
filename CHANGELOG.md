@@ -10,7 +10,11 @@ section as the GitHub release notes.
 
 ## [Unreleased]
 
-## [0.2.1] - Unreleased
+### Fixed
+- Reading mounted volumes no longer risks a crash when two samples run at once
+  (`getmntinfo` shares one buffer per process; now `getmntinfo_r_np`).
+
+## [0.2.1] - 2026-10-16
 
 ### Added
 - **Open in Claude** for Claude Desktop agent sessions, which resumes the session in the
@@ -46,6 +50,6 @@ First public release.
   compact / standard / detailed layouts and in-panel controls.
 - English, Portuguese and Spanish; offline-only.
 
-[Unreleased]: https://github.com/Tiagospem/corescope/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/Tiagospem/corescope/compare/v0.2.1...HEAD
 [0.2.1]: https://github.com/Tiagospem/corescope/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/Tiagospem/corescope/releases/tag/v0.2.0
