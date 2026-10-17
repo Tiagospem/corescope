@@ -17,6 +17,30 @@ enum Tint {
 struct ChartSeries {
   var values: [Double?]
   var color: Color
+  /// Series name and value format spoken by VoiceOver (e.g. "leitura", formatRate).
+  var name: String? = nil
+  var format: (Double) -> String = { String(format: "%.1f", $0) }
+}
+/// Fixed series per resource: color, spoken name and unit stay consistent everywhere.
+extension ChartSeries {
+  static func cpu(_ values: [Double?]) -> ChartSeries {
+    ChartSeries(values: values, color: Tint.cpu, format: { String(format: "%.1f%%", $0) })
+  }
+  static func memory(_ values: [Double?]) -> ChartSeries {
+    ChartSeries(values: values, color: Tint.memory, format: formatBytes)
+  }
+  static func diskRead(_ values: [Double?]) -> ChartSeries {
+    ChartSeries(values: values, color: Tint.diskRead, name: L("leitura"), format: formatRate)
+  }
+  static func diskWrite(_ values: [Double?]) -> ChartSeries {
+    ChartSeries(values: values, color: Tint.diskWrite, name: L("escrita"), format: formatRate)
+  }
+  static func netIn(_ values: [Double?]) -> ChartSeries {
+    ChartSeries(values: values, color: Tint.netIn, name: L("entrada"), format: formatRate)
+  }
+  static func netOut(_ values: [Double?]) -> ChartSeries {
+    ChartSeries(values: values, color: Tint.netOut, name: L("saída"), format: formatRate)
+  }
 }
 /// Right-aligned area chart: the newest sample sits on the right edge and gaps break the line.
 struct AreaChart: View {
@@ -26,6 +50,8 @@ struct AreaChart: View {
   var capacity = 120
   var grid = true
   var lineWidth: CGFloat = 1.5
+  /// Resource name for VoiceOver (e.g. "CPU").
+  var title: String? = nil
   var body: some View {
     Canvas { context, size in
       let peak = series.flatMap { $0.values.compactMap { $0 } }.max() ?? 0
@@ -73,11 +99,17 @@ struct AreaChart: View {
       }
     }
     .accessibilityElement()
-    .accessibilityLabel(
-      L(
-        "Histórico de %@ amostras; último valor %@", String(series.first?.values.count ?? 0),
-        series.first?.values.last.flatMap { $0 }.map { String(format: "%.1f", $0) }
-          ?? L("indisponível")))
+    .accessibilityLabel(title.map { L("Histórico de %@", $0) } ?? L("Histórico"))
+    .accessibilityValue(spokenValue)
+  }
+  /// Latest and peak of each series, in its own unit; gaps read as unavailable.
+  private var spokenValue: String {
+    series.map { s in
+      let latest = s.values.last.flatMap { $0 }.map(s.format) ?? L("indisponível")
+      let peak = s.values.compactMap { $0 }.max().map(s.format) ?? L("indisponível")
+      let text = L("último %@, pico %@", latest, peak)
+      return s.name.map { "\($0): \(text)" } ?? text
+    }.joined(separator: "; ")
   }
 }
 /// Compatibility wrapper for single-series charts.
@@ -110,6 +142,7 @@ struct CardHeader<Trailing: View>: View {
   var body: some View {
     HStack(spacing: 7) {
       Image(systemName: symbol).foregroundStyle(tint).font(.system(size: 12, weight: .semibold))
+        .accessibilityHidden(true)
       Text(title).font(.system(size: 13, weight: .semibold))
       if let count { Badge(text: "\(count)", color: count > 0 ? tint : .secondary) }
       Spacer(minLength: 4)
@@ -129,13 +162,26 @@ struct Badge: View {
   var symbol: String? = nil
   var body: some View {
     HStack(spacing: 3) {
-      if let symbol { Image(systemName: symbol).font(.system(size: 8, weight: .bold)) }
+      if let symbol {
+        Image(systemName: symbol).font(.system(size: 8, weight: .bold)).accessibilityHidden(true)
+      }
       Text(text).lineLimit(1)
     }
     .font(.system(size: 10, weight: .semibold)).monospacedDigit()
     .padding(.horizontal, 6).padding(.vertical, 2)
     .foregroundStyle(color)
     .background(color.opacity(0.14), in: Capsule())
+    .accessibilityElement(children: .combine)
+  }
+}
+/// Listening port; orange when reachable from the network.
+struct PortBadge: View {
+  let port: PortInfo
+  var body: some View {
+    Badge(text: ":\(port.port)", color: port.exposed ? .orange : Tint.netIn)
+      .help(port.exposed ? L("Acessível na rede") : L("Somente local"))
+      .accessibilityLabel(L("Porta %@", "\(port.port)"))
+      .accessibilityValue(port.exposed ? L("Acessível na rede") : L("Somente local"))
   }
 }
 struct MeterBar: View {
@@ -148,13 +194,18 @@ struct MeterBar: View {
         Capsule().fill(color).frame(width: max(2, g.size.width * min(1, max(0, fraction))))
       }
     }.frame(height: 4)
+      .accessibilityElement()
+      .accessibilityLabel(L("Uso"))
+      .accessibilityValue(String(format: "%.0f%%", min(1, max(0, fraction)) * 100))
   }
 }
 struct LiveDot: View {
   let stale: Bool
   var body: some View {
+    // Always paired with a "Live" / "Paused" text, so VoiceOver skips the dot.
     Circle().fill(stale ? Color.orange : Tint.brand).frame(width: 7, height: 7)
       .shadow(color: (stale ? Color.orange : Tint.brand).opacity(0.6), radius: 3)
+      .accessibilityHidden(true)
   }
 }
 
@@ -195,10 +246,14 @@ enum IconCache {
   }
 }
 /// Real app icon for bundled executables; a symbol describing the role otherwise.
+/// Decorative: the process name is always next to it, so VoiceOver skips the icon.
 struct ProcessIcon: View {
   let process: ProcessItem
   var size: CGFloat = 16
   var body: some View {
+    icon.accessibilityHidden(true)
+  }
+  @ViewBuilder private var icon: some View {
     // Bundled agent CLIs (e.g. claude-code/<v>/claude.app) ship no icon of their own.
     let bundledCLI = process.tags.contains("agent") && !(process.host ?? "").hasSuffix("Desktop")
     if let bundle = process.bundlePath, !bundledCLI {
@@ -248,17 +303,21 @@ struct KillButton: View {
       if !process.eligible {
         Image(systemName: "lock.fill").font(.system(size: 10)).foregroundStyle(.tertiary)
           .frame(width: 22, height: 22).help(L(process.blocked))
+          .accessibilityLabel(L("%@ não pode ser encerrado", "\(process.name)"))
+          .accessibilityHint(L(process.blocked))
       } else if armed {
         HStack(spacing: 2) {
           Button(force ? L("Forçar") : L("Encerrar")) {
             armed = false
             monitor.signal(group, force: force)
           }.buttonStyle(.borderedProminent).tint(.red).controlSize(.small)
+            .accessibilityLabel(
+              force ? L("Confirmar: forçar %@", "\(process.name)") : L("Confirmar: encerrar %@", "\(process.name)"))
           Button {
             armed = false
           } label: {
             Image(systemName: "xmark").font(.system(size: 9, weight: .bold))
-          }.buttonStyle(HoverButtonStyle(size: 20)).help(L("Cancelar"))
+          }.buttonStyle(HoverButtonStyle(size: 20)).help(L("Cancelar")).accessibilityLabel(L("Cancelar"))
         }
       } else {
         Button {
@@ -282,6 +341,10 @@ struct KillButton: View {
             : force
               ? L("Forçar encerramento (SIGKILL) de %@", "\(process.name)")
               : L("Encerrar %@ (SIGTERM)", "\(process.name)"))
+        .accessibilityLabel(
+          group.count > 1
+            ? L("Encerrar sessão %@", "\(process.name)")
+            : force ? L("Forçar encerramento de %@", "\(process.name)") : L("Encerrar %@", "\(process.name)"))
       }
     }
   }
@@ -294,6 +357,7 @@ struct OpenPortButton: View {
     } label: {
       Image(systemName: "safari").font(.system(size: 12))
     }.buttonStyle(HoverButtonStyle(tint: .accentColor, size: 22)).help(L("Abrir http://localhost:%@", "\(port)"))
+      .accessibilityLabel(L("Abrir localhost:%@ no navegador", "\(port)"))
   }
 }
 
@@ -322,7 +386,7 @@ struct FeedbackToast: View {
           monitor.feedback = nil
         } label: {
           Image(systemName: "xmark").font(.system(size: 9, weight: .bold))
-        }.buttonStyle(HoverButtonStyle(size: 20))
+        }.buttonStyle(HoverButtonStyle(size: 20)).help(L("Dispensar")).accessibilityLabel(L("Dispensar"))
       }
       .padding(.horizontal, 12).padding(.vertical, 9)
       .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
@@ -330,6 +394,8 @@ struct FeedbackToast: View {
       .shadow(color: .black.opacity(0.18), radius: 10, y: 3)
       .id(f.id)
       .task(id: f.id) {
+        // The toast never takes focus; announce the result so VoiceOver users hear it.
+        AccessibilityNotification.Announcement(f.message).post()
         guard !f.pending, f.survivors.isEmpty else { return }
         try? await Task.sleep(nanoseconds: 6_000_000_000)
         if monitor.feedback?.id == f.id { monitor.feedback = nil }

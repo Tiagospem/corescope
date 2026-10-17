@@ -57,4 +57,4 @@ Contrato de memória FFI em `native/CoreScopeFFI.h` e `docs/ARCHITECTURE.md`. A 
 
 ## Evidências da entrega
 
-[Funcionalidades e validação](VALIDATION.md) · [Consumo observado](CONSUMPTION.md) · [Investigação REA / Disk Drill](DISKDRILL-TEMPERATURE.md) · [Fontes das APIs](API-SOURCES.md) · [Capturas](screenshots/) · [Revisão visual](FINISH-REVIEW.md).
+[Funcionalidades e validação](VALIDATION.pt-BR.md) · [Consumo observado](CONSUMPTION.pt-BR.md) · [Investigação REA / Disk Drill](DISKDRILL-TEMPERATURE.pt-BR.md) · [Fontes das APIs](API-SOURCES.pt-BR.md) · [Capturas](screenshots/) · [Revisão visual](FINISH-REVIEW.pt-BR.md).

@@ -17,6 +17,13 @@
   <img alt="MIT" src="https://img.shields.io/badge/license-MIT-lightgrey">
 </p>
 
+<!--
+  Demo GIF slot. Record docs/screenshots/demo.gif as described in CONTRIBUTING.md
+  ("Recording the demo GIF"), then uncomment this block:
+<p align="center">
+  <img src="docs/screenshots/demo.gif" alt="CoreScope demo: the process tree, terminating a dev server with the inline ✕ button, and the Agents page" width="900">
+</p>
+-->
 <p align="center">
   <img src="docs/screenshots/overview.jpg" alt="CoreScope overview: CPU, memory, disk and network charts, listening servers, possible orphans, usage limits and agent sessions" width="900">
 </p>
@@ -138,7 +145,7 @@ Sampling pauses during sleep and slows down in Low Power Mode.
 | `core/src/lib.rs` | Rust core: sampling, deltas, history, diagnostics, process classification (agents, editors, terminals, runtimes), origin and orphan detection, safe signaling, C ABI |
 | `native/` | SwiftUI + AppKit app: window, menu bar extra, floating `NSPanel`, agents, localization |
 | `scripts/` | Build, tests, procedural app icon, external read-only resource meter |
-| `docs/` | Architecture, API sources, validation and measurement notes (Portuguese) |
+| `docs/` | Architecture, API sources, validation and measurement notes (English; Portuguese originals in `*.pt-BR.md`) |
 
 The Swift UI calls the Rust core over a small C ABI that returns one JSON snapshot per sample on a serial background queue. See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
@@ -148,10 +155,10 @@ The Swift UI calls the Rust core over a small C ABI that returns one JSON snapsh
 ./scripts/test.sh     # cargo fmt --check, cargo test, clippy -D warnings, native logic tests
 ./scripts/build.sh    # release build into build/CoreScope.app
 ./scripts/package.sh  # DMG + zip + SHA-256 checksums into dist/ (release artifacts)
-open --env CORESCOPE_DEMO=1 build/CoreScope.app   # live metrics with anonymized paths, projects and session titles
+open --env CORESCOPE_DEMO=1 build/CoreScope.app   # demo mode: live metrics, anonymized user, home and session titles (quit with ⌘Q first)
 ```
 
-The screenshots in this README were taken in demo mode.
+The screenshots in this README were taken in demo mode. Demo mode doesn't rename folders under your home, so check captures before sharing them (see [CONTRIBUTING.md](CONTRIBUTING.md)).
 
 ## Roadmap
 
@@ -165,7 +172,7 @@ Please report vulnerabilities privately — see [SECURITY.md](SECURITY.md).
 
 ## Contributing
 
-Issues and pull requests are welcome. Please run `./scripts/test.sh` before opening a PR, keep the app offline-only, and avoid private or undocumented system APIs.
+Issues and pull requests are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for build and test commands, code style and the project principles (local-only, public APIs only).
 
 ## License
 
