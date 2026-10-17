@@ -10,6 +10,8 @@ section as the GitHub release notes.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-17
+
 ### Added
 - **Current Codex limits through Codex's own app-server** (opt-in): *Settings › Agents ›
   Read the current limit through Codex*, or the button on the limits card, asks the installed
@@ -111,7 +113,8 @@ First public release.
   compact / standard / detailed layouts and in-panel controls.
 - English, Portuguese and Spanish; offline-only.
 
-[Unreleased]: https://github.com/Tiagospem/corescope/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/Tiagospem/corescope/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/Tiagospem/corescope/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/Tiagospem/corescope/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/Tiagospem/corescope/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/Tiagospem/corescope/releases/tag/v0.2.0
