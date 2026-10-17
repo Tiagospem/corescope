@@ -176,11 +176,13 @@ final class ContainerStore: ObservableObject {
     return uniqueOwners(pairs).compactMapValues { byID[$0] }
   }
   /// Runs after the user confirmed; the engine allows 10 s for a clean exit before SIGKILL.
-  func perform(_ container: ContainerItem, action: String) {
+  /// `done` gets the error message, or nil when the engine did it.
+  func perform(_ container: ContainerItem, action: String, done: ((String?) -> Void)? = nil) {
     let monitor = Monitor.shared
     let stop = action == "stop"
+    let start = action == "start"
     monitor.feedback = ActionFeedback(
-      message: L(stop ? "Parando %@…" : "Reiniciando %@…", container.name), pending: true)
+      message: L(start ? "Iniciando %@…" : stop ? "Parando %@…" : "Reiniciando %@…", container.name), pending: true)
     actions.async {
       let error: String? = {
         guard
@@ -200,8 +202,9 @@ final class ContainerStore: ObservableObject {
       DispatchQueue.main.async {
         monitor.feedback = ActionFeedback(
           message: error.map { "\(container.name): \($0)" }
-            ?? L(stop ? "%@ parado." : "%@ reiniciado.", container.name),
+            ?? L(start ? "%@ iniciado." : stop ? "%@ parado." : "%@ reiniciado.", container.name),
           failed: error != nil)
+        done?(error)
         self.lastRead = .distantPast
         self.tick()
         monitor.refresh()
@@ -326,6 +329,10 @@ struct ContainerGrid: View {
                 Circle().fill(c.stateColor).frame(width: 5, height: 5)
                 Text(c.stateLabel)
                 Text("· \(c.engine)").foregroundStyle(.tertiary)
+                if let policy = DockerDetailsStore.shared.details.restart[c.id], policy != "no" {
+                  Text("· \(policy)").foregroundStyle(.tertiary)
+                    .help(L("Política de reinício: o Docker sobe o contêiner de novo sozinho"))
+                }
               }.font(.caption2).foregroundStyle(.secondary).lineLimit(1)
             }
           }
@@ -335,8 +342,13 @@ struct ContainerGrid: View {
           Text(c.project ?? "—").lineLimit(1).foregroundStyle(c.project == nil ? .secondary : .primary)
             .help(c.service.map { L("Serviço %@", $0) } ?? "")
           if showImage {
-            Text(c.image).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-              .frame(minWidth: 120, maxWidth: .infinity, alignment: .leading).help(c.image)
+            VStack(alignment: .leading, spacing: 1) {
+              Text(c.image).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+              if let created = DockerDetailsStore.shared.details.images[c.image] {
+                Text(L("imagem de %@", Date(timeIntervalSince1970: created).formatted(.relative(presentation: .named))))
+                  .font(.caption2).foregroundStyle(.tertiary)
+              }
+            }.frame(minWidth: 120, maxWidth: .infinity, alignment: .leading).help(c.image)
           }
           ContainerPorts(ports: c.tcpPorts)
           Text(c.running ? c.cpuText : "—").monospacedDigit()
@@ -346,6 +358,12 @@ struct ContainerGrid: View {
             if c.running {
               ContainerActionButton(container: c, action: "restart")
               ContainerActionButton(container: c, action: "stop")
+            } else {
+              Button {
+                ContainerStore.shared.perform(c, action: "start")
+              } label: {
+                Image(systemName: "play.circle").font(.system(size: 15))
+              }.buttonStyle(.borderless).help(L("Iniciar o contêiner %@", c.name))
             }
           }.gridColumnAlignment(.trailing)
         }.font(.callout)
@@ -415,34 +433,145 @@ struct ContainersView: View {
 }
 struct ContainersSection: View {
   @ObservedObject var store = ContainerStore.shared
+  @ObservedObject var details = DockerDetailsStore.shared
   @ViewState private var showStopped = false
   var body: some View {
     let all = store.report?.containers ?? []
     let running = all.filter(\.running)
-    let stopped = all.filter { !$0.running }
-    Card {
-      CardHeader(title: L("Contêineres"), symbol: "shippingbox", tint: .blue, count: running.count) {
-        Text(Set(all.map(\.engine)).sorted().joined(separator: " · ")).font(.caption)
-          .foregroundStyle(.secondary)
+    let groups = Dictionary(grouping: all) { $0.project ?? "" }
+    let projects = groups.keys.sorted { a, b in a.isEmpty != b.isEmpty ? !a.isEmpty : a < b }
+    VStack(alignment: .leading, spacing: 16) {
+      Card {
+        CardHeader(title: L("Contêineres"), symbol: "shippingbox", tint: .blue, count: running.count) {
+          Text(Set(all.map(\.engine)).sorted().joined(separator: " · ")).font(.caption)
+            .foregroundStyle(.secondary)
+          Toggle(L("Mostrar parados"), isOn: $showStopped).toggleStyle(.switch).controlSize(.mini)
+        }
+        if all.isEmpty { ContainerEmptyState(store: store) }
+        // One block per compose project; loose containers last.
+        ForEach(projects, id: \.self) { project in
+          let list = (groups[project] ?? []).filter { showStopped || $0.running }
+          if !list.isEmpty {
+            ComposeHeader(project: project, containers: groups[project] ?? [])
+            ContainerGrid(containers: list)
+          }
+        }
+        if !showStopped, all.count > running.count {
+          Text(L("%@ parados", "\(all.count - running.count)")).font(.caption).foregroundStyle(.secondary)
+        }
+        Text(
+          L("Lido do socket local do Docker Engine (OrbStack, Docker Desktop ou Colima) a cada 5 s enquanto visível. CPU em % de um núcleo; memória sem cache de arquivos, como em docker stats.")
+        ).font(.caption).foregroundStyle(.secondary)
+      }.watchesContainers()
+      VolumesCard(volumes: details.details.volumes)
+    }
+    .task {
+      while !Task.isCancelled {
+        details.refresh()
+        try? await Task.sleep(nanoseconds: 30_000_000_000)
       }
-      if running.isEmpty { ContainerEmptyState(store: store) }
-      if !running.isEmpty { ContainerGrid(containers: running) }
-      if !stopped.isEmpty {
-        Button {
-          showStopped.toggle()
-        } label: {
-          HStack(spacing: 5) {
-            Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold))
-              .rotationEffect(.degrees(showStopped ? 90 : 0))
-            Text(L("%@ parados", "\(stopped.count)"))
-          }.contentShape(Rectangle())
-        }.buttonStyle(.plain).font(.callout).foregroundStyle(.secondary)
-        if showStopped { ContainerGrid(containers: stopped) }
+    }
+  }
+}
+
+/// A compose project's title row with start-all / stop-all.
+private struct ComposeHeader: View {
+  let project: String
+  let containers: [ContainerItem]
+  var body: some View {
+    let up = containers.filter(\.running).count
+    HStack(spacing: 8) {
+      Image(systemName: project.isEmpty ? "square.dashed" : "square.stack.3d.up").foregroundStyle(.secondary)
+      Text(project.isEmpty ? L("Sem projeto compose") : project).font(.callout.weight(.semibold))
+      Badge(text: L("%@ de %@ rodando", "\(up)", "\(containers.count)"), color: up == containers.count ? Tint.brand : .secondary)
+      Spacer()
+      if !project.isEmpty {
+        if up < containers.count {
+          Button(L("Iniciar todos")) {
+            for c in containers where !c.running { ContainerStore.shared.perform(c, action: "start") }
+          }.controlSize(.small)
+        }
+        if up > 0 {
+          ArmedButton(symbol: "stop.circle", confirm: L("Parar todos"), help: L("Parar os contêineres de %@", project), tint: Tint.danger) {
+            for c in containers where c.running { ContainerStore.shared.perform(c, action: "stop") }
+          }
+        }
       }
-      Text(
-        L("Lido do socket local do Docker Engine (OrbStack, Docker Desktop ou Colima) a cada 5 s enquanto visível. CPU em % de um núcleo; memória sem cache de arquivos, como em docker stats.")
-      ).font(.caption).foregroundStyle(.secondary)
-    }.watchesContainers()
+    }.padding(.top, 6)
+  }
+}
+
+/// Named volumes with size and use; unused ones flagged (removing them deletes data, so CoreScope
+/// only shows them).
+private struct VolumesCard: View {
+  let volumes: [VolumeInfo]
+  @ViewState private var showAll = false
+  var body: some View {
+    if !volumes.isEmpty {
+      let unused = volumes.filter { $0.containers == 0 }
+      Card {
+        CardHeader(title: L("Volumes"), symbol: "externaldrive.connected.to.line.below", count: volumes.count) {
+          Text(diskBytes(Double(volumes.compactMap(\.size).reduce(0, +)))).font(.caption).foregroundStyle(.secondary)
+        }
+        if !unused.isEmpty {
+          Text(
+            L("%@ sem nenhum contêiner (%@). Remover um volume apaga os dados dele; faça pelo Docker se tiver certeza.",
+              "\(unused.count)", diskBytes(Double(unused.compactMap(\.size).reduce(0, +))))
+          ).font(.caption).foregroundStyle(.orange)
+        }
+        ForEach(Array((showAll ? volumes : Array(volumes.prefix(8))).enumerated()), id: \.offset) { _, v in
+          HStack(spacing: 8) {
+            Image(systemName: "cylinder").foregroundStyle(.secondary).frame(width: 16)
+            Text(v.name).font(.callout).lineLimit(1).truncationMode(.middle).help(v.name)
+            if let project = v.project { Badge(text: project, color: .secondary) }
+            Spacer()
+            Text(v.containers == 0 ? L("sem uso") : v.containers > 0 ? L("%@ contêiner(es)", "\(v.containers)") : "")
+              .font(.caption).foregroundStyle(v.containers == 0 ? .orange : .secondary)
+            Text(v.size.map { diskBytes(Double($0)) } ?? "—").font(.callout).monospacedDigit().frame(width: 80, alignment: .trailing)
+          }
+        }
+        if volumes.count > 8 {
+          Button(showAll ? L("Mostrar menos") : L("Mostrar todos (%@)", "\(volumes.count)")) { showAll.toggle() }
+            .buttonStyle(.link).font(.caption)
+        }
+      }
+    }
+  }
+}
+
+struct VolumeInfo: Decodable, Hashable {
+  let name: String
+  let engine: String
+  let size: Int64?
+  let containers: Int
+  let project: String?
+}
+struct DockerDetails: Decodable {
+  var volumes: [VolumeInfo] = []
+  var restart: [String: String] = [:]
+  var images: [String: Double] = [:]
+}
+/// Volumes, restart policies and image dates: slower reads, every 30 s while Containers is open.
+final class DockerDetailsStore: ObservableObject {
+  static let shared = DockerDetailsStore()
+  @Published private(set) var details = DockerDetails()
+  private let queue = DispatchQueue(label: "app.corescope.dockerdetails", qos: .utility)
+  private var busy = false
+  func refresh() {
+    guard !busy else { return }
+    busy = true
+    queue.async {
+      var next: DockerDetails?
+      if let pointer = cs_docker_details() {
+        let data = Data(bytes: pointer, count: strlen(pointer))
+        cs_free(pointer)
+        next = try? JSONDecoder().decode(DockerDetails.self, from: data)
+      }
+      DispatchQueue.main.async {
+        self.busy = false
+        if let next { self.details = next }
+      }
+    }
   }
 }
 

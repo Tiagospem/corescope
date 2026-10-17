@@ -872,4 +872,17 @@ private let entries = """
   Log não encontrado ¦ Log not found ¦ Log no encontrado
   Nome de contêiner inválido ¦ Invalid container name ¦ Nombre de contenedor no válido
   Fonte ausente ¦ Missing source ¦ Falta la fuente
+  Iniciar o contêiner %@ ¦ Start the %@ container ¦ Iniciar el contenedor %@
+  Política de reinício: o Docker sobe o contêiner de novo sozinho ¦ Restart policy: Docker brings the container back up by itself ¦ Política de reinicio: Docker vuelve a levantar el contenedor solo
+  imagem de %@ ¦ image from %@ ¦ imagen de %@
+  Mostrar parados ¦ Show stopped ¦ Mostrar detenidos
+  Sem projeto compose ¦ No compose project ¦ Sin proyecto compose
+  Iniciar todos ¦ Start all ¦ Iniciar todos
+  Parar todos ¦ Stop all ¦ Detener todos
+  Parar os contêineres de %@ ¦ Stop the containers of %@ ¦ Detener los contenedores de %@
+  Volumes ¦ Volumes ¦ Volúmenes
+  %@ sem nenhum contêiner (%@). Remover um volume apaga os dados dele; faça pelo Docker se tiver certeza. ¦ %@ not used by any container (%@). Removing a volume deletes its data; do it through Docker if you are sure. ¦ %@ sin ningún contenedor (%@). Eliminar un volumen borra sus datos; hazlo con Docker si estás seguro.
+  sem uso ¦ unused ¦ sin uso
+  %@ contêiner(es) ¦ %@ container(s) ¦ %@ contenedor(es)
+  Mostrar todos (%@) ¦ Show all (%@) ¦ Mostrar todos (%@)
   """

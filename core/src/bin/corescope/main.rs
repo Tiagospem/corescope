@@ -24,6 +24,7 @@ USAGE:
                                         package caches, unused Docker data (read-only; delete
                                         from the CoreScope app, which moves folders to the Trash)
   corescope power                       battery, total power, top processes and agent sessions by watts
+  corescope containers                  containers (state, ports, compose project, health), volumes
   corescope logs [FOLDER] [--errors] [--search TEXT] [-n N]
                                         the project's log files: tail, errors with traces, or search
   corescope config [FOLDER]             validate and show the project's .corescope.yml (default: here)
@@ -139,6 +140,7 @@ fn main() {
                 ),
             )
         }
+        Some("containers") => print(json_out, containers()),
         Some("config") => {
             let folder = positional
                 .get(1)
@@ -323,6 +325,23 @@ pub fn top(snapshot: &Snapshot, by: &str, count: usize) -> Value {
            "processes": rows.iter().take(count).map(|p| process_json(p)).collect::<Vec<_>>()})
 }
 
+/// Containers of every local engine with their compose project, plus volumes and restart policies.
+pub fn containers() -> Value {
+    let report = corescope::containers::Reader::default().read(false);
+    let details = corescope::containers::details(&mut HashMap::new());
+    let rows: Vec<Value> = report
+        .containers
+        .iter()
+        .map(|c| {
+            json!({"name": c.name, "image": c.image, "state": c.state, "status": c.status, "health": c.health,
+                   "project": c.project, "service": c.service, "engine": c.engine,
+                   "ports": c.ports.iter().map(|p| json!({"host": p.host, "container": p.container, "exposed": p.exposed})).collect::<Vec<_>>(),
+                   "restart_policy": details.restart.get(&c.id)})
+        })
+        .collect();
+    json!({"containers": rows, "volumes": details.volumes})
+}
+
 /// Log files of a project folder (plus its .corescope.yml `logs:` globs): their tails, the recent
 /// errors with their traces, or lines matching a search.
 pub fn logs(folder: &std::path::Path, errors: bool, query: Option<&str>, count: usize) -> Value {
@@ -403,7 +422,7 @@ pub fn space(folders: &[std::path::PathBuf], docker: bool) -> Value {
 }
 
 /// Core messages are Portuguese (the app translates them); the CLI speaks English.
-fn english(error: &str) -> String {
+pub fn english(error: &str) -> String {
     let table = [
         ("Pertence a outro usuário", "belongs to another user"),
         ("Serviço essencial protegido", "protected system service"),
@@ -553,6 +572,47 @@ fn print(json_out: bool, value: Value) -> i32 {
                     ""
                 }
             );
+        }
+    } else if let Some(rows) = value["containers"].as_array() {
+        println!(
+            "{:<34} {:<10} {:<18} {:<16} PORTS",
+            "CONTAINER", "STATE", "PROJECT", "RESTART"
+        );
+        for r in rows {
+            println!(
+                "{:<34} {:<10} {:<18} {:<16} {}",
+                text(&r["name"]),
+                text(&r["state"]),
+                text(&r["project"]),
+                text(&r["restart_policy"]),
+                r["ports"]
+                    .as_array()
+                    .map(|a| a
+                        .iter()
+                        .map(|p| format!(":{}", num(&p["host"])))
+                        .collect::<Vec<_>>()
+                        .join(" "))
+                    .unwrap_or_default()
+            );
+        }
+        let vols = value["volumes"].as_array().cloned().unwrap_or_default();
+        if !vols.is_empty() {
+            println!("\n{:<44} {:>10}  USED BY", "VOLUME", "SIZE");
+            for v in vols {
+                println!(
+                    "{:<44} {:>10}  {}",
+                    text(&v["name"]),
+                    v["size"]
+                        .as_f64()
+                        .map(|b| format!("{:.0} MB", b / 1_048_576.))
+                        .unwrap_or("—".into()),
+                    match v["containers"].as_i64() {
+                        Some(0) => "nothing (unused)".into(),
+                        Some(n) if n > 0 => format!("{n} container(s)"),
+                        _ => "?".into(),
+                    }
+                );
+            }
         }
     } else if let Some(rows) = value["log_lines"].as_array() {
         if rows.is_empty() {

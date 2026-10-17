@@ -6,8 +6,8 @@
 //! session's descendants — never other sessions, other users, system services, the agent itself
 //! or the server's own ancestors. Identity is revalidated by the core right before each signal.
 use crate::{
-    agents, databases, free_port, orphans, ports, power, project_config, sample, space, subtree,
-    top,
+    agents, containers, databases, free_port, orphans, ports, power, project_config, sample, space,
+    subtree, top,
 };
 use corescope::{Process, Snapshot, cs_is_same, signal_process};
 use serde_json::{Value, json};
@@ -87,7 +87,8 @@ fn tool(name: &str, description: &str, properties: Value, required: &[&str]) -> 
                            "destructiveHint": destructive, "openWorldHint": false}})
 }
 /// Tools that stop, delete or remove things; hosts ask the user before running them.
-const DESTRUCTIVE: [&str; 7] = [
+const DESTRUCTIVE: [&str; 8] = [
+    "container_action",
     "stop_port",
     "stop_process",
     "stop_profile",
@@ -205,6 +206,16 @@ fn app_tools() -> Vec<(
             "Lines containing `query` (case-insensitive) across a profile's or project's logs.",
             json!({"query": {"type": "string"}, "profile": {"type": "string"}, "project": {"type": "string"}}),
             vec!["query"],
+        ),
+        (
+            "container_action",
+            "containers.action",
+            "Start, stop or restart a container by name. Stopping or restarting one that a started \
+          profile uses is refused with the profile's name (use stop_profile, or pass force: true \
+          after the user agrees). Ask the user before stopping anything.",
+            json!({"name": {"type": "string"}, "action": {"type": "string", "enum": ["start", "stop", "restart"]},
+                "force": {"type": "boolean"}}),
+            vec!["name", "action"],
         ),
         (
             "list_services",
@@ -413,6 +424,20 @@ fn core_tools() -> Vec<Value> {
             &[],
         ),
         tool(
+            "list_containers",
+            "Docker containers on this Mac (OrbStack, Docker Desktop, Colima): state, health, \
+             compose project and service, published ports, restart policy; plus named volumes with \
+             their size and how many containers use them.",
+            json!({}),
+            &[],
+        ),
+        tool(
+            "container_logs",
+            "The last lines of a container's logs (stdout and stderr, with timestamps).",
+            json!({"name": {"type": "string"}, "lines": {"type": "integer", "minimum": 1, "maximum": 3000}}),
+            &["name"],
+        ),
+        tool(
             "read_project_config",
             "The project's .corescope.yml (profiles, ports, services, logs, agent capacity rules), \
              parsed and validated, from `folder` or its nearest parent. Use it to learn how the \
@@ -499,6 +524,21 @@ fn call(params: &Value) -> Value {
         "list_agent_sessions" => text(agents(&sample(true)), false),
         "list_orphans" => text(orphans(&sample(false)), false),
         "list_databases" => text(databases(&sample(false)), false),
+        "list_containers" => text(containers(), false),
+        "container_logs" => {
+            let name = args["name"].as_str().unwrap_or("");
+            let source = corescope::logs::Source {
+                kind: "container".into(),
+                name: name.into(),
+                project: None,
+                target: name.into(),
+            };
+            let lines = args["lines"].as_u64().unwrap_or(200).clamp(1, 3000) as usize;
+            match corescope::logs::tail(&source, lines) {
+                Ok(l) => text(json!({"container": name, "lines": l}), false),
+                Err(e) => text(json!({"error": crate::english(&e)}), true),
+            }
+        }
         "read_project_config" => {
             let folder = args["folder"]
                 .as_str()

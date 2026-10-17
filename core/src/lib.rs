@@ -1673,6 +1673,20 @@ pub unsafe extern "C" fn cs_logs(request: *const c_char) -> *mut c_char {
     })
 }
 
+/// Restart policies already read, by container id (inspect is read once per container).
+static RESTART: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
+/// Volumes, restart policies and image dates from the local engines.
+#[unsafe(no_mangle)]
+pub extern "C" fn cs_docker_details() -> *mut c_char {
+    response(|| {
+        let mut known = RESTART
+            .get_or_init(|| Mutex::new(HashMap::new()))
+            .lock()
+            .map_err(|_| "Leitor de contêineres indisponível")?;
+        json(Ok(containers::details(&mut known)))
+    })
+}
+
 /// A plain process for tests elsewhere in the crate.
 #[cfg(test)]
 pub(crate) fn process_fixture() -> Process {

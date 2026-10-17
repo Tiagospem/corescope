@@ -145,6 +145,9 @@ Battery level, charging state and time left, the watts each process draws right 
 - **Listening servers name the container**: ports that OrbStack Helper or `com.docker.backend` hold for a container show up as *container &lt;name&gt;* instead of the VM helper.
 - **Stop / Restart** in place with the same click-to-arm, click-to-confirm button used for processes.
 - Read from the engine's **local Unix socket** only (`~/.orbstack/run/docker.sock`, `~/.docker/run/docker.sock`, Colima, `/var/run/docker.sock` or a `unix://` `DOCKER_HOST`), at most every 5 s and only while a container view is on screen.
+- **Grouped by compose project**, with *Start all* / *Stop all*, a start button for stopped containers, the restart policy (`unless-stopped`, `always`…) and how old each image is.
+- **Volumes** with their size and how many containers use them; unused ones are flagged (CoreScope only shows them — removing a volume deletes its data).
+- **Agents too**: MCP `list_containers`, `container_logs` and `container_action` (start/stop/restart). Stopping a container a started profile uses is refused with the profile's name unless the agent passes `force` after asking you. `corescope containers` prints the same in a terminal.
 
 ### 🧹 Cleanup
 
@@ -216,6 +219,7 @@ Off by default. *Settings → MCP server for agents → Enable* registers `cores
 | `list_my_processes` | What the calling agent session started, including servers it detached |
 | `power_usage` | Battery, total watts, top processes and agent sessions by power |
 | `list_databases` | Local MySQL/PostgreSQL/Redis status (read-only, no passwords) |
+| `list_containers` / `container_logs` / `container_action` | Containers with project, ports, restart policy and volumes; logs; start/stop/restart under the profiles' sharing rules |
 | `recent_errors` / `search_logs` / `tail_log` / `list_log_sources` | A profile's or project's logs: errors with traces and counts, search, tail |
 | `read_project_config` / `write_project_config` | The project's `.corescope.yml`, parsed and validated / written as commented YAML |
 | `list_dev_space` | Reclaimable space (read-only; cleaning stays in the app, with your confirmation) |

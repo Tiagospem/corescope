@@ -19,6 +19,10 @@ section as the GitHub release notes.
   profile command output and container logs, by project; live tail, search, and recent errors by
   declared level or generic markers, with stack traces and repeats counted. `corescope logs` and
   MCP `recent_errors`, `search_logs`, `tail_log`, `list_log_sources`.
+- **Containers**: grouped by compose project with start-all/stop-all, start for stopped
+  containers, restart policy, image age and a Volumes card (size, use, unused flagged).
+  `corescope containers` and MCP `list_containers`, `container_logs`, `container_action`
+  (stopping one a started profile uses needs `force`).
 
 ## [0.4.0] - 2026-10-17
 

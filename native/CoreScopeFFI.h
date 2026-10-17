@@ -20,6 +20,8 @@ char *cs_databases(void);
 char *cs_project_configs(const char *request);
 // Logs: {"op":"files"|"tail"|"errors"|"search", folders|source|sources, lines, limit, warnings, query}.
 char *cs_logs(const char *request);
+// Volumes, restart policies and image dates from the local Docker engines.
+char *cs_docker_details(void);
 void cs_free(char *pointer);
 
 int32_t cs_is_same(int32_t pid, uint64_t start);

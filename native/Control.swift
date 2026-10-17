@@ -207,6 +207,39 @@ enum ControlAPI {
           }
         }
       }
+    case "containers.action":
+      let name = args["name"] as? String ?? ""
+      let action = args["action"] as? String ?? ""
+      guard ["start", "stop", "restart"].contains(action) else {
+        return reply(["error": "action must be start, stop or restart"])
+      }
+      if action != "start", args["force"] as? Bool != true {
+        let users = ProfileStore.shared.allProfiles.filter {
+          ProfileStore.shared.active.contains($0.id) && $0.containers.contains(name)
+        }
+        if !users.isEmpty {
+          return reply([
+            "error": "\(name) is used by the started profile(s) \(users.map(\.name).joined(separator: ", ")); "
+              + "use stop_profile, or ask the user and pass force: true",
+          ])
+        }
+      }
+      DispatchQueue.global(qos: .userInitiated).async {
+        var all: [ContainerItem] = []
+        if let pointer = cs_containers(0) {
+          let data = Data(bytes: pointer, count: strlen(pointer))
+          cs_free(pointer)
+          all = (try? JSONDecoder().decode(ContainerReport.self, from: data))?.containers ?? []
+        }
+        DispatchQueue.main.async {
+          guard let container = all.first(where: { $0.name == name }) else {
+            return reply(["error": "no container named \(name); list_containers shows the names"])
+          }
+          ContainerStore.shared.perform(container, action: action) { error in
+            reply(error.map { ["error": $0] } ?? ["container": name, "action": action, "done": true])
+          }
+        }
+      }
     case "services.list": reply(["services": HealthStore.shared.allChecks.map(serviceJSON)])
     case "services.add":
       guard let target = args["target"] as? String, HealthTarget(target) != nil else {
@@ -357,7 +390,7 @@ enum ControlAPI {
   }
   private static func profileJSON(_ p: EnvProfile) -> [String: Any] {
     let store = ProfileStore.shared
-    let containers = ContainerStore.shared.report?.containers ?? []
+    let containers = ContainerStore.shared.report?.containers ?? currentContainers()
     return [
       "id": p.id.uuidString, "name": p.name, "folder": p.folder, "active": store.active.contains(p.id),
       "defined_in": p.source ?? "CoreScope app",
@@ -383,6 +416,14 @@ enum ControlAPI {
         return ["name": name, "state": c?.state ?? "not found"]
       },
     ]
+  }
+
+  /// A direct read when no page keeps the container list fresh (local socket, fast).
+  private static func currentContainers() -> [ContainerItem] {
+    guard let pointer = cs_containers(0) else { return [] }
+    defer { cs_free(pointer) }
+    let data = Data(bytes: pointer, count: strlen(pointer))
+    return (try? JSONDecoder().decode(ContainerReport.self, from: data))?.containers ?? []
   }
 
   // MARK: services, machines, cleanup
