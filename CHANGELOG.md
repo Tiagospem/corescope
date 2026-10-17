@@ -43,6 +43,30 @@ section as the GitHub release notes.
   or your own — also over MCP (`list_recipes`, `run_recipe`, by name only).
 - **Services history**: a week of 5-minute buckets per check with uptime over 24 h / 7 days,
   incidents and the day's latency; included in MCP `list_services`.
+- **CoreScope's own cost**: footer readout of the app's CPU and memory with a breakdown in
+  Settings — app, helpers (MCP servers, gate hook, status line), processes it started, and each
+  background feature with cadence and the CPU it measured in its own threads (5-minute average,
+  startup excluded), with switches; a warning past 2 % of a core or 500 MB. MCP `corescope_cost`;
+  `set_setting` also takes `collector_interval_seconds` and `floating_panel`.
+
+- **What happened at 2:05 pm?**: History card, ⌥⌘K, `corescope://happened?at=…`, `corescope happened`
+  and MCP `what_happened` — CPU and process power around a moment against the hour before,
+  memory, swap growth, pressure, thermal state, disk writes and who dominated CPU, memory and
+  power. History now records total process power and a top 10 by power (schema 2, migrated in
+  place).
+- **What grew today**: Storage card measuring the usual space-hungry folders (caches, Xcode,
+  simulators, container VMs, package stores, models, Downloads, Trash, agent data) at most every
+  6 hours and on demand, with today's growth and free space; `corescope disk-growth`, MCP
+  `disk_growth`.
+- **Quick actions in ⌥⌘K**: start/stop profiles, check services, open projects and pages, pause
+  sampling, jump to a moment in History. **Menu bar** profile switcher and Services status dots.
+- **`corescope://` links** for Shortcuts, Raycast and scripts: open a page, start/stop/toggle a
+  profile (file profiles ask first), port lookup, check services, what happened, palette.
+### Changed
+- `.corescope.yml` discovery walks folders every 10 minutes (and when roots change) and only
+  re-reads known files in between, instead of a full walk plus process list every minute.
+- The collector no longer allocates strings to match app bundles and runtimes for every process
+  on every sample.
 
 ## [0.4.0] - 2026-10-17
 

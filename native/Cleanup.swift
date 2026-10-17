@@ -102,6 +102,8 @@ final class CleanupStore: ObservableObject {
     guard let report, let scannedAt else { return }
     let cache = Cache(report: report, scannedAt: scannedAt, roots: scannedRoots)
     queue.async {
+      let cost = CostMeter.begin()
+      defer { CostMeter.end("cleanup", cost) }
       try? FileManager.default.createDirectory(
         at: Self.cacheURL.deletingLastPathComponent(), withIntermediateDirectories: true)
       if let data = try? JSONEncoder().encode(cache) { try? data.write(to: Self.cacheURL, options: .atomic) }
@@ -126,6 +128,8 @@ final class CleanupStore: ObservableObject {
     let roots = Preferences.shared.cleanupRoots
     let request: [String: Any] = ["roots": roots, "auto": true, "docker": true]
     queue.async {
+      let cost = CostMeter.begin()
+      defer { CostMeter.end("cleanup", cost) }
       let result: Result<DevSpaceReport, Error> = Result {
         let data = try Self.call(request)
         return try JSONDecoder().decode(DevSpaceReport.self, from: data)
@@ -162,6 +166,8 @@ final class CleanupStore: ObservableObject {
     let monitor = Monitor.shared
     monitor.feedback = ActionFeedback(message: plural(items.count, "Limpando 1 item…", "Limpando %@ itens…"), pending: true)
     queue.async {
+      let cost = CostMeter.begin()
+      defer { CostMeter.end("cleanup", cost) }
       var finished = Set<String>()
       var freed = 0.0
       var failures: [String] = []

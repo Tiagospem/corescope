@@ -31,3 +31,4 @@ char *cs_port_claims(const char *request);
 void cs_free(char *pointer);
 
 int32_t cs_is_same(int32_t pid, uint64_t start);
+char *cs_disk_growth(const char *request);

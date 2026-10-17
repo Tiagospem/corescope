@@ -101,6 +101,97 @@ unsafe extern "C" {
     ) -> i32;
     pub fn os_pressure_level() -> i32;
     pub fn os_background(pid: i32, on: i32) -> i32;
+    pub fn os_local_time(day: i64, hour: i32, minute: i32) -> i64;
+    pub fn os_local_format(t: i64, out: *mut std::ffi::c_char, size: i32) -> i32;
+}
+/// The moment at `hour:minute` local time on the local date of `day`.
+pub fn local_time(day: i64, hour: u32, minute: u32) -> Option<i64> {
+    (hour < 24 && minute < 60)
+        .then(|| unsafe { os_local_time(day, hour as i32, minute as i32) })
+        .filter(|t| *t >= 0)
+}
+/// "YYYY-MM-DD HH:MM" in local time.
+pub fn local_format(t: i64) -> String {
+    let mut buf = [0 as std::ffi::c_char; 32];
+    if unsafe { os_local_format(t, buf.as_mut_ptr(), buf.len() as i32) } != 0 {
+        return t.to_string();
+    }
+    unsafe { std::ffi::CStr::from_ptr(buf.as_ptr()) }
+        .to_string_lossy()
+        .into_owned()
+}
+/// "14:05", "yesterday 14:05", "2026-10-17 14:05" (also with T), or epoch seconds → epoch
+/// seconds. A bare time later than now means yesterday.
+pub fn parse_moment(text: &str, now: i64) -> Option<i64> {
+    let text = text.trim();
+    if let Ok(epoch) = text.parse::<i64>()
+        && epoch > 1_000_000_000
+    {
+        return Some(epoch);
+    }
+    let hm = |s: &str| -> Option<(u32, u32)> {
+        let s = s.trim().to_lowercase();
+        let (s, pm) = match s.strip_suffix("pm") {
+            Some(x) => (x.trim().to_string(), Some(true)),
+            None => match s.strip_suffix("am") {
+                Some(x) => (x.trim().to_string(), Some(false)),
+                None => (s.clone(), None),
+            },
+        };
+        let (h, m) = s.split_once(['h', ':']).unwrap_or((&s, "0"));
+        let (mut h, m): (u32, u32) = (
+            h.trim().parse().ok()?,
+            if m.is_empty() {
+                0
+            } else {
+                m.trim().parse().ok()?
+            },
+        );
+        match pm {
+            Some(true) if h < 12 => h += 12,
+            Some(false) if h == 12 => h = 0,
+            _ => {}
+        }
+        Some((h, m))
+    };
+    let lower = text.to_lowercase();
+    for word in ["yesterday", "ontem", "ayer"] {
+        if let Some(rest) = lower.strip_prefix(word) {
+            let (h, m) = hm(rest)?;
+            return local_time(now - 86400, h, m);
+        }
+    }
+    if let Some((date, time)) = text.split_once([' ', 'T'])
+        && date.contains('-')
+    {
+        let mut parts = date.split('-').map(|p| p.parse::<i64>().ok());
+        let (Some(Some(y)), Some(Some(mo)), Some(Some(d))) =
+            (parts.next(), parts.next(), parts.next())
+        else {
+            return None;
+        };
+        let (h, m) = hm(time.get(..5).unwrap_or(time))?;
+        // Noon UTC of that date lands on the same local date in every time zone within ±12 h.
+        let days = days_from_civil(y, mo, d);
+        return local_time(days * 86400 + 43200, h, m);
+    }
+    let (h, m) = hm(text)?;
+    let t = local_time(now, h, m)?;
+    Some(if t > now {
+        local_time(now - 86400, h, m)?
+    } else {
+        t
+    })
+}
+/// Days since 1970-01-01 for a proleptic Gregorian date.
+fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let mp = (m + 9) % 12;
+    let doy = (153 * mp + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146097 + doe - 719468
 }
 /// "normal", "warning" or "critical" (kern.memorystatus_vm_pressure_level), when readable.
 pub fn pressure_level() -> Option<&'static str> {

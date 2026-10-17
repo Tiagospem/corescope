@@ -942,4 +942,82 @@ private let entries = """
   Incidentes ¦ Incidents ¦ Incidentes
   Nenhum incidente registrado. ¦ No incidents recorded. ¦ Ningún incidente registrado.
   Guardado em blocos de 5 minutos por 7 dias (contagens e latência, nada mais). ¦ Kept in 5-minute buckets for 7 days (counts and latency, nothing else). ¦ Guardado en bloques de 5 minutos durante 7 días (conteos y latencia, nada más).
+  %@ hosts a cada 60 s, só com a página aberta ¦ %@ hosts every 60 s, only while the page is open ¦ %@ hosts cada 60 s, solo con la página abierta
+  %@ s ¦ %@ s ¦ %@ s
+  %@ verificações a cada 30 s ¦ %@ checks every 30 s ¦ %@ comprobaciones cada 30 s
+  1 verificação a cada 30 s ¦ 1 check every 30 s ¦ 1 comprobación cada 30 s
+  Acesso do MCP ao app ¦ MCP access to the app ¦ Acceso del MCP a la app
+  Agentes, sessões e limites ¦ Agents, sessions and limits ¦ Agentes, sesiones y límites
+  Ajudantes (MCP, gancho, status line) ¦ Helpers (MCP, hook, status line) ¦ Ayudantes (MCP, hook, status line)
+  App ¦ App ¦ App
+  Arquivos .corescope.yml ¦ .corescope.yml files ¦ Archivos .corescope.yml
+  Bancos locais ¦ Local databases ¦ Bases de datos locales
+  CPU agora ¦ CPU now ¦ CPU ahora
+  CPU em % de um núcleo. Cada recurso é medido no tempo de CPU das próprias threads do CoreScope, sem o primeiro minuto (arranque); ajudantes e processos iniciados aparecem à parte. A interface (janela, painel, barra de menus) fica no total do app. ¦ CPU as % of one core. Each feature is measured in CPU time on CoreScope's own threads, leaving out the first minute (startup); helpers and started processes are shown separately. The interface (window, panel, menu bar) is in the app total. ¦ CPU en % de un núcleo. Cada función se mide en tiempo de CPU de los propios hilos de CoreScope, sin el primer minuto (arranque); ayudantes y procesos iniciados aparecen aparte. La interfaz (ventana, panel, barra de menús) está en el total de la app.
+  Coletor (processos, portas, sensores) ¦ Collector (processes, ports, sensors) ¦ Recolector (procesos, puertos, sensores)
+  CoreScope ¦ CoreScope ¦ CoreScope
+  CoreScope %@ · %@ ¦ CoreScope %@ · %@ ¦ CoreScope %@ · %@
+  CoreScope está gastando mais do que um monitor deveria. Desligue o que não usa abaixo; os itens medidos como médio ou alto vêm primeiro. ¦ CoreScope is spending more than a monitor should. Turn off what you do not use below; items measured as medium or high come first. ¦ CoreScope está gastando más de lo que un monitor debería. Apaga lo que no uses abajo; los elementos medidos como medio o alto van primero.
+  Custo do CoreScope ¦ CoreScope's own cost ¦ Costo de CoreScope
+  Limites ao vivo do Codex ¦ Live Codex limits ¦ Límites en vivo de Codex
+  Modo economia ¦ Economy mode ¦ Modo ahorro
+  Máquinas (ssh) ¦ Machines (ssh) ¦ Máquinas (ssh)
+  Média 5 min ¦ 5-min average ¦ Media 5 min
+  Portas e exposição ¦ Ports and exposure ¦ Puertos y exposición
+  Processos iniciados pelo app ¦ Processes the app started ¦ Procesos iniciados por la app
+  Quanto o próprio CoreScope está gastando ¦ What CoreScope itself is spending ¦ Cuánto está gastando el propio CoreScope
+  Status line do Claude ¦ Claude status line ¦ Status line de Claude
+  a cada %@ s com janela ou painel visível, 10 s sem · %@ ms por passagem ¦ every %@ s with the window or panel visible, 10 s otherwise · %@ ms per pass ¦ cada %@ s con ventana o panel visible, 10 s sin ellos · %@ ms por pasada
+  a cada 15 s, só com a página aberta ¦ every 15 s, only while the page is open ¦ cada 15 s, solo con la página abierta
+  a cada 2 s, só com a página aberta ¦ every 2 s, only while the page is open ¦ cada 2 s, solo con la página abierta
+  a cada 20 s ¦ every 20 s ¦ cada 20 s
+  a cada 20 s, só arquivos novos ou alterados ¦ every 20 s, only new or changed files ¦ cada 20 s, solo archivos nuevos o cambiados
+  inicia o codex app-server a cada 5 min ¦ starts codex app-server every 5 min ¦ inicia codex app-server cada 5 min
+  mantém o coletor no intervalo rápido mesmo com a janela fechada ¦ keeps the collector at the fast interval even with the window closed ¦ mantiene el recolector en el intervalo rápido incluso con la ventana cerrada
+  relê a cada 60 s; procura pastas novas a cada 10 min ¦ re-reads every 60 s; looks for new folders every 10 min ¦ relee cada 60 s; busca carpetas nuevas cada 10 min
+  roda o corescope a cada atualização do status line do Claude ¦ runs corescope on every Claude status line update ¦ ejecuta corescope en cada actualización del status line de Claude
+  socket local parado até um agente pedir algo ¦ local socket, idle until an agent asks ¦ socket local, inactivo hasta que un agente pida algo
+  só enquanto uma tela com contêineres está aberta ¦ only while a screen showing containers is open ¦ solo mientras una pantalla con contenedores está abierta
+  só na bateria, a cada coleta ¦ on battery only, every sample ¦ solo con batería, en cada muestra
+  só quando você pede um escaneamento ¦ only when you ask for a scan ¦ solo cuando pides un escaneo
+  uma gravação por minuto, dentro do coletor; consultas da página à parte ¦ one write per minute, inside the collector; page queries separately ¦ una escritura por minuto, dentro del recolector; consultas de la página aparte
+  %@ minutos registrados entre %@ e %@. ¦ %@ minutes recorded between %@ and %@. ¦ %@ minutos registrados entre %@ y %@.
+  Abrir %@ ¦ Open %@ ¦ Abrir %@
+  Abrir Serviços ¦ Open Services ¦ Abrir Servicios
+  Abrir projeto %@ ¦ Open project %@ ¦ Abrir proyecto %@
+  CPU média de %@ (pico de %@ às %@). ¦ CPU averaged %@ (peak %@ at %@). ¦ CPU media de %@ (pico de %@ a las %@).
+  Escolha um momento para ver CPU, energia, memória e quem dominou nos 10 minutos em volta, comparados com a hora anterior. Também pelo ⌥⌘K, por corescope://happened?at=14:05 e pelo MCP (what_happened). ¦ Pick a moment to see CPU, power, memory and who dominated in the 10 minutes around it, against the hour before. Also from ⌥⌘K, corescope://happened?at=14:05 and MCP (what_happened). ¦ Elige un momento para ver CPU, energía, memoria y quién dominó en los 10 minutos alrededor, comparados con la hora anterior. También con ⌥⌘K, corescope://happened?at=14:05 y el MCP (what_happened).
+  Estado térmico chegou a crítico. ¦ Thermal state reached critical. ¦ El estado térmico llegó a crítico.
+  Estado térmico chegou a sério (com redução de desempenho). ¦ Thermal state reached serious (throttling). ¦ El estado térmico llegó a serio (con reducción de rendimiento).
+  Gravação em disco chegou a %@. ¦ Disk writes peaked at %@. ¦ La escritura en disco llegó a %@.
+  Iniciar o perfil %@? ¦ Start the %@ profile? ¦ ¿Iniciar el perfil %@?
+  Iniciar perfil %@ ¦ Start profile %@ ¦ Iniciar perfil %@
+  Maior energia ¦ Most power ¦ Mayor energía
+  Na hora anterior: %@. ¦ The hour before: %@. ¦ La hora anterior: %@.
+  Nada encontrado ¦ Nothing found ¦ Nada encontrado
+  Nada registrado entre %@ e %@: Mac em repouso, CoreScope fechado ou histórico desligado. ¦ Nothing recorded between %@ and %@: the Mac was asleep, CoreScope was closed or history was off. ¦ Nada registrado entre %@ y %@: Mac en reposo, CoreScope cerrado o historial apagado.
+  Nenhum perfil chamado %@. ¦ No profile named %@. ¦ Ningún perfil llamado %@.
+  O que aconteceu às %@ ¦ What happened at %@ ¦ Qué pasó a las %@
+  O que aconteceu às… ¦ What happened at… ¦ Qué pasó a las…
+  Parar perfil %@ ¦ Stop profile %@ ¦ Detener perfil %@
+  Pedido por um link corescope://. Os comandos vêm de %@: ¦ Asked by a corescope:// link. The commands come from %@: ¦ Pedido por un enlace corescope://. Los comandos vienen de %@:
+  Porta ou ação ¦ Port or action ¦ Puerto o acción
+  Pressão de memória chegou a atenção. ¦ Memory pressure reached warning. ¦ La presión de memoria llegó a advertencia.
+  Pressão de memória chegou a crítica. ¦ Memory pressure reached critical. ¦ La presión de memoria llegó a crítica.
+  Swap cresceu %@ (para %@). ¦ Swap grew %@ (to %@). ¦ El swap creció %@ (hasta %@).
+  Ver ¦ Show ¦ Ver
+  Verificar %@ ¦ Check %@ ¦ Comprobar %@
+  Verificar serviços ¦ Check services ¦ Comprobar servicios
+  ainda não verificado ¦ not checked yet ¦ aún no comprobado
+  Energia dos processos: média de %@ (pico de %@ às %@). ¦ Process power averaged %@ (peak %@ at %@). ¦ Energía de los procesos: media de %@ (pico de %@ a las %@).
+  Horário não reconhecido: use 14:05, 2:05 pm ou ontem 9:30 ¦ Time not recognized: use 14:05, 2:05 pm or yesterday 9:30 ¦ Hora no reconocida: usa 14:05, 2:05 pm o ayer 9:30
+  Ainda não medido. A primeira medição roda 3 minutos depois de abrir o app, ou agora pelo botão. ¦ Not measured yet. The first measurement runs 3 minutes after the app opens, or now with the button. ¦ Aún sin medir. La primera medición se hace 3 minutos después de abrir la app, o ahora con el botón.
+  Crescimento do disco ¦ Disk growth ¦ Crecimiento del disco
+  Espaço livre ¦ Free space ¦ Espacio libre
+  Medido em %@, comparado com %@. ¦ Measured %@, compared with %@. ¦ Medido el %@, comparado con %@.
+  Medir agora ¦ Measure now ¦ Medir ahora
+  O que cresceu hoje ¦ What grew today ¦ Qué creció hoy
+  Pastas que costumam encher o disco de quem desenvolve: caches, Xcode e simuladores, VMs de contêiner, lojas de pacotes, modelos, Downloads, Lixeira e dados de agentes. Medidas no máximo a cada 6 h em segundo plano (alguns segundos de disco); limpar continua com você, na Limpeza. Também: corescope disk-growth e MCP disk_growth. ¦ Folders that usually fill a developer's disk: caches, Xcode and simulators, container VMs, package stores, models, Downloads, Trash and agent data. Measured at most every 6 h in the background (a few seconds of disk); cleaning stays with you, in Cleanup. Also: corescope disk-growth and MCP disk_growth. ¦ Carpetas que suelen llenar el disco de quien desarrolla: cachés, Xcode y simuladores, VMs de contenedores, almacenes de paquetes, modelos, Descargas, Papelera y datos de agentes. Medidas como máximo cada 6 h en segundo plano (unos segundos de disco); limpiar sigue en tus manos, en Limpieza. También: corescope disk-growth y MCP disk_growth.
+  Primeira medição em %@: o crescimento aparece a partir da próxima. ¦ First measurement %@: growth shows from the next one. ¦ Primera medición el %@: el crecimiento aparece desde la próxima.
+  mede no máximo a cada 6 h, alguns segundos de disco ¦ measures at most every 6 h, a few seconds of disk ¦ mide como máximo cada 6 h, unos segundos de disco
   """

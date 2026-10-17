@@ -39,6 +39,12 @@ USAGE:
   corescope config [FOLDER]             validate and show the project's .corescope.yml (default: here)
   corescope db                          local MySQL/PostgreSQL/Redis: size, connections, slow
                                         and long-running queries (no passwords used or read)
+  corescope happened TIME [--minutes N] what the Mac was doing around TIME (14:05, 2:05 pm,
+                                        yesterday 9:30, 2026-10-17 14:05): CPU, power, memory,
+                                        swap, thermal and who dominated (needs History on)
+  corescope disk-growth [--measure]     which usual folders grew today (caches, Xcode, simulators,
+                                        container VMs, package stores, models, Downloads, Trash);
+                                        --measure measures now (seconds) before reporting
   corescope mcp                         run the local MCP server on stdio
 
 OPTIONS:
@@ -199,6 +205,35 @@ fn main() {
             }
         }
         Some("power") => print(json_out, power(&sample(true))),
+        Some("disk-growth") => match corescope::disk_growth(flag("--measure")) {
+            Ok(r) if json_out => print(true, json!(r)),
+            Ok(r) => {
+                println!("{}", growth_text(&r));
+                0
+            }
+            Err(e) => fail(json_out, &e),
+        },
+        Some("happened") => {
+            let skip = args.iter().position(|a| a == "--minutes").map(|i| i + 1);
+            let when = args
+                .iter()
+                .enumerate()
+                .skip(1)
+                .filter(|(i, a)| !a.starts_with('-') && Some(*i) != skip)
+                .map(|(_, a)| a.as_str())
+                .collect::<Vec<_>>()
+                .join(" ");
+            match happened(&when, number("--minutes").unwrap_or(10) as i64) {
+                Ok(v) if json_out => print(true, v),
+                Ok(v) => {
+                    for line in v["findings"].as_array().into_iter().flatten() {
+                        println!("{}", line.as_str().unwrap_or(""));
+                    }
+                    0
+                }
+                Err(e) => fail(json_out, &e),
+            }
+        }
         Some("mcp") => mcp::serve(),
         Some(other) => fail(
             json_out,
@@ -206,6 +241,71 @@ fn main() {
         ),
     };
     std::process::exit(code);
+}
+
+/// The disk growth report as lines for people.
+pub fn growth_text(r: &corescope::diskgrowth::Report) -> String {
+    let gb = |b: i64| format!("{:+.2} GB", b as f64 / 1_073_741_824.);
+    let size = |b: u64| format!("{:.1} GB", b as f64 / 1_073_741_824.);
+    let Some(at) = r.measured_at else {
+        return "Nothing measured yet: run `corescope disk-growth --measure`.".into();
+    };
+    let mut out = vec![match r.baseline_at {
+        Some(b) => format!(
+            "Measured {} against {}.",
+            corescope::local_format(at),
+            corescope::local_format(b)
+        ),
+        None => format!(
+            "Measured {} (first measurement: growth shows from the next one).",
+            corescope::local_format(at)
+        ),
+    }];
+    if let Some(free) = r.free {
+        let change = r
+            .free_change
+            .map(|c| format!(" ({})", gb(c)))
+            .unwrap_or_default();
+        out.push(format!("Free space: {}{change}.", size(free)));
+    }
+    out.push(format!(
+        "{:<20} {:>10} {:>11}  PATH",
+        "FOLDER", "SIZE", "CHANGE"
+    ));
+    for g in &r.folders {
+        out.push(format!(
+            "{:<20} {:>10} {:>11}  {}",
+            g.label,
+            size(g.bytes),
+            g.change.map(gb).unwrap_or_else(|| "—".into()),
+            g.path
+        ));
+    }
+    out.join("\n")
+}
+
+/// History around a moment, with findings; the per-minute points are left out.
+pub fn happened(when: &str, minutes: i64) -> Result<Value, String> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let at = corescope::parse_moment(when, now).ok_or_else(|| {
+        format!("could not read the time {when:?}: use 14:05, 2:05 pm, yesterday 9:30 or 2026-10-17 14:05")
+    })?;
+    let h = corescope::history::happened(&corescope::history::default_path(), at, minutes)?;
+    let findings = corescope::history::findings(&h);
+    let mut v = serde_json::to_value(&h).map_err(|e| e.to_string())?;
+    if let Some(o) = v.as_object_mut() {
+        o.remove("points");
+        for k in ["at", "from", "to", "cpu_max_at", "power_max_at"] {
+            if let Some(t) = o.get(k).and_then(Value::as_i64) {
+                o.insert(format!("{k}_local"), json!(corescope::local_format(t)));
+            }
+        }
+    }
+    v["findings"] = json!(findings);
+    Ok(v)
 }
 
 /// One sample gives ports, folders and origins; CPU needs a second one a moment later.

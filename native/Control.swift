@@ -320,6 +320,7 @@ enum ControlAPI {
         ])
       }
 
+    case "app.cost": reply(SelfCost.current().json())
     case "settings.get": reply(["settings": AgentSettings.read()])
     case "settings.set":
       guard let key = args["key"] as? String else { return reply(["error": "key is required"]) }
@@ -541,11 +542,12 @@ enum AgentSettings {
     "notify_memory_pressure": \.notifyPressure, "notify_stuck_agents": \.notifyStalls,
     "notify_service_down": \.notifyServiceDown, "notify_agent_battery_drain": \.notifyAgentDrain,
     "economy_mode_on_battery": \.economyMode, "notify_machine_alerts": \.notifyMachines,
+    "floating_panel": \.panelVisible,
   ]
   private static let numbers: [String: (ReferenceWritableKeyPath<Preferences, Double>, ClosedRange<Double>)] = [
     "stuck_agent_minutes": (\.stallMinutes, 1...240), "agent_drain_watts": (\.drainWatts, 0.5...50),
     "heavy_memory_gb": (\.notifyMemoryGB, 0.5...64), "heavy_cpu_percent": (\.notifyCPU, 50...1600),
-    "heavy_sustain_seconds": (\.notifySustain, 15...3600),
+    "heavy_sustain_seconds": (\.notifySustain, 15...3600), "collector_interval_seconds": (\.interval, 2...10),
   ]
   static func read() -> [String: Any] {
     let p = Preferences.shared
@@ -566,6 +568,12 @@ enum AgentSettings {
     if let (path, range) = numbers[key] {
       guard let v = (value as? NSNumber)?.doubleValue, range.contains(v) else {
         return "\(key) takes a number between \(range.lowerBound) and \(range.upperBound)"
+      }
+      if key == "collector_interval_seconds" {
+        guard [2, 3, 5, 10].contains(v) else { return "collector_interval_seconds takes 2, 3, 5 or 10" }
+        p[keyPath: path] = v
+        Monitor.shared.refresh()
+        return nil
       }
       p[keyPath: path] = v
       return nil

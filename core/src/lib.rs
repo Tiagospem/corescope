@@ -3,10 +3,12 @@ pub mod capacity;
 pub mod containers;
 pub mod databases;
 pub mod devspace;
+pub mod diskgrowth;
 pub mod exposure;
 pub mod history;
 pub mod logs;
 mod os;
+pub use os::{local_format, parse_moment};
 pub mod projectconfig;
 mod sqlite;
 pub mod worktrees;
@@ -245,12 +247,18 @@ pub struct Origin {
     pub kind: &'static str,
     pub pid: i32,
 }
+/// Whether `path` contains `/<bundle><suffix>`, without building the pattern (this runs for
+/// every process on every sample).
+fn has_segment(path: &str, bundle: &str, suffix: &str) -> bool {
+    path.match_indices(bundle)
+        .any(|(i, _)| path[..i].ends_with('/') && path[i + bundle.len()..].starts_with(suffix))
+}
 fn app_bundle(path: &str, bundle: &str) -> bool {
-    path.contains(&format!("/{bundle}.app/"))
+    has_segment(path, bundle, ".app/")
 }
 /// Main executable of an app bundle; helpers under Frameworks/Helpers are excluded.
 fn app_main(path: &str, bundle: &str) -> bool {
-    path.contains(&format!("/{bundle}.app/Contents/MacOS/"))
+    has_segment(path, bundle, ".app/Contents/MacOS/")
 }
 /// Identifies processes that start developer work. Name-based heuristic; never used to act automatically.
 pub fn host(name: &str, path: &str) -> Option<(&'static str, &'static str)> {
@@ -380,10 +388,9 @@ pub fn tags(name: &str, path: &str, listening: bool) -> Vec<&'static str> {
         "playwright",
     ];
     let runtime = RUNTIMES.iter().any(|r| {
-        lower == *r
-            || lower.starts_with(&format!("{r}."))
-            || lower.starts_with(&format!("{r}-"))
-            || (r.len() > 3 && lower.starts_with(r))
+        lower
+            .strip_prefix(r)
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with(['.', '-']) || r.len() > 3)
     }) || lower.starts_with("python")
         || lower.starts_with("php")
         || path.contains("/go-build")
@@ -954,6 +961,10 @@ impl Collector {
                 thermal: Some(config.thermal as i64),
                 pressure: Some(config.pressure as i64),
                 pressure_pct,
+                power: {
+                    let watts: Vec<f64> = processes.iter().filter_map(|p| p.energy.value).collect();
+                    (!watts.is_empty()).then(|| watts.iter().sum())
+                },
             };
             self.recorder.add(
                 at,
@@ -967,6 +978,7 @@ impl Collector {
                     origin: p.origin.as_ref().map_or("", |o| o.label),
                     cpu: p.cpu.value,
                     memory: p.memory.value,
+                    energy: p.energy.value,
                 }),
             );
             self.recorder
@@ -1397,6 +1409,13 @@ struct HistoryRequest {
     to: i64,
     bucket: i64,
     path: String,
+    #[serde(default)]
+    at: i64,
+    #[serde(default)]
+    minutes: i64,
+    /// For `happened`: a time as people write it ("14:05", "2:05 pm", "yesterday 9:30").
+    #[serde(default)]
+    when: String,
 }
 /// Persistent history: `series`, `top` and `info` read through their own read-only connection;
 /// `flush` writes the pending minute and `delete` closes the file and removes it.
@@ -1420,6 +1439,19 @@ pub unsafe extern "C" fn cs_history(request: *const c_char) -> *mut c_char {
             "series" => json(history::series(&path, r.from, r.to, r.bucket)),
             "top" => json(history::top(&path, r.from, r.to)),
             "info" => json(history::info(&path)),
+            "happened" => {
+                let at = if r.when.is_empty() {
+                    r.at
+                } else {
+                    parse_moment(&r.when, now() as i64)
+                        .ok_or("Horário não reconhecido: use 14:05, 2:05 pm ou ontem 9:30")?
+                };
+                let h = history::happened(&path, at, r.minutes)?;
+                let findings = history::findings(&h);
+                let mut v = serde_json::to_value(&h).map_err(|e| e.to_string())?;
+                v["findings"] = serde_json::json!(findings);
+                Ok(v.to_string())
+            }
             "flush" | "delete" => {
                 let mut c = collector().lock().map_err(|_| "Coletor indisponível")?;
                 if r.op == "flush" {
@@ -1486,6 +1518,49 @@ struct DevSpaceRequest {
     auto: bool,
     #[serde(default)]
     docker: bool,
+}
+/// Free bytes on the volume holding `path` (the longest mount point containing it).
+pub(crate) fn volume_free(path: &std::path::Path) -> Option<u64> {
+    let mut raw: Vec<RawVolume> = (0..256).map(|_| unsafe { std::mem::zeroed() }).collect();
+    let n = unsafe { os_volumes(raw.as_mut_ptr(), 256) };
+    let path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    raw.iter()
+        .take(n.max(0) as usize)
+        .map(|v| (string(&v.mount), v.available))
+        // APFS volumes of one container share free space, so "/" answers for /Users too.
+        .filter(|(mount, _)| path.starts_with(mount))
+        .max_by_key(|(mount, _)| mount.len())
+        .map(|(_, free)| free)
+}
+/// Disk growth: `report` reads the saved measurements; `measure` measures now (seconds), saves
+/// and reports.
+///
+/// # Safety
+/// `request` is null or a valid NUL-terminated UTF-8 JSON pointer for the duration of this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cs_disk_growth(request: *const c_char) -> *mut c_char {
+    response(|| {
+        let v: serde_json::Value = if request.is_null() {
+            serde_json::json!({})
+        } else {
+            serde_json::from_slice(unsafe { CStr::from_ptr(request) }.to_bytes())
+                .map_err(|e| e.to_string())?
+        };
+        json(disk_growth(v["op"].as_str() == Some("measure")))
+    })
+}
+/// The disk growth report, measuring first when asked.
+pub fn disk_growth(measure: bool) -> Result<diskgrowth::Report, String> {
+    let home = home();
+    let file = diskgrowth::default_path(&home);
+    let now = now() as i64;
+    let mut list = diskgrowth::load(&file);
+    if measure {
+        diskgrowth::save(&file, list, diskgrowth::measure(&home, now))?;
+        list = diskgrowth::load(&file);
+    }
+    let day_start = os::local_time(now, 0, 0).unwrap_or(now - now % 86400);
+    Ok(diskgrowth::report(&list, &home, day_start))
 }
 fn home() -> std::path::PathBuf {
     std::env::var_os("HOME").map(Into::into).unwrap_or_default()
@@ -1584,7 +1659,15 @@ pub unsafe extern "C" fn cs_project_configs(request: *const c_char) -> *mut c_ch
             return Err("Consulta ausente".into());
         }
         let bytes = unsafe { CStr::from_ptr(request) }.to_bytes();
-        let r: DevSpaceRequest = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
+        let r: ProjectConfigsRequest = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
+        // Known folders only: re-reads their files without walking trees or listing processes.
+        if let Some(known) = r.folders {
+            let found: Vec<_> = known
+                .iter()
+                .filter_map(|f| projectconfig::load(std::path::Path::new(f)))
+                .collect();
+            return json(Ok(found));
+        }
         let mut roots: Vec<std::path::PathBuf> = r.roots.iter().map(Into::into).collect();
         if r.auto {
             roots.extend(devspace::auto_roots(&home(), &processes_now()));
@@ -1598,6 +1681,14 @@ pub unsafe extern "C" fn cs_project_configs(request: *const c_char) -> *mut c_ch
     })
 }
 
+#[derive(Deserialize)]
+struct ProjectConfigsRequest {
+    #[serde(default)]
+    roots: Vec<String>,
+    #[serde(default)]
+    auto: bool,
+    folders: Option<Vec<String>>,
+}
 #[derive(Deserialize)]
 struct LogsRequest {
     op: String,
@@ -1913,6 +2004,29 @@ mod tests {
     }
     #[test]
     fn hosts_and_tags_identify_dev_tools() {
+        assert!(app_main("/Applications/Zed.app/Contents/MacOS/zed", "Zed"));
+        assert!(!app_main(
+            "/Applications/Zed Preview.app/Contents/MacOS/zed",
+            "Zed"
+        ));
+        assert!(!app_main(
+            "/Applications/MyZed.app/Contents/MacOS/zed",
+            "Zed"
+        ));
+        assert!(app_bundle(
+            "/Applications/Docker.app/Contents/Resources/bin/x",
+            "Docker"
+        ));
+        assert!(!app_bundle("/opt/Docker/x", "Docker"));
+        assert_eq!(
+            tags("node-dev", "/usr/bin/node-dev", false),
+            tags("node", "/usr/bin/node", false)
+        );
+        assert!(tags("pythonw", "/usr/bin/pythonw", false).contains(&"runtime"));
+        assert!(
+            !tags("gopher", "/usr/bin/gopher", false).contains(&"runtime"),
+            "go needs . or -"
+        );
         assert_eq!(
             host("2.1.3", "/Users/a/.local/share/claude/versions/2.1.3").map(|h| h.0),
             Some("Claude Code")
@@ -2176,6 +2290,7 @@ mod tests {
                         origin: if i == 0 { "Claude Code" } else { "" },
                         cpu: Some(i as f64),
                         memory: Some(1e6 * (15 - i) as f64),
+                        energy: None,
                     }),
             );
             // Nothing is written while the minute is open.
@@ -2212,6 +2327,110 @@ mod tests {
         assert_eq!(history::info(&path).unwrap().minutes, 0);
     }
     #[test]
+    fn history_v1_files_gain_power_and_explain_a_moment() {
+        let path = temp_db("v1-power");
+        std::fs::create_dir_all(std::path::Path::new(&path).parent().unwrap()).unwrap();
+        {
+            let db = crate::sqlite::Db::open(&path, false).unwrap();
+            db.exec(
+                "CREATE TABLE minutes(at INTEGER PRIMARY KEY, samples INTEGER NOT NULL,
+                 cpu REAL, cpu_max REAL, memory REAL, swap REAL, disk_read REAL, disk_write REAL,
+                 net_in REAL, net_out REAL, thermal INTEGER, pressure INTEGER, pressure_pct REAL);
+                 CREATE TABLE procs(id INTEGER PRIMARY KEY, name TEXT NOT NULL, path TEXT NOT NULL,
+                 cwd TEXT NOT NULL, origin TEXT NOT NULL, UNIQUE(name, path, cwd, origin));
+                 CREATE TABLE top(at INTEGER NOT NULL, kind INTEGER NOT NULL, rank INTEGER NOT NULL,
+                 proc INTEGER NOT NULL, cpu REAL, memory REAL, PRIMARY KEY(at, kind, rank)) WITHOUT ROWID;
+                 PRAGMA user_version=1;
+                 INSERT INTO minutes(at,samples,cpu) VALUES(1799996400,6,7.0);",
+            )
+            .unwrap();
+        }
+        // A version 1 file is readable before the writer migrates it.
+        assert!(
+            history::series(&path, 1_799_996_400, 1_799_996_460, 60)
+                .unwrap()
+                .points[0]
+                .power
+                .is_none()
+        );
+        assert!(
+            history::top(&path, 1_799_996_400, 1_799_996_460)
+                .unwrap()
+                .energy
+                .is_empty()
+        );
+        let mut r = history::Recorder::new(&path);
+        let base = 1_800_000_000.;
+        for minute in 0..10 {
+            let busy = minute == 5;
+            for step in 0..2 {
+                r.add(
+                    base + minute as f64 * 60. + step as f64 * 20.,
+                    0,
+                    history::System {
+                        cpu: Some(if busy { 90. } else { 10. }),
+                        memory: Some(4e9),
+                        swap: Some(1e9 + minute as f64 * 1e8),
+                        power: Some(if busy { 20. } else { 2. }),
+                        ..Default::default()
+                    },
+                    [("cargo", 300., 18.), ("node", 20., 1.)]
+                        .into_iter()
+                        .enumerate()
+                        .map(|(i, (name, cpu, watts))| history::Proc {
+                            key: (i as i32 + 10, 1),
+                            name,
+                            path: name,
+                            cwd: "/work/shop",
+                            origin: "Claude Code",
+                            cpu: Some(if busy { cpu } else { 1. }),
+                            memory: Some(1e8),
+                            energy: Some(if busy { watts } else { 0.1 }),
+                        }),
+                );
+            }
+        }
+        r.flush(0);
+        assert!(r.error.is_none(), "{:?}", r.error);
+        let h = history::happened(&path, 1_800_000_300 + 20, 10).unwrap();
+        assert_eq!(
+            (h.at, h.from, h.minutes),
+            (1_800_000_300, 1_800_000_000, 10)
+        );
+        assert_eq!((h.cpu_max, h.cpu_max_at), (Some(90.), Some(1_800_000_300)));
+        assert_eq!(h.power_max, Some(20.));
+        assert_eq!(h.cpu_before, Some(7.), "the hour before the window");
+        assert_eq!(h.swap_start, Some(1e9));
+        assert_eq!(h.top.energy[0].name, "cargo");
+        assert!((h.top.energy[0].energy - (18. + 9. * 0.1) / 10.).abs() < 1e-9);
+        assert_eq!(h.top.cpu[0].name, "cargo");
+        let old = history::series(&path, 1_799_996_400, 1_799_996_460, 60).unwrap();
+        assert_eq!(
+            (old.points[0].cpu, old.points[0].power),
+            (Some(7.), None),
+            "kept, without power"
+        );
+        std::fs::remove_dir_all(std::path::Path::new(&path).parent().unwrap()).unwrap();
+    }
+    #[test]
+    fn moments_parse_in_local_time() {
+        let now = now() as i64;
+        let t = os::parse_moment("2026-10-17 14:05", now).unwrap();
+        assert_eq!(os::local_format(t), "2026-10-17 14:05");
+        assert_eq!(os::parse_moment("2026-10-17T14:05:30", now), Some(t));
+        let today = os::parse_moment("2:05 pm", now).unwrap();
+        assert!(today <= now && now - today < 86400 + 3600);
+        assert!(os::local_format(today).ends_with(" 14:05"));
+        assert_eq!(os::parse_moment("14h05", now), Some(today));
+        assert_eq!(os::parse_moment("14:05", now), Some(today));
+        let yesterday = os::parse_moment("ontem 9:30", now).unwrap();
+        assert!(os::local_format(yesterday).ends_with(" 09:30") && now - yesterday > 0);
+        assert_eq!(os::parse_moment("1800000000", now), Some(1_800_000_000));
+        assert!(
+            os::parse_moment("25:00", now).is_none() && os::parse_moment("soon", now).is_none()
+        );
+    }
+    #[test]
     fn history_merges_repeated_partial_minute_writes() {
         let path = temp_db("repeated-minute");
         let base = 1_800_000_000.;
@@ -2233,6 +2452,7 @@ mod tests {
                 origin: "",
                 cpu: Some(80.),
                 memory: Some(500.),
+                energy: None,
             }),
         );
         first.flush(7);
@@ -2254,6 +2474,7 @@ mod tests {
                 origin: "",
                 cpu: Some(100.),
                 memory: Some(1_000.),
+                energy: None,
             }),
         );
         second.add(

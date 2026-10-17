@@ -200,8 +200,30 @@ import Foundation
     precondition(incidents.count == 1 && incidents[0].end.timeIntervalSince(incidents[0].start) == 4 * 300)
     HealthHistory.record(&buckets, at: t0.addingTimeInterval(8 * 86400), up: true, latency: 5)
     precondition(buckets.count == 1, "older than a week is dropped")
+    // Own cost: average share of a core from a cumulative counter, weights, helper detection.
+    let cpuSamples: [(at: Double, seconds: Double)] = [(0, 1.0), (100, 1.5), (400, 2.5), (700, 4.0)]
+    precondition(abs((averageCPUShare(cpuSamples, window: 300) ?? 0) - 0.5) < 0.0001, "last 5 minutes only")
+    precondition(averageCPUShare([(0, 1.0)], window: 300) == nil && averageCPUShare([(0, 2.0), (60, 1.0)], window: 300) == nil)
+    precondition(CostWeight(percent: 0.05) == .low && CostWeight(percent: 0.5) == .medium && CostWeight(percent: 3) == .high)
+    precondition(isCoreScopeHelper(path: "/Applications/CoreScope.app/Contents/Resources/bin/corescope"))
+    precondition(!isCoreScopeHelper(path: "/usr/local/bin/corescope"))
+    // corescope:// links and the quick-action palette.
+    precondition(AppLink(URL(string: "corescope://open/ports")!) == .open(page: "ports"))
+    precondition(AppLink(URL(string: "corescope://")!) == .open(page: nil))
+    precondition(AppLink(URL(string: "corescope://profile/start?name=Revamp%20Test")!) == .profile(action: "start", name: "Revamp Test"))
+    precondition(AppLink(URL(string: "corescope://profile/delete?name=x")!) == nil, "only start, stop and toggle")
+    precondition(AppLink(URL(string: "corescope://profile/stop")!) == nil, "a name is required")
+    precondition(AppLink(URL(string: "corescope://lookup?port=8000")!) == .lookup(port: 8000))
+    precondition(AppLink(URL(string: "corescope://services/check")!) == .checkServices)
+    precondition(AppLink(URL(string: "corescope://happened?at=14:05")!) == .happened(at: "14:05"))
+    precondition(AppLink(URL(string: "https://example.com/open")!) == nil && AppLink(URL(string: "corescope://format/disk")!) == nil)
+    precondition(quickScore("rev", "Iniciar perfil Revamp Test") == 1 && quickScore("ini rev", "Iniciar perfil Revamp Test") == 0)
+    precondition(quickScore("servi", "Abrir Serviços") != nil && quickScore("vamp", "Iniciar perfil Revamp") == 3)
+    precondition(quickScore("xyz", "Abrir Portas") == nil && quickScore("", "Abrir") == nil)
+    precondition(looksLikeTime("14:05") && looksLikeTime("2:05 pm") && looksLikeTime("14h05") && looksLikeTime("ontem 9:30"))
+    precondition(!looksLikeTime("8000") && !looksLikeTime("redis") && !looksLikeTime("14"))
     print(
-      "25 native assertions passed: descendants, cycle, ordering, off-screen recovery, negative-origin monitor, forest roots, flatten, collapse, totals, ancestors, filter, formatting, container ports, shared ports, demo paths, debounce, sustained thresholds, new arrivals, port parsing, shortcut label, agent stalls, health targets, shared containers, ssh stats, gate hook, machine alerts, service history; plus settings JSON, Unicode escapes, status line install/chain, Claude limits"
+      "28 native assertions passed: descendants, cycle, ordering, off-screen recovery, negative-origin monitor, forest roots, flatten, collapse, totals, ancestors, filter, formatting, container ports, shared ports, demo paths, debounce, sustained thresholds, new arrivals, port parsing, shortcut label, agent stalls, health targets, shared containers, ssh stats, gate hook, machine alerts, service history, own cost, links, palette; plus settings JSON, Unicode escapes, status line install/chain, Claude limits"
     )
     print(
       "token usage assertions passed: timestamps, formatting, Claude block dedupe, embedded entries, partial lines, long-line skip, fast/full parity, Codex repeats and forks"

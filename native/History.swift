@@ -22,6 +22,8 @@ struct HistoryBucket: Decodable {
   let thermal: Int?
   let pressure: Int?
   let pressure_pct: Double?
+  /// Watts (processes' sum); nil in minutes recorded before 0.5.
+  let power: Double?
   var date: Date { Date(timeIntervalSince1970: at) }
 }
 struct HistoryInfo: Decodable {
@@ -46,6 +48,7 @@ struct HistoryProcess: Decodable, Identifiable {
   let cpu_peak: Double
   let memory: Double
   let minutes: Int
+  let energy: Double?
   var id: String { [name, path, cwd, origin].joined(separator: "|") }
   var project: String? { projectName(cwd) }
   var subtitle: String {
@@ -58,6 +61,29 @@ struct HistoryTop: Decodable {
   let minutes: Int
   var cpu: [HistoryProcess]
   var memory: [HistoryProcess]
+  var energy: [HistoryProcess]?
+}
+/// What the Mac was doing around a moment (`cs_history` op `happened`).
+struct HistoryHappened: Decodable {
+  let at: Double
+  let from: Double
+  let to: Double
+  let minutes: Int
+  let cpu: Double?
+  let cpu_max: Double?
+  let cpu_max_at: Double?
+  let cpu_before: Double?
+  let memory_max: Double?
+  let swap_start: Double?
+  let swap_end: Double?
+  let power: Double?
+  let power_max: Double?
+  let power_max_at: Double?
+  let power_before: Double?
+  let disk_write_max: Double?
+  let thermal_max: Int?
+  let pressure_max: Int?
+  var top: HistoryTop
 }
 
 enum HistoryRange: String, CaseIterable, Identifiable {
@@ -77,6 +103,9 @@ final class HistoryStore: ObservableObject {
   @Published var top: HistoryTop?
   @Published var info: HistoryInfo?
   @Published var error: String?
+  @Published var happened: HistoryHappened?
+  /// The moment last asked about (palette, corescope:// links, the History card).
+  @Published var happenedAt: Date?
   private let queue = DispatchQueue(label: "app.corescope.history", qos: .utility)
   private var generation = 0
   static func call(_ request: [String: Any]) throws -> Data {
@@ -101,6 +130,8 @@ final class HistoryStore: ObservableObject {
     generation += 1
     let current = generation
     queue.async {
+      let cost = CostMeter.begin()
+      defer { CostMeter.end("history", cost) }
       let result = Result {
         try JSONDecoder().decode(
           HistorySeries.self,
@@ -123,6 +154,8 @@ final class HistoryStore: ObservableObject {
   }
   func loadTop(from: Double, to: Double) {
     queue.async {
+      let cost = CostMeter.begin()
+      defer { CostMeter.end("history", cost) }
       let result = Result {
         try JSONDecoder().decode(
           HistoryTop.self, from: Self.call(["op": "top", "from": Int(from), "to": Int(to)]))
@@ -140,14 +173,56 @@ final class HistoryStore: ObservableObject {
       }
     }
   }
+  /// Same, from a time as people write it ("14:05", "2:05 pm", "ontem 9:30"); the core reads it.
+  func explain(text: String, minutes: Int = 10) {
+    queue.async {
+      let result = Result {
+        try JSONDecoder().decode(
+          HistoryHappened.self, from: Self.call(["op": "happened", "when": text, "minutes": minutes]))
+      }
+      DispatchQueue.main.async {
+        switch result {
+        case .success(let h):
+          self.happenedAt = Date(timeIntervalSince1970: h.at)
+          self.happened = h
+        case .failure(let e): self.error = e.localizedDescription
+        }
+      }
+    }
+  }
+  func explain(_ date: Date, minutes: Int = 10) {
+    happenedAt = date
+    queue.async {
+      let cost = CostMeter.begin()
+      defer { CostMeter.end("history", cost) }
+      let result = Result {
+        try JSONDecoder().decode(
+          HistoryHappened.self,
+          from: Self.call(["op": "happened", "at": Int(date.timeIntervalSince1970), "minutes": minutes]))
+      }
+      DispatchQueue.main.async {
+        switch result {
+        case .success(let h):
+          self.happened = h
+        case .failure(let e):
+          self.happened = nil
+          self.error = e.localizedDescription
+        }
+      }
+    }
+  }
   func loadInfo() {
     queue.async {
+      let cost = CostMeter.begin()
+      defer { CostMeter.end("history", cost) }
       let info = try? JSONDecoder().decode(HistoryInfo.self, from: Self.call(["op": "info"]))
       DispatchQueue.main.async { self.info = info }
     }
   }
   func delete(then: @escaping () -> Void = {}) {
     queue.async {
+      let cost = CostMeter.begin()
+      defer { CostMeter.end("history", cost) }
       let result = Result { try Self.call(["op": "delete"]) }
       DispatchQueue.main.async {
         if case .failure(let e) = result { self.error = e.localizedDescription }
@@ -186,6 +261,7 @@ struct HistoryView: View {
             Label(error, systemImage: "exclamationmark.octagon").foregroundStyle(.red)
           }
           if let s = store.series { charts(s) }
+          HappenedCard()
           if let s = store.series { DominatorsCard(series: s, selected: selected, top: store.top) }
         }
       }.padding(20)
@@ -521,7 +597,12 @@ private struct StateStrips: View {
 
 /// The processes that dominated the selected bucket (or the whole window).
 private struct DominatorsCard: View {
-  let series: HistorySeries
+  static func columnView(
+    _ title: String, _ items: [HistoryProcess], tint: Color, value: @escaping (HistoryProcess) -> (String, String)
+  ) -> some View {
+    DominatorsCard(series: nil, selected: nil, top: nil).column(title, items, tint: tint, value: value)
+  }
+  let series: HistorySeries?
   let selected: Int?
   let top: HistoryTop?
   var body: some View {
@@ -539,6 +620,11 @@ private struct DominatorsCard: View {
           column(L("Maior memória"), top.memory, tint: Tint.memory) { p in
             (formatBytes(p.memory), L("%@ min no top", "\(p.minutes)"))
           }
+          if let energy = top.energy, !energy.isEmpty {
+            column(L("Maior energia"), energy, tint: .yellow) { p in
+              (String(format: "%.1f W", p.energy ?? 0), L("%@ min no top", "\(p.minutes)"))
+            }
+          }
         }
         Text(
           L("CPU: média em % de um núcleo sobre os minutos do intervalo; minutos fora do top 10 contam como zero. Memória: maior phys_footprint registrado. Agrupado por executável, diretório e origem.")
@@ -548,7 +634,7 @@ private struct DominatorsCard: View {
       }
     }
   }
-  private func column(
+  fileprivate func column(
     _ title: String, _ items: [HistoryProcess], tint: Color, value: @escaping (HistoryProcess) -> (String, String)
   ) -> some View {
     VStack(alignment: .leading, spacing: 7) {
@@ -573,6 +659,75 @@ private struct DominatorsCard: View {
           .accessibilityElement(children: .combine)
       }
     }.frame(maxWidth: .infinity, alignment: .topLeading)
+  }
+}
+/// "What happened at 2:05 pm?": the window around a moment, against the hour before.
+private struct HappenedCard: View {
+  @ObservedObject var store = HistoryStore.shared
+  @ViewState private var when = Date().addingTimeInterval(-3600)
+  var body: some View {
+    Card {
+      CardHeader(title: L("O que aconteceu às…"), symbol: "clock.arrow.circlepath", tint: Tint.brand) {
+        DatePicker("", selection: $when, in: ...Date(), displayedComponents: [.date, .hourAndMinute])
+          .labelsHidden().datePickerStyle(.compact)
+        Button(L("Ver")) { store.explain(when) }.controlSize(.small)
+      }
+      if let h = store.happened {
+        VStack(alignment: .leading, spacing: 4) {
+          ForEach(facts(h), id: \.self) { Text($0).font(.callout) }
+        }
+        if h.minutes > 0 {
+          let top = h.top
+          HStack(alignment: .top, spacing: 20) {
+            DominatorsCard.columnView(L("Maior CPU"), Array(top.cpu.prefix(3)), tint: Tint.cpu) { p in
+              (String(format: L("%.1f%%"), p.cpu), L("pico %@", String(format: "%.0f%%", p.cpu_peak)))
+            }
+            DominatorsCard.columnView(L("Maior memória"), Array(top.memory.prefix(3)), tint: Tint.memory) { p in
+              (formatBytes(p.memory), L("%@ min no top", "\(p.minutes)"))
+            }
+            if let energy = top.energy, !energy.isEmpty {
+              DominatorsCard.columnView(L("Maior energia"), Array(energy.prefix(3)), tint: .yellow) { p in
+                (String(format: "%.1f W", p.energy ?? 0), L("%@ min no top", "\(p.minutes)"))
+              }
+            }
+          }
+        }
+      } else {
+        Text(L("Escolha um momento para ver CPU, energia, memória e quem dominou nos 10 minutos em volta, comparados com a hora anterior. Também pelo ⌥⌘K, por corescope://happened?at=14:05 e pelo MCP (what_happened)."))
+          .font(.caption).foregroundStyle(.secondary)
+      }
+    }
+    .onAppear { if let at = store.happenedAt { when = at } }
+    .onChange(of: store.happenedAt) { _, at in if let at { when = at } }
+  }
+  private func facts(_ h: HistoryHappened) -> [String] {
+    let time = { (t: Double) in Date(timeIntervalSince1970: t).formatted(date: .omitted, time: .shortened) }
+    let from = Date(timeIntervalSince1970: h.from).formatted(date: .abbreviated, time: .shortened)
+    guard h.minutes > 0 else {
+      return [L("Nada registrado entre %@ e %@: Mac em repouso, CoreScope fechado ou histórico desligado.", from, time(h.to))]
+    }
+    var out = [L("%@ minutos registrados entre %@ e %@.", "\(h.minutes)", from, time(h.to))]
+    if let cpu = h.cpu, let max = h.cpu_max, let at = h.cpu_max_at {
+      let line = L("CPU média de %@ (pico de %@ às %@).", String(format: "%.0f%%", cpu), String(format: "%.0f%%", max), time(at))
+      out.append(h.cpu_before.map { line + " " + L("Na hora anterior: %@.", String(format: "%.0f%%", $0)) } ?? line)
+    }
+    if let power = h.power, let max = h.power_max, let at = h.power_max_at {
+      let line = L(
+        "Energia dos processos: média de %@ (pico de %@ às %@).", String(format: "%.1f W", power),
+        String(format: "%.1f W", max), time(at))
+      out.append(h.power_before.map { line + " " + L("Na hora anterior: %@.", String(format: "%.1f W", $0)) } ?? line)
+    }
+    if let a = h.swap_start, let b = h.swap_end, b - a > 268_435_456 {
+      out.append(L("Swap cresceu %@ (para %@).", formatBytes(b - a), formatBytes(b)))
+    }
+    if let p = h.pressure_max, p > 0 {
+      out.append(p >= 2 ? L("Pressão de memória chegou a crítica.") : L("Pressão de memória chegou a atenção."))
+    }
+    if let t = h.thermal_max, t >= 2 {
+      out.append(t >= 3 ? L("Estado térmico chegou a crítico.") : L("Estado térmico chegou a sério (com redução de desempenho)."))
+    }
+    if let w = h.disk_write_max, w > 50 * 1_048_576 { out.append(L("Gravação em disco chegou a %@.", formatRate(w))) }
+    return out
   }
 }
 private struct HistoryIcon: View {

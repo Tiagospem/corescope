@@ -335,7 +335,7 @@ fn worktree_facts(path: &Path) -> (Option<String>, Option<String>, Option<String
 }
 
 /// Allocated bytes (hard links once) and the item's own modification time.
-fn measure(path: &Path) -> (u64, i64) {
+pub(crate) fn measure(path: &Path) -> (u64, i64) {
     let modified = std::fs::symlink_metadata(path)
         .map(|m| m.mtime())
         .unwrap_or(0);

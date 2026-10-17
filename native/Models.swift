@@ -659,6 +659,8 @@ final class Monitor: ObservableObject {
       return
     }
     queue.async {
+      let cost = CostMeter.begin()
+      defer { CostMeter.end("collector", cost) }
       let result: Result<Snapshot, Error> = Result {
         guard let pointer = json.withCString({ cs_snapshot($0) }) else {
           throw NSError(

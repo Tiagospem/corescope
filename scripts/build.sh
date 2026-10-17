@@ -38,6 +38,10 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 <key>NSHighResolutionCapable</key><true/>
 <key>NSPrincipalClass</key><string>NSApplication</string>
+<key>CFBundleURLTypes</key><array><dict>
+<key>CFBundleURLName</key><string>local.corescope.app</string>
+<key>CFBundleURLSchemes</key><array><string>corescope</string></array>
+</dict></array>
 </dict></plist>
 PLIST
 # Command-line tool (corescope ports, kill-port, agents, mcp…), signed before the app.

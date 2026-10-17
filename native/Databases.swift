@@ -49,6 +49,8 @@ final class DatabaseStore: ObservableObject {
     guard !loading else { return }
     loading = true
     queue.async {
+      let cost = CostMeter.begin()
+      defer { CostMeter.end("databases", cost) }
       let result: Result<[DatabaseItem], Error> = Result {
         guard let pointer = cs_databases() else {
           throw NSError(domain: "CoreScope", code: 1, userInfo: [NSLocalizedDescriptionKey: L("O núcleo não retornou dados")])

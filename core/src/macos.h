@@ -36,6 +36,10 @@ int os_battery(int32_t *percent, int32_t *charging, int32_t *on_ac, int32_t *min
 int32_t os_pressure_level(void);
 // Puts a process in (on=1) or out of (on=0) Darwin background priority. 0 or errno.
 int os_background(int32_t pid, int on);
+// Local wall clock: the moment at hour:minute on the local date of `day` (epoch seconds); -1 on error.
+int64_t os_local_time(int64_t day, int hour, int minute);
+// Local "YYYY-MM-DD HH:MM" for an epoch second into out; 0 on success.
+int os_local_format(int64_t t, char *out, int size);
 // Current working directory of a process (same user only). 0 success.
 int os_cwd(int32_t pid, char *out, int cap);
 // Cumulative bytes on non-loopback interfaces (64-bit counters). 0 success.

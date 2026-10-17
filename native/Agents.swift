@@ -217,6 +217,8 @@ final class TokenUsageStore: ObservableObject {
     guard started, !running else { return }
     running = true
     queue.async {
+      let cost = CostMeter.begin()
+      defer { CostMeter.end("tokens", cost) }
       let report = self.scan(live: live)
       DispatchQueue.main.async {
         self.running = false
@@ -391,6 +393,8 @@ final class AgentStore: ObservableObject {
     // the last live value instead of falling back to an older log event.
     let keepLive = codex.live && Preferences.shared.codexLiveLimits
     queue.async {
+      let cost = CostMeter.begin()
+      defer { CostMeter.end("agents", cost) }
       let codex = (live ? CodexAppServer.readLimits() : nil) ?? (keepLive ? nil : self.readCodex())
       let claude = readClaude ? self.readClaudeLimits() : ClaudeUsage()
       let sessions = Self.readClaudeSessions()

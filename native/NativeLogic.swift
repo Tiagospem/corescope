@@ -860,3 +860,89 @@ enum HealthHistory {
     }
   }
 }
+
+/// CPU seconds (cumulative counter) read at points in time → average share of one core, in percent,
+/// over the samples inside `window` seconds before the last one. Nil with fewer than two samples
+/// or a counter that went backwards.
+func averageCPUShare(_ samples: [(at: Double, seconds: Double)], window: Double) -> Double? {
+  guard let last = samples.last else { return nil }
+  guard let first = samples.first(where: { last.at - $0.at <= window }), last.at - first.at >= 5,
+    last.seconds >= first.seconds
+  else { return nil }
+  return (last.seconds - first.seconds) / (last.at - first.at) * 100
+}
+/// How heavy an average share of one core is for a background monitor.
+enum CostWeight: Int, Comparable {
+  case low, medium, high
+  init(percent: Double) { self = percent >= 1 ? .high : percent >= 0.2 ? .medium : .low }
+  static func < (a: CostWeight, b: CostWeight) -> Bool { a.rawValue < b.rawValue }
+}
+/// CoreScope's own helpers: the bundled CLI (MCP servers, the gate hook, the status line).
+func isCoreScopeHelper(path: String) -> Bool {
+  path.hasSuffix("/Contents/Resources/bin/corescope") && path.contains("CoreScope")
+}
+
+/// A `corescope://` link, from Shortcuts, Raycast, scripts or a browser.
+///   corescope://open/ports · corescope://profile/start?name=Shop · corescope://lookup?port=8000
+///   corescope://services/check · corescope://happened?at=14:05 · corescope://palette
+enum AppLink: Equatable {
+  case open(page: String?)
+  case profile(action: String, name: String)
+  case lookup(port: UInt16?)
+  case checkServices
+  case happened(at: String)
+  case palette
+  init?(_ url: URL) {
+    guard url.scheme?.lowercased() == "corescope",
+      let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+    else { return nil }
+    var query: [String: String] = [:]
+    for item in components.queryItems ?? [] where query[item.name.lowercased()] == nil {
+      if let value = item.value?.trimmingCharacters(in: .whitespaces), !value.isEmpty { query[item.name.lowercased()] = value }
+    }
+    let path = components.path.split(separator: "/").map { String($0).removingPercentEncoding ?? String($0) }
+    switch (components.host ?? "").lowercased() {
+    case "", "open": self = .open(page: (query["page"] ?? path.first)?.lowercased())
+    case "profile":
+      let action = (path.first ?? query["action"] ?? "").lowercased()
+      guard ["start", "stop", "toggle"].contains(action), let name = query["name"] ?? path.dropFirst().first else {
+        return nil
+      }
+      self = .profile(action: action, name: name)
+    case "lookup", "port": self = .lookup(port: (query["port"] ?? path.first).flatMap(parsePort))
+    case "services":
+      guard path.isEmpty || path.first?.lowercased() == "check" else { return nil }
+      self = .checkServices
+    case "happened":
+      guard let at = query["at"] ?? path.first else { return nil }
+      self = .happened(at: at)
+    case "palette": self = .palette
+    default: return nil
+    }
+  }
+}
+
+/// How well a palette query matches an action title: each query word must start a word of the
+/// title (best) or appear inside it. Case and accents are ignored. Nil: no match; lower is better.
+func quickScore(_ query: String, _ title: String) -> Int? {
+  let fold = { (s: String) in s.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil) }
+  let words = fold(query).split(whereSeparator: \.isWhitespace).map(String.init)
+  guard !words.isEmpty else { return nil }
+  let target = fold(title)
+  let titleWords = target.split(whereSeparator: { $0.isWhitespace || $0 == "/" || $0 == "-" || $0 == "·" }).map(String.init)
+  var score = 0
+  for word in words {
+    if titleWords.contains(where: { $0.hasPrefix(word) }) { continue }
+    guard target.contains(word) else { return nil }
+    score += 2
+  }
+  return target.hasPrefix(words[0]) ? score : score + 1
+}
+/// Whether palette text reads as a clock time ("14:05", "2:05 pm", "14h05", "ontem 9:30").
+func looksLikeTime(_ text: String) -> Bool {
+  let t = text.lowercased().trimmingCharacters(in: .whitespaces)
+  let words = ["ontem", "yesterday", "ayer"]
+  let rest = words.first(where: { t.hasPrefix($0) }).map { String(t.dropFirst($0.count)).trimmingCharacters(in: .whitespaces) } ?? t
+  return rest.range(of: #"^\d{1,2}([:h]\d{2})?\s*(am|pm)?$"#, options: .regularExpression) != nil
+    && (rest.contains(":") || rest.contains("h") || rest.hasSuffix("m"))
+}

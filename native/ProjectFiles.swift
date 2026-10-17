@@ -63,25 +63,47 @@ final class ProjectFileStore: ObservableObject {
 
   private init() {
     refresh()
-    timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in self?.refresh() }
+    timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in self?.tick() }
     timer?.tolerance = 15
+  }
+  /// The tree walk (and the process list it needs for agent and editor folders) runs every 10
+  /// minutes; in between, the known files and the root folders themselves are re-read.
+  private var lastWalk = Date.distantPast
+  private var lastRoots: Set<String> = []
+  private func tick() {
+    let roots = currentRoots()
+    if -lastWalk.timeIntervalSinceNow >= 600 || roots != lastRoots {
+      refresh()
+    } else {
+      refresh(quick: Array(Set(files.map(\.folder)).union(roots)))
+    }
+  }
+  private func currentRoots() -> Set<String> {
+    let remembered = UserDefaults.standard.stringArray(forKey: "projectFolders") ?? []
+    return Set(ProfileStore.shared.profiles.map(\.folder) + Preferences.shared.cleanupRoots + remembered)
   }
 
   /// Callers that asked while a scan was running: served by one more scan right after it.
   private var waiting: [() -> Void] = []
   private var rerun = false
 
-  func refresh(done: (() -> Void)? = nil) {
+  func refresh(quick known: [String]? = nil, done: (() -> Void)? = nil) {
     guard !loading else {
       rerun = true
       if let done { waiting.append(done) }
       return
     }
     loading = true
-    let remembered = UserDefaults.standard.stringArray(forKey: "projectFolders") ?? []
-    let roots = Array(Set(ProfileStore.shared.profiles.map(\.folder) + Preferences.shared.cleanupRoots + remembered))
+    let roots = currentRoots()
+    if known == nil {
+      lastWalk = Date()
+      lastRoots = roots
+    }
+    let body: [String: Any] = known.map { ["folders": $0] } ?? ["roots": Array(roots), "auto": true]
     queue.async {
-      let request = (try? JSONSerialization.data(withJSONObject: ["roots": roots, "auto": true]))
+      let cost = CostMeter.begin()
+      defer { CostMeter.end("projects", cost) }
+      let request = (try? JSONSerialization.data(withJSONObject: body))
         .flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
       var found: [ProjectFile] = []
       if let pointer = request.withCString({ cs_project_configs($0) }) {

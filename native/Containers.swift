@@ -128,6 +128,8 @@ final class ContainerStore: ObservableObject {
     }
     busy = true
     queue.async {
+      let cost = CostMeter.begin()
+      defer { CostMeter.end("containers", cost) }
       let result: Result<ContainerReport, Error> = Result {
         guard let pointer = cs_containers(stats ? 1 : 0) else {
           throw NSError(
@@ -561,6 +563,8 @@ final class DockerDetailsStore: ObservableObject {
     guard !busy else { return }
     busy = true
     queue.async {
+      let cost = CostMeter.begin()
+      defer { CostMeter.end("containers", cost) }
       var next: DockerDetails?
       if let pointer = cs_docker_details() {
         let data = Data(bytes: pointer, count: strlen(pointer))

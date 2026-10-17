@@ -88,6 +88,8 @@ final class LogsStore: ObservableObject {
       extra.append(LogSource(kind: "container", name: c.name, project: c.project ?? L("Contêineres"), target: c.name))
     }
     queue.async {
+      let cost = CostMeter.begin()
+      defer { CostMeter.end("logs", cost) }
       let request: [String: Any] = [
         "op": "files", "folders": projects.map { ["folder": $0.folder, "project": $0.name, "globs": $0.globs] },
       ]
@@ -129,6 +131,8 @@ final class LogsStore: ObservableObject {
   }
   func tail(_ source: LogSource, lines: Int, done: @escaping (Result<[String], Error>) -> Void) {
     queue.async {
+      let cost = CostMeter.begin()
+      defer { CostMeter.end("logs", cost) }
       let result = Result {
         try JSONDecoder().decode(
           [String].self, from: Self.call(["op": "tail", "source": Self.encode([source])[0], "lines": lines]))
@@ -138,6 +142,8 @@ final class LogsStore: ObservableObject {
   }
   func errors(_ sources: [LogSource], limit: Int = 30, warnings: Bool = false, done: @escaping ([LogEntry], [String]) -> Void) {
     queue.async {
+      let cost = CostMeter.begin()
+      defer { CostMeter.end("logs", cost) }
       struct Out: Decodable {
         let entries: [LogEntry]
         let problems: [String]
@@ -149,6 +155,8 @@ final class LogsStore: ObservableObject {
   }
   func search(_ sources: [LogSource], query: String, limit: Int = 200, done: @escaping ([LogEntry]) -> Void) {
     queue.async {
+      let cost = CostMeter.begin()
+      defer { CostMeter.end("logs", cost) }
       let out = (try? Self.call(["op": "search", "sources": Self.encode(sources), "query": query, "limit": limit]))
         .flatMap { try? JSONDecoder().decode([LogEntry].self, from: $0) } ?? []
       DispatchQueue.main.async { done(out) }

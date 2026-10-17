@@ -37,6 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     Notifier.shared.activate()
     _ = HealthStore.shared
     _ = ProjectFileStore.shared
+    _ = DiskGrowthStore.shared
     ControlServer.shared.apply()
     // Dock presence follows the main window when the user chose "only while open".
     let center = NotificationCenter.default
@@ -57,6 +58,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     if Preferences.shared.historyEnabled { HistoryStore.flush() }
     ControlServer.shared.stop()
     HealthStore.shared.saveHistory()
+  }
+  /// corescope:// links (Shortcuts, Raycast, scripts).
+  func application(_ application: NSApplication, open urls: [URL]) {
+    for url in urls { AppLinks.handle(url) }
   }
   func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
   func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
@@ -229,6 +234,7 @@ struct MenuSummary: View {
       }
       if let s = monitor.snapshot {
         PortQuickLookup(snapshot: s)
+        MenuProfilesAndServices()
         Grid(horizontalSpacing: 8, verticalSpacing: 8) {
           GridRow {
             MiniTile(

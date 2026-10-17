@@ -217,6 +217,7 @@ struct PreferencesView: View {
         ).font(.caption).foregroundStyle(.secondary)
       }
       HistorySettings()
+      Section(L("Custo do CoreScope")) { SelfCostView() }
       Section(L("Privacidade e custo do monitor")) {
         Text(
           L("Sem rede ou telemetria. Sem argumentos, ambiente ou logs de processos. Preferências e identidades acompanhadas/ignoradas ficam no UserDefaults. Gráficos ao vivo em RAM (120 amostras / 10 minutos); o histórico persistente é opcional e local.")
@@ -227,13 +228,6 @@ struct PreferencesView: View {
           MetricLine(
             title: "Despertares do pacote atribuídos ao app", metric: s.own_wakeups,
             text: s.own_wakeups.value.map { String(format: "%.2f/s", $0) } ?? "—")
-          if let own = s.processes.first(where: {
-            $0.pid == ProcessInfo.processInfo.processIdentifier
-          }) {
-            MetricLine(
-              title: "CPU do CoreScope (um núcleo)", metric: own.cpu, text: own.cpu.percent)
-            MetricLine(title: "Memória do CoreScope · phys_footprint", metric: own.memory)
-          }
         }
         Text(
           L("Energia em watts/joules e Energy Impact: indisponíveis por API pública integrada. Despertares de pacote não são todos os timers; custo total deve ser medido em uso real. Metas e medições estão no relatório do projeto.")

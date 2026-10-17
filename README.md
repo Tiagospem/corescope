@@ -168,7 +168,13 @@ Battery level, charging state and time left, the watts each process draws right 
 <img src="docs/screenshots/history.jpg" alt="History page: CPU, memory, disk and network over the last hour, thermal and memory pressure, and the processes that dominated" width="900">
 
 - Answers *“what made my Mac slow yesterday at 3 pm?”*: 1 h, 24 h and 7 d views of CPU (mean and peak), memory and swap, disk, network, thermal state and memory pressure, with gaps where nothing was recorded.
-- Click any chart to see **the processes that dominated that moment** (top CPU and memory, with project and “via Claude Code”-style origin); step back period by period or jump to a date.
+- Click any chart to see **the processes that dominated that moment** (top CPU, memory and power, with project and “via Claude Code”-style origin); step back period by period or jump to a date.
+- **What happened at 2:05 pm?** Pick a moment (or type `14:05` in ⌥⌘K, open `corescope://happened?at=14:05`, run `corescope happened 14:05`, or let an agent call `what_happened`): CPU and process power in the 10 minutes around it against the hour before, memory, swap growth, pressure, thermal state, disk writes and who dominated.
+- Since 0.5 History also records total process power and the 10 processes drawing the most each minute (older files are upgraded in place; earlier minutes keep no power).
+
+### 💾 What grew today
+
+The Storage page measures the folders that usually fill a developer's disk — caches, Xcode DerivedData and simulators, Docker/OrbStack/Colima VMs, npm/pnpm/Yarn/Bun/Cargo/Go/Gradle/Maven/Composer stores, `~/.cache`, model folders (Ollama, LM Studio, Hugging Face), Downloads, Trash and Claude/Codex data (symlinked ones too) — at most every 6 hours in the background and on demand, and shows what grew since the last measurement before today, with free space. `corescope disk-growth [--measure]` and MCP `disk_growth` give the same; cleaning stays in Cleanup.
 
 ### 🐳 Containers
 
@@ -217,8 +223,24 @@ Nothing is scanned until you press *Scan*: the last result is kept in `~/Library
   - macOS **memory pressure** reaches *warning* or *critical*, naming the biggest consumer.
 
   At most one notification per process identity (PID + start time) per hour. Protected processes and other users' processes never notify. Rules run on the snapshots CoreScope already collects — no extra timer or sampling.
-- **Port lookup in the menu bar:** type a port (e.g. `3000`) to see which of your processes listens on it — name, project, origin — with *open `localhost:port`* and ✕. An empty result reads *Free*.
+- **Port lookup and quick actions in the menu bar:** type a port (e.g. `3000`) to see which of your processes listens on it — name, project, origin — with *open `localhost:port`* and ✕ (an empty result reads *Free*); type words to start or stop a profile, check a service, open a project folder or any page, pause sampling, or `14:05` for what happened then. Return runs the first match.
+- **Profiles and Services in the menu bar:** start or stop up to five profiles and see every service check as a coloured dot, without opening the window.
 - **Global shortcut ⌥⌘K** (configurable in Settings → Port shortcut) opens the menu bar popover with the port field focused. It is registered with Carbon's `RegisterEventHotKey`, so it needs **no Accessibility or Input Monitoring permission**: the app receives only that one key combination, never other keystrokes. (macOS 27 no longer exposes a public way to open a `MenuBarExtra` window, so there the shortcut shows the same menu in a standard popover anchored to the status item.)
+
+### 🔗 `corescope://` links, Shortcuts and Raycast
+
+CoreScope registers the `corescope://` URL scheme, so Shortcuts (*Open URLs*), Raycast quicklinks, Alfred, scripts (`open "corescope://…"`) and bookmarks can drive it:
+
+| Link | Does |
+| --- | --- |
+| `corescope://open/ports` | Opens a page (`overview`, `processes`, `agents`, `containers`, `history`, `storage`, `cleanup`, `services`, `profiles`, `databases`, `machines`, `energy`, `logs`, `ports`, `sensors`, `settings`) |
+| `corescope://profile/start?name=Revamp%20Test` | Starts a profile (`stop`, `toggle` too). A profile from a `.corescope.yml` asks first, showing its commands, so a web page cannot run a cloned project's commands |
+| `corescope://lookup?port=8000` | Opens the port lookup with that port |
+| `corescope://services/check` | Runs every service check now |
+| `corescope://happened?at=14:05` | History's *What happened at…* for that moment |
+| `corescope://palette` | Opens ⌥⌘K |
+
+For scripts that need an answer rather than an action, use the command line below (`--json`).
 
 ### ⌨️ Command line
 
@@ -239,6 +261,8 @@ corescope config                   # validate this project's .corescope.yml
 corescope logs --errors            # this project's recent errors, with traces
 corescope wait                     # wait until the Mac has room (the project's rule or flags)
 corescope exposure                 # what listens beyond localhost, riskiest first
+corescope happened "2:05 pm"       # what the Mac was doing then (needs History on)
+corescope disk-growth --measure    # which usual folders grew today
 ```
 
 Termination follows the app's rules: only your own processes, never system services or the command's own ancestors (an agent cannot stop its own session), identity revalidated right before each signal, and no signal without `--yes` when there is no terminal to confirm in.
@@ -262,6 +286,8 @@ Off by default. *Settings → MCP server for agents → Enable* registers `cores
 | `list_containers` / `container_logs` / `container_action` | Containers with project, ports, restart policy and volumes; logs; start/stop/restart under the profiles' sharing rules |
 | `recent_errors` / `search_logs` / `tail_log` / `list_log_sources` | A profile's or project's logs: errors with traces and counts, search, tail |
 | `read_project_config` / `write_project_config` | The project's `.corescope.yml`, parsed and validated / written as commented YAML |
+| `what_happened` | What the Mac was doing around a moment (History): CPU and power against the hour before, swap, pressure, thermal, who dominated, in plain English |
+| `disk_growth` | Which usual folders grew today, and free space |
 | `list_dev_space` | Reclaimable space (read-only; cleaning stays in the app, with your confirmation) |
 | `stop_port` / `stop_process` | Stop a process (or a port's owner), **only if this agent session started it** |
 
@@ -273,7 +299,8 @@ With *Agents can use the app through MCP* (on by default once the server is regi
 | `list_services` / `add_service` / `remove_service` / `check_services` | Services health checks |
 | `list_machines` / `add_machine` / `remove_machine` / `refresh_machines` | SSH machines |
 | `cleanup_status` / `scan_dev_space` / `clean_dev_space` | Cleanup: cached result, a new scan, and moving items from the latest scan to the Trash |
-| `get_settings` / `set_setting` | Notification toggles, thresholds and cleanup folders (nothing that reaches outside the Mac) |
+| `get_settings` / `set_setting` | Notification toggles, thresholds, cleanup folders, collector interval and the floating panel (nothing that reaches outside the Mac) |
+| `corescope_cost` | What CoreScope itself spends (app, helpers, children) and each feature's measured CPU, to tell you what to turn off |
 | `list_stuck_agents` | Busy sessions and whether they look stuck |
 
 Tools that stop, delete or clean are marked destructive, so Claude Code and Codex ask before running them; the app applies the same rules as its own buttons (Trash only, re-verification, shared containers, identity checks).
@@ -348,6 +375,14 @@ A monitor shouldn't be what slows your Mac down. Measured on a MacBook Air M4 wi
 | Window closed (menu bar only, sampling every 10 s) | ~85 MB | < 1 % of one core |
 
 Sampling pauses during sleep and slows down in Low Power Mode.
+
+CoreScope also shows what **it** costs, so turning everything on never goes unnoticed: the footer
+reads its own CPU and memory, and *Settings › CoreScope's own cost* breaks it down — the app, its
+helpers (MCP servers, the gate hook, the status line), processes it started (ssh, codex
+app-server), and every background feature with whether it is on, how often it works and the CPU
+time it actually spent in CoreScope's threads over the last 5 minutes (startup excluded), with the
+switches that change it. Past 2 % of a core or 500 MB it says so. Agents read the same with
+`corescope_cost`.
 
 ## How it works
 

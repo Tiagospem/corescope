@@ -104,6 +104,8 @@ final class MachineStore: ObservableObject {
     guard validSSHDestination(host), !probing.contains(host) else { return }
     probing.insert(host)
     queue.async {
+      let cost = CostMeter.begin()
+      defer { CostMeter.end("machines", cost) }
       let started = Date()
       let (code, output, errors) = Self.ssh(host)
       let stats = RemoteStats(parsing: output)

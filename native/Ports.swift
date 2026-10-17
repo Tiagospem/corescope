@@ -38,6 +38,8 @@ final class PortsStore: ObservableObject {
       return ["name": f.project, "folder": f.folder, "ports": ports]
     }
     queue.async {
+      let cost = CostMeter.begin()
+      defer { CostMeter.end("ports", cost) }
       func decode<T: Decodable>(_ pointer: UnsafeMutablePointer<CChar>?) -> T? {
         guard let pointer else { return nil }
         defer { cs_free(pointer) }

@@ -322,6 +322,13 @@ fn app_tools() -> Vec<(
             vec!["ids"],
         ),
         (
+            "corescope_cost",
+            "app.cost",
+            "What CoreScope itself costs right now: the app, its helpers (MCP servers like this one, the gate hook, the status line) and processes it started, in CPU (% of one core, now and 5-minute average), memory and watts, plus each background feature with whether it is on, how often it works and its measured CPU. Use it to tell the user what to turn off when the monitor spends too much.",
+            json!({}),
+            vec![],
+        ),
+        (
             "get_settings",
             "settings.get",
             "CoreScope settings agents may change: notification toggles, thresholds, cleanup folders.",
@@ -443,6 +450,29 @@ fn core_tools() -> Vec<Value> {
              processes by watts and each agent session's power including what it started.",
             json!({}),
             &[],
+        ),
+        tool(
+            "disk_growth",
+            "Which of the usual space-hungry folders grew today (caches, Xcode DerivedData and \
+             simulators, Docker/OrbStack VMs, npm/pnpm/Cargo/Go/Gradle stores, model files, \
+             Downloads, Trash, Claude/Codex data): size now, change since the last measurement \
+             before today, and free space change. measure: true measures now (takes seconds); \
+             otherwise the last saved measurement is used. Read-only; cleaning stays with the user.",
+            json!({"measure": {"type": "boolean", "description": "measure now (default false)"}}),
+            &[],
+        ),
+        tool(
+            "what_happened",
+            "What the Mac was doing around a moment, from CoreScope's local History (when the user \
+             turned it on): CPU and process power against the hour before, memory, swap growth, \
+             memory pressure, thermal state, disk writes, and the processes that dominated CPU, \
+             memory and power (with project folder and the agent or app that started them), plus \
+             plain-English findings. Use it for questions like 'why was my Mac slow at 2:05?'.",
+            json!({
+                "at": {"type": "string", "description": "14:05, 2:05 pm, yesterday 9:30, 2026-10-17 14:05 or epoch seconds (local time)"},
+                "minutes": {"type": "integer", "minimum": 2, "maximum": 120, "description": "window centred on `at` (default 10)"}
+            }),
+            &["at"],
         ),
         tool(
             "system_capacity",
@@ -608,6 +638,17 @@ fn call(params: &Value) -> Value {
                 .collect();
             text(crate::worktrees(&folders), false)
         }
+        "disk_growth" => match corescope::disk_growth(args["measure"].as_bool() == Some(true)) {
+            Ok(r) => text(json!(r), false),
+            Err(e) => text(json!({"error": e}), true),
+        },
+        "what_happened" => match crate::happened(
+            args["at"].as_str().unwrap_or(""),
+            args["minutes"].as_i64().unwrap_or(10),
+        ) {
+            Ok(v) => text(v, false),
+            Err(e) => text(json!({"error": e}), true),
+        },
         "system_capacity" | "wait_for_capacity" => {
             let folder = args["folder"]
                 .as_str()
