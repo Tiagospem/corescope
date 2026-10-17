@@ -15,14 +15,14 @@ Requirements: macOS 14 or later, Xcode Command Line Tools (Swift 6) and Rust/Car
 ```bash
 ./scripts/test.sh     # cargo fmt --check, cargo test, clippy -D warnings, native logic tests
 ./scripts/build.sh    # release build into build/CoreScope.app
-# Quit any running CoreScope instance with ⌘Q before launching.
-# For screenshots or recordings, use demo mode and inspect captures for private data:
+# Before launching or switching modes, quit CoreScope with ⌘Q; closing its window is not enough.
+# Demo mode may leave project names and path components visible; inspect and redact captures:
 open --env CORESCOPE_DEMO=1 build/CoreScope.app
-# For normal use, run this INSTEAD of the demo command:
+# For normal use, run this INSTEAD of the demo command (quit CoreScope with ⌘Q first):
 # open build/CoreScope.app
 ```
 
-`./scripts/test.sh` and `./scripts/build.sh` must both pass before you open a pull request. Use demo mode for any screenshot or recording you attach, so your own paths and projects don't leak.
+`./scripts/test.sh` and `./scripts/build.sh` must both pass before you open a pull request. Use demo mode for any screenshot or recording you attach, but note that project names and path components may remain visible. Inspect and redact captures before sharing.
 
 ## Where things live
 
@@ -68,7 +68,7 @@ These are not negotiable, because they are what CoreScope is:
 
 ## Recording the demo GIF
 
-The GIF at the top of the README is recorded in demo mode, which keeps live metrics but anonymizes users, paths, projects and session titles. Keep it short (about 15 s) and under ~3 MB.
+The GIF at the top of the README is recorded in demo mode, which keeps live metrics and anonymizes some user details. Project names and path components may remain visible, so inspect and redact captures before sharing. Keep it short (about 15 s) and under ~3 MB.
 
 1. Build, and start a throwaway server you can safely terminate on camera:
 
@@ -77,7 +77,7 @@ The GIF at the top of the README is recorded in demo mode, which keeps live metr
    mkdir -p /tmp/corescope-demo && cd /tmp/corescope-demo && python3 -m http.server 8765 --bind 127.0.0.1
    ```
 
-2. In another terminal, open CoreScope in demo mode and in English (`-language en` applies to this launch only and is not saved):
+2. In another terminal, first quit any running CoreScope instance with ⌘Q (closing its window is not enough), then open CoreScope in demo mode and in English (`-language en` applies to this launch only and is not saved):
 
    ```bash
    open --env CORESCOPE_DEMO=1 build/CoreScope.app --args -language en
@@ -88,10 +88,10 @@ The GIF at the top of the README is recorded in demo mode, which keeps live metr
    - Type `8765` in the search field, click ✕ on the `Python` row, then **Terminate**; wait for the toast.
    - Clear the search and open **Agents** (⌘3) for a couple of seconds.
 
-4. Convert the recording to an optimized GIF (requires `ffmpeg`):
+4. Convert the single recording you want to use to an optimized GIF (requires `ffmpeg`; replace the example path with that recording's exact filename):
 
    ```bash
-   ffmpeg -i ~/Desktop/Screen\ Recording*.mov -vf "fps=12,scale=900:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=128:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle" -loop 0 docs/screenshots/demo.gif
+   ffmpeg -i "$HOME/Desktop/Screen Recording.mov" -vf "fps=12,scale=900:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=128:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle" -loop 0 docs/screenshots/demo.gif
    du -h docs/screenshots/demo.gif   # over ~3 MB? lower fps to 10 or scale to 800
    ```
 
@@ -102,7 +102,7 @@ The GIF at the top of the README is recorded in demo mode, which keeps live metr
 1. Branch from `main` (it is protected, so all changes land through PRs).
 2. Keep each PR to one topic, and describe what changed and how you verified it.
 3. Run `./scripts/test.sh` and `./scripts/build.sh`.
-4. For UI changes, attach a screenshot taken in demo mode and note light/dark mode and VoiceOver if you checked them.
+4. For UI changes, quit CoreScope with ⌘Q before switching to demo mode, then attach a screenshot and inspect/redact it first—project names and path components may remain visible. Note light/dark mode and VoiceOver if you checked them.
 5. Update the docs or README when behavior, data sources or permissions change.
 
 By contributing you agree that your contributions are licensed under the [MIT License](LICENSE).

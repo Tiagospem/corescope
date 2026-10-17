@@ -6,7 +6,7 @@
 
 - [ ] `./scripts/test.sh` passes
 - [ ] `./scripts/build.sh` passes and I ran the app
-- [ ] UI change: screenshot in demo mode (`open --env CORESCOPE_DEMO=1 build/CoreScope.app`) attached, light and dark checked
+- [ ] UI change: quit CoreScope with ⌘Q before switching to demo mode (`open --env CORESCOPE_DEMO=1 build/CoreScope.app`), inspect/redact the screenshot before attaching (project names and path components may remain visible), and check light and dark
 - [ ] VoiceOver / keyboard checked for new controls (icon-only buttons have an accessibility label)
 
 ## Checklist
