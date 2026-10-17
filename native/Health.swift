@@ -7,6 +7,8 @@ struct HealthCheck: Codable, Identifiable, Equatable {
   var id = UUID()
   var name: String
   var target: String
+  /// The `.corescope.yml` defining it; nil for checks added in the app.
+  var source: String? = nil
 }
 struct HealthResult: Equatable {
   let level: HealthLevel
@@ -24,9 +26,31 @@ final class HealthStore: ObservableObject {
   @Published var checks: [HealthCheck] {
     didSet {
       if let data = try? JSONEncoder().encode(checks) { UserDefaults.standard.set(data, forKey: "healthChecks") }
-      results = results.filter { id, _ in checks.contains { $0.id == id } }
-      schedule()
+      pruneAndSchedule()
     }
+  }
+  /// Checks from project files (`services:`), rebuilt when the files change.
+  @Published private(set) var fileChecks: [HealthCheck] = []
+  var allChecks: [HealthCheck] { checks + fileChecks }
+  func reloadFileChecks() {
+    var out: [HealthCheck] = []
+    for file in ProjectFileStore.shared.files {
+      for s in file.config?.services ?? [] {
+        let label = s.name ?? HealthTarget(s.target)?.label ?? s.target
+        out.append(
+          HealthCheck(
+            id: stableID("\(file.file)#service#\(s.target)"), name: "\(file.project) · \(label)", target: s.target,
+            source: file.file))
+      }
+    }
+    guard out != fileChecks else { return }
+    fileChecks = out
+    pruneAndSchedule()
+  }
+  private func pruneAndSchedule() {
+    let ids = Set(allChecks.map(\.id))
+    results = results.filter { ids.contains($0.key) }
+    schedule()
   }
   @Published private(set) var results: [UUID: HealthResult] = [:]
   /// Recent latencies per check (nil = failed), oldest first.
@@ -48,18 +72,18 @@ final class HealthStore: ObservableObject {
     checks = data.flatMap { try? JSONDecoder().decode([HealthCheck].self, from: $0) } ?? []
     schedule()
   }
-  var worst: HealthLevel? { checks.compactMap { results[$0.id]?.level }.max() }
+  var worst: HealthLevel? { allChecks.compactMap { results[$0.id]?.level }.max() }
 
   private func schedule() {
     timer?.invalidate()
     timer = nil
-    guard !checks.isEmpty else { return }
+    guard !allChecks.isEmpty else { return }
     runAll()
     timer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in self?.runAll() }
     timer?.tolerance = 5
   }
   func runAll() {
-    for check in checks { run(check) }
+    for check in allChecks { run(check) }
   }
   func run(_ check: HealthCheck) {
     guard let target = HealthTarget(check.target) else {
@@ -92,7 +116,7 @@ final class HealthStore: ObservableObject {
   }
 
   private func record(_ check: HealthCheck, _ result: HealthResult) {
-    guard checks.contains(where: { $0.id == check.id }) else { return }
+    guard allChecks.contains(where: { $0.id == check.id }) else { return }
     results[check.id] = result
     var recent = history[check.id] ?? []
     recent.append(result.level == .down ? nil : result.latency)
@@ -207,20 +231,20 @@ struct HealthView: View {
             }
           }
         }
-        if store.checks.isEmpty {
+        if store.allChecks.isEmpty {
           Card {
             EmptyNote(text: L("Nenhum serviço monitorado. Adicione uma URL de health check ou uma porta (API local, banco, staging)."))
           }
         } else {
           Card {
-            CardHeader(title: L("Serviços"), symbol: "heart.text.square", tint: store.worst?.color ?? .secondary, count: store.checks.count) {
+            CardHeader(title: L("Serviços"), symbol: "heart.text.square", tint: store.worst?.color ?? .secondary, count: store.allChecks.count) {
               Button {
                 store.runAll()
               } label: {
                 Label(L("Verificar agora"), systemImage: "arrow.clockwise")
               }.controlSize(.small)
             }
-            ForEach(store.checks) { check in
+            ForEach(store.allChecks) { check in
               HealthRow(check: check, result: store.results[check.id], history: store.history[check.id] ?? []) {
                 editing = check.id
                 name = check.name
@@ -228,7 +252,7 @@ struct HealthView: View {
               } remove: {
                 store.checks.removeAll { $0.id == check.id }
               }
-              if check.id != store.checks.last?.id { Divider() }
+              if check.id != store.allChecks.last?.id { Divider() }
             }
           }
         }
@@ -243,7 +267,7 @@ struct HealthView: View {
   /// The user's own listening ports that are not watched yet.
   private var suggestions: [(port: UInt16, name: String)] {
     guard let s = monitor.snapshot else { return [] }
-    let watched = Set(store.checks.compactMap { check -> UInt16? in
+    let watched = Set(store.allChecks.compactMap { check -> UInt16? in
       if case .tcp(_, let port) = HealthTarget(check.target) { return port }
       if case .http(let url) = HealthTarget(check.target) { return url.port.map(UInt16.init) }
       return nil
@@ -282,7 +306,10 @@ private struct HealthRow: View {
       Circle().fill(result?.level.color ?? .secondary).frame(width: 9, height: 9)
         .help(result?.level.label ?? L("Verificando…"))
       VStack(alignment: .leading, spacing: 2) {
-        Text(check.name).font(.callout.weight(.medium)).lineLimit(1)
+        HStack(spacing: 6) {
+          Text(check.name).font(.callout.weight(.medium)).lineLimit(1)
+          if check.source != nil { Badge(text: ".corescope.yml", color: Tint.netIn, symbol: "doc.text") }
+        }
         Text(check.target).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
           .textSelection(.enabled)
       }
@@ -302,8 +329,12 @@ private struct HealthRow: View {
         }.buttonStyle(.borderless).help(L("Abrir no navegador"))
       }
       Menu {
-        Button(L("Editar"), action: edit)
-        Button(L("Remover"), role: .destructive, action: remove)
+        if let source = check.source {
+          Button(L("Abrir .corescope.yml")) { NSWorkspace.shared.open(URL(fileURLWithPath: source)) }
+        } else {
+          Button(L("Editar"), action: edit)
+          Button(L("Remover"), role: .destructive, action: remove)
+        }
       } label: {
         Image(systemName: "ellipsis.circle")
       }.menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
@@ -334,13 +365,13 @@ private struct LatencyStrip: View {
 struct HealthCard: View {
   @ObservedObject var store = HealthStore.shared
   var body: some View {
-    if !store.checks.isEmpty {
+    if !store.allChecks.isEmpty {
       Card {
-        CardHeader(title: L("Serviços"), symbol: "heart.text.square", tint: store.worst?.color ?? .secondary, count: store.checks.count) {
+        CardHeader(title: L("Serviços"), symbol: "heart.text.square", tint: store.worst?.color ?? .secondary, count: store.allChecks.count) {
           Button(L("Ver todos")) { navigate(.health) }.buttonStyle(.link).font(.caption)
         }
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 10, alignment: .leading)], alignment: .leading, spacing: 8) {
-          ForEach(store.checks) { check in
+          ForEach(store.allChecks) { check in
             let result = store.results[check.id]
             HStack(spacing: 7) {
               Circle().fill(result?.level.color ?? .secondary).frame(width: 8, height: 8)

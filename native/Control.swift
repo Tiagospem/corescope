@@ -116,16 +116,22 @@ enum ControlAPI {
   static func handle(_ op: String, _ args: [String: Any], reply: @escaping Reply) {
     switch op {
     case "ping": reply(["ok": true, "version": Bundle.main.infoDictionary?["CFBundleShortVersionString"] ?? ""])
-    case "profiles.list": reply(["profiles": ProfileStore.shared.profiles.map(profileJSON)])
+    case "profiles.list":
+      ProjectFileStore.shared.refresh {
+        reply(["profiles": ProfileStore.shared.allProfiles.map(profileJSON)])
+      }
     case "profiles.create": createProfile(args, reply)
     case "profiles.delete": withProfile(args, reply) { p in
+        if let source = p.source {
+          return reply(["error": "\(p.name) is defined in \(source); edit that file (write_project_config)"])
+        }
         ProfileStore.shared.profiles.removeAll { $0.id == p.id }
         reply(["deleted": p.name, "note": "Only the settings were deleted; nothing running was stopped."])
       }
     case "profiles.start": withProfile(args, reply) { p in
         ProfileStore.shared.start(p) { errors in
           DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-            var out = profileJSON(ProfileStore.shared.profiles.first { $0.id == p.id } ?? p)
+            var out = profileJSON(ProfileStore.shared.allProfiles.first { $0.id == p.id } ?? p)
             out["errors"] = errors
             reply(out)
           }
@@ -155,7 +161,16 @@ enum ControlAPI {
         reply(["profile": p.name, "logs": logs])
       }
 
-    case "services.list": reply(["services": HealthStore.shared.checks.map(serviceJSON)])
+    case "projects.refresh":
+      if let folder = args["folder"] as? String, FileManager.default.fileExists(atPath: folder) {
+        ProjectFileStore.shared.remember(folder)
+      }
+      ProjectFileStore.shared.refresh {
+        reply(["projects": ProjectFileStore.shared.files.map { f -> [String: Any] in
+          ["folder": f.folder, "file": f.file, "valid": f.error == nil, "error": f.error ?? NSNull()]
+        }])
+      }
+    case "services.list": reply(["services": HealthStore.shared.allChecks.map(serviceJSON)])
     case "services.add":
       guard let target = args["target"] as? String, HealthTarget(target) != nil else {
         return reply(["error": "target must be a URL (http/https), host:port or a local port"])
@@ -166,12 +181,15 @@ enum ControlAPI {
       DispatchQueue.main.asyncAfter(deadline: .now() + 6) { reply(serviceJSON(check)) }
     case "services.remove":
       guard let check = findService(args) else { return reply(["error": "no such service"]) }
+      if let source = check.source {
+        return reply(["error": "\(check.name) is defined in \(source); edit that file (write_project_config)"])
+      }
       HealthStore.shared.checks.removeAll { $0.id == check.id }
       reply(["removed": check.name])
     case "services.check":
       HealthStore.shared.runAll()
       DispatchQueue.main.asyncAfter(deadline: .now() + 6) {
-        reply(["services": HealthStore.shared.checks.map(serviceJSON)])
+        reply(["services": HealthStore.shared.allChecks.map(serviceJSON)])
       }
 
     case "machines.list": reply(["machines": MachineStore.shared.hosts.map(machineJSON)])
@@ -248,7 +266,10 @@ enum ControlAPI {
 
   private static func findProfile(_ args: [String: Any]) -> EnvProfile? {
     let key = (args["name"] as? String ?? args["id"] as? String ?? "").lowercased()
-    return ProfileStore.shared.profiles.first { $0.name.lowercased() == key || $0.id.uuidString.lowercased() == key }
+    let normalized = key.replacingOccurrences(of: " / ", with: "/")
+    return ProfileStore.shared.allProfiles.first {
+      $0.name.lowercased() == normalized || $0.id.uuidString.lowercased() == normalized
+    }
   }
   private static func withProfile(_ args: [String: Any], _ reply: @escaping Reply, _ body: (EnvProfile) -> Void) {
     guard let p = findProfile(args) else {
@@ -294,6 +315,7 @@ enum ControlAPI {
     let containers = ContainerStore.shared.report?.containers ?? []
     return [
       "id": p.id.uuidString, "name": p.name, "folder": p.folder, "active": store.active.contains(p.id),
+      "defined_in": p.source ?? "CoreScope app",
       "commands": p.commands.map { c -> [String: Any] in
         var row: [String: Any] = ["name": c.name, "command": c.command, "running": false]
         if let stop = c.stopCommand { row["stop_command"] = stop }
@@ -322,10 +344,10 @@ enum ControlAPI {
 
   private static func findService(_ args: [String: Any]) -> HealthCheck? {
     let key = (args["name"] as? String ?? args["target"] as? String ?? "").lowercased()
-    return HealthStore.shared.checks.first { $0.name.lowercased() == key || $0.target.lowercased() == key }
+    return HealthStore.shared.allChecks.first { $0.name.lowercased() == key || $0.target.lowercased() == key }
   }
   private static func serviceJSON(_ c: HealthCheck) -> [String: Any] {
-    var row: [String: Any] = ["name": c.name, "target": c.target]
+    var row: [String: Any] = ["name": c.name, "target": c.target, "defined_in": c.source ?? "CoreScope app"]
     if let r = HealthStore.shared.results[c.id] {
       row["status"] = ["up", "answered with an error", "down"][r.level.rawValue]
       row["detail"] = r.detail

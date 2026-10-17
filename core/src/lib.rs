@@ -4,6 +4,7 @@ pub mod databases;
 pub mod devspace;
 pub mod history;
 mod os;
+pub mod projectconfig;
 mod sqlite;
 use os::*;
 use serde::{Deserialize, Serialize};
@@ -1565,6 +1566,31 @@ pub extern "C" fn cs_databases() -> *mut c_char {
             .containers;
         let endpoints = databases::detect(&processes_now(), &containers);
         json(Ok(databases::probe(endpoints)))
+    })
+}
+
+/// `.corescope.yml` files under `roots` (plus suggested roots with `auto`), parsed and validated.
+///
+/// # Safety
+/// `request` is a valid NUL-terminated UTF-8 JSON pointer for the duration of this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cs_project_configs(request: *const c_char) -> *mut c_char {
+    response(|| {
+        if request.is_null() {
+            return Err("Consulta ausente".into());
+        }
+        let bytes = unsafe { CStr::from_ptr(request) }.to_bytes();
+        let r: DevSpaceRequest = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
+        let mut roots: Vec<std::path::PathBuf> = r.roots.iter().map(Into::into).collect();
+        if r.auto {
+            roots.extend(devspace::auto_roots(&home(), &processes_now()));
+        }
+        let folders = projectconfig::discover(&devspace::normalize(roots));
+        let found: Vec<_> = folders
+            .iter()
+            .filter_map(|f| projectconfig::load(f))
+            .collect();
+        json(Ok(found))
     })
 }
 

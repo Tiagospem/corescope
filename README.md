@@ -67,6 +67,45 @@ If you work with Claude Code, Codex, editors and terminals all day, your Mac fil
 
 A busy Claude Code session or Codex thread that has not written to its transcript for a while (10 min by default) gets a badge on the Agents page, and optionally a notification that opens it in Claude or Codex. CoreScope tells the cases apart by what the commands started in the current turn are doing: one using CPU is a **long command** (a build, a test run); one sitting idle is **waiting** — often a prompt asking for input; nothing running at all means the agent itself looks **stuck**. Servers it left listening and processes from earlier turns (MCP servers) are ignored. Only modification times are read, never transcript content.
 
+### 📄 Profiles as code
+
+Commit a `.corescope.yml` and the whole team gets the same environment. CoreScope finds it in the folders you and your agents work in, shows its profiles (read-only, marked with the file) and its Services checks, and agents can read or write it over MCP (`read_project_config`, `write_project_config`); `corescope config` validates it.
+
+```yaml
+name: Revamp
+
+profiles:
+  dev:
+    commands:
+      - name: web
+        run: php artisan serve --port 8000
+      - run: npm run dev
+    containers: [TO--mysql--26.7.0--3306, TO--redis--8.6.2--6379]
+  qa:
+    commands:
+      - name: env
+        run: make test-env-up
+        stop: make test-env-down
+
+ports:
+  web: 8000
+
+services:
+  - name: API
+    target: http://localhost:8000/up
+
+logs: [storage/logs/*.log]
+
+agents:
+  wait_for_capacity:
+    cpu_below: 70
+    memory: normal
+    max_wait_minutes: 30
+    heavy_commands: [php artisan test, npm run build]
+```
+
+The format is plain YAML (maps, lists, quoted or plain values, comments); anything fancier is rejected with the line number.
+
 ### 💚 Services
 
 Watch the things your work depends on: a local API's `/health`, a database port, a staging URL. Each check runs every 30 s while CoreScope is open — an HTTP GET (2xx/3xx up, 4xx answered with an error, 5xx or no answer down) or a TCP connect — with latency, a strip of the last 40 results, an Overview summary and optional notifications when a service goes down (two failures in a row) or comes back. Ports you have open right now are offered as one-click suggestions.
@@ -155,6 +194,7 @@ corescope kill 4242 --tree         # stop a process and everything it started
 corescope space                    # reclaimable node_modules, target/, Xcode, caches, Docker
 corescope db                       # local MySQL/PostgreSQL/Redis: sizes, connections, slow queries
 corescope power                    # battery, watts per process and per agent session
+corescope config                   # validate this project's .corescope.yml
 ```
 
 Termination follows the app's rules: only your own processes, never system services or the command's own ancestors (an agent cannot stop its own session), identity revalidated right before each signal, and no signal without `--yes` when there is no terminal to confirm in.
@@ -171,6 +211,7 @@ Off by default. *Settings → MCP server for agents → Enable* registers `cores
 | `list_my_processes` | What the calling agent session started, including servers it detached |
 | `power_usage` | Battery, total watts, top processes and agent sessions by power |
 | `list_databases` | Local MySQL/PostgreSQL/Redis status (read-only, no passwords) |
+| `read_project_config` / `write_project_config` | The project's `.corescope.yml`, parsed and validated / written as commented YAML |
 | `list_dev_space` | Reclaimable space (read-only; cleaning stays in the app, with your confirmation) |
 | `stop_port` / `stop_process` | Stop a process (or a port's owner), **only if this agent session started it** |
 

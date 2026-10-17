@@ -24,6 +24,7 @@ USAGE:
                                         package caches, unused Docker data (read-only; delete
                                         from the CoreScope app, which moves folders to the Trash)
   corescope power                       battery, total power, top processes and agent sessions by watts
+  corescope config [FOLDER]             validate and show the project's .corescope.yml (default: here)
   corescope db                          local MySQL/PostgreSQL/Redis: size, connections, slow
                                         and long-running queries (no passwords used or read)
   corescope mcp                         run the local MCP server on stdio
@@ -115,6 +116,20 @@ fn main() {
             print(json_out, space(&folders, !flag("--no-docker")))
         }
         Some("db") => print(json_out, databases(&sample(false))),
+        Some("config") => {
+            let folder = positional
+                .get(1)
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+            match project_config(&folder) {
+                Ok(v) if json_out => print(true, v),
+                Ok(v) => {
+                    println!("{}: valid", v["file"].as_str().unwrap_or(""));
+                    0
+                }
+                Err(e) => fail(json_out, &e),
+            }
+        }
         Some("power") => print(json_out, power(&sample(true))),
         Some("mcp") => mcp::serve(),
         Some(other) => fail(
@@ -283,6 +298,19 @@ pub fn top(snapshot: &Snapshot, by: &str, count: usize) -> Value {
     rows.sort_by(|a, b| key(b).total_cmp(&key(a)));
     json!({"by": by,
            "processes": rows.iter().take(count).map(|p| process_json(p)).collect::<Vec<_>>()})
+}
+
+/// The project file in `folder` (or the nearest parent with one), parsed and validated.
+pub fn project_config(folder: &std::path::Path) -> Result<Value, String> {
+    let dir = folder
+        .ancestors()
+        .find(|a| corescope::projectconfig::file_in(a).is_some())
+        .ok_or_else(|| format!("no .corescope.yml in {} or its parents", folder.display()))?;
+    let found = corescope::projectconfig::load(dir).ok_or("no .corescope.yml")?;
+    match found.error {
+        Some(e) => Err(format!("{}: {e}", found.file)),
+        None => Ok(json!({"folder": found.folder, "file": found.file, "config": found.config})),
+    }
 }
 
 /// Local databases found among processes and containers, probed read-only.

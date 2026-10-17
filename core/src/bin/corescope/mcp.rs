@@ -5,7 +5,10 @@
 //! it (its nearest ancestor that is a Claude Code / Codex / … session) and only signals that
 //! session's descendants — never other sessions, other users, system services, the agent itself
 //! or the server's own ancestors. Identity is revalidated by the core right before each signal.
-use crate::{agents, databases, free_port, orphans, ports, power, sample, space, subtree, top};
+use crate::{
+    agents, databases, free_port, orphans, ports, power, project_config, sample, space, subtree,
+    top,
+};
 use corescope::{Process, Snapshot, cs_is_same, signal_process};
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
@@ -94,7 +97,8 @@ const DESTRUCTIVE: [&str; 7] = [
     "remove_machine",
 ];
 /// Tools that change state without destroying anything.
-const CHANGES: [&str; 6] = [
+const CHANGES: [&str; 7] = [
+    "write_project_config",
     "create_profile",
     "start_profile",
     "add_service",
@@ -378,6 +382,25 @@ fn core_tools() -> Vec<Value> {
             &[],
         ),
         tool(
+            "read_project_config",
+            "The project's .corescope.yml (profiles, ports, services, logs, agent capacity rules), \
+             parsed and validated, from `folder` or its nearest parent. Use it to learn how the \
+             project is run before starting servers or heavy work.",
+            json!({"folder": {"type": "string", "description": "absolute path; default: this session's folder"}}),
+            &[],
+        ),
+        tool(
+            "write_project_config",
+            "Create or replace a project's .corescope.yml from a JSON config (validated; written as \
+             commented YAML the team can commit). Shape: {name?, profiles: {NAME: {commands: [{name?, \
+             run, stop?}], containers?: [names]}}, ports?: {role: port}, services?: [{name?, target}], \
+             logs?: [globs relative to the project], agents?: {wait_for_capacity: {cpu_below?, memory?: \
+             normal|warning, max_wait_minutes?, heavy_commands: [prefixes]}}}. Read the project's \
+             scripts first and confirm with the user before writing.",
+            json!({"folder": {"type": "string"}, "config": {"type": "object"}}),
+            &["folder", "config"],
+        ),
+        tool(
             "list_databases",
             "Local MySQL/MariaDB, PostgreSQL and Redis servers (processes and containers): \
              version, size per database, connections, slow and long-running queries. \
@@ -445,6 +468,37 @@ fn call(params: &Value) -> Value {
         "list_agent_sessions" => text(agents(&sample(true)), false),
         "list_orphans" => text(orphans(&sample(false)), false),
         "list_databases" => text(databases(&sample(false)), false),
+        "read_project_config" => {
+            let folder = args["folder"]
+                .as_str()
+                .map(std::path::PathBuf::from)
+                .or_else(|| session(&sample(false)).map(|s| std::path::PathBuf::from(&s.cwd)))
+                .unwrap_or_default();
+            match project_config(&folder) {
+                Ok(v) => text(v, false),
+                Err(e) => text(json!({"error": e}), true),
+            }
+        }
+        "write_project_config" => {
+            let folder = std::path::PathBuf::from(args["folder"].as_str().unwrap_or(""));
+            let config = serde_json::from_value::<corescope::projectconfig::ProjectConfig>(
+                args["config"].clone(),
+            );
+            match config
+                .map_err(|e| e.to_string())
+                .and_then(|c| corescope::projectconfig::write(&folder, &c))
+            {
+                Ok(file) => {
+                    // Let the app pick it up now rather than at its next scan.
+                    let _ = app("projects.refresh", &json!({"folder": folder}));
+                    text(
+                        json!({"written": file, "note": "Commit it so the team shares the profiles."}),
+                        false,
+                    )
+                }
+                Err(e) => text(json!({"error": e}), true),
+            }
+        }
         "power_usage" => text(power(&sample(true)), false),
         "list_dev_space" => {
             let folders: Vec<std::path::PathBuf> = args["folders"]

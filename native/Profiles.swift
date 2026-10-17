@@ -9,6 +9,9 @@ struct EnvProfile: Codable, Identifiable, Equatable {
   var commands: [ProfileCommand] = []
   /// Container names, started and stopped with the profile.
   var containers: [String] = []
+  /// The `.corescope.yml` defining it; nil for profiles made in the app. File profiles are
+  /// read-only here: the file is the source of truth (and what the team shares).
+  var source: String? = nil
 }
 struct ProfileCommand: Codable, Identifiable, Equatable {
   var id = UUID()
@@ -54,6 +57,9 @@ final class ProfileStore: ObservableObject {
     didSet { persist(launched, "envLaunched") }
   }
   @Published private(set) var busy = Set<UUID>()
+  /// Profiles defined in project files, rebuilt whenever the files change.
+  @Published private(set) var fileProfiles: [EnvProfile] = []
+  var allProfiles: [EnvProfile] { profiles + fileProfiles }
   /// Command id → how its last run ended (cleared when it starts again or the profile stops).
   @Published private(set) var exits: [UUID: CommandExit] {
     didSet { persist(exits, "envExits") }
@@ -78,9 +84,29 @@ final class ProfileStore: ObservableObject {
     exits = Self.load([UUID: CommandExit].self, "envExits") ?? [:]
     startedContainers = Self.load(Set<String>.self, "envStartedContainers") ?? []
   }
+  /// `project/profile` for every profile in every valid project file; ids derive from the file and
+  /// names so running state carries over when the file is edited.
+  func reloadFileProfiles() {
+    var out: [EnvProfile] = []
+    for file in ProjectFileStore.shared.files {
+      guard let config = file.config else { continue }
+      for (name, spec) in (config.profiles ?? [:]).sorted(by: { $0.key < $1.key }) {
+        let key = "\(file.file)#\(name)"
+        let commands = (spec.commands ?? []).enumerated().map { i, c in
+          let label = c.name ?? "cmd\(i + 1)"
+          return ProfileCommand(id: stableID("\(key)#\(label)"), name: label, command: c.run, stopCommand: c.stop)
+        }
+        out.append(
+          EnvProfile(
+            id: stableID(key), name: "\(file.project)/\(name)", folder: file.folder, commands: commands,
+            containers: spec.containers ?? [], source: file.file))
+      }
+    }
+    if out != fileProfiles { fileProfiles = out }
+  }
   /// What Stop would do to this profile's containers right now.
   func stopPlan(_ profile: EnvProfile, containers: [ContainerItem]) -> ContainerStopPlan {
-    let others = profiles.filter { $0.id != profile.id && active.contains($0.id) }.map {
+    let others = allProfiles.filter { $0.id != profile.id && active.contains($0.id) }.map {
       (name: $0.name, containers: $0.containers)
     }
     return planContainerStop(
@@ -168,7 +194,7 @@ final class ProfileStore: ObservableObject {
         self.launched.merge(started) { _, new in new }
         self.active.insert(profile.id)
         // Already running and no started profile accounts for it: someone else's, leave it be.
-        let claimed = Set(self.profiles.filter { $0.id != profile.id && self.active.contains($0.id) }.flatMap(\.containers))
+        let claimed = Set(self.allProfiles.filter { $0.id != profile.id && self.active.contains($0.id) }.flatMap(\.containers))
         self.startedContainers.subtract(alreadyUp.filter { !claimed.contains($0) })
         self.startedContainers.formUnion(startedNow)
         self.busy.remove(profile.id)
@@ -352,10 +378,10 @@ struct ProfilesView: View {
             Label(L("Novo perfil"), systemImage: "plus")
           }
         }
-        if store.profiles.isEmpty {
+        if store.allProfiles.isEmpty {
           Card { EmptyNote(text: L("Nenhum perfil ainda. Crie um com os comandos que você roda todo dia (npm run dev, php artisan serve…) e os contêineres do projeto.")) }
         }
-        ForEach(store.profiles) { profile in
+        ForEach(store.allProfiles) { profile in
           ProfileCard(profile: profile, containers: (containers.report?.containers ?? [])) { editing = profile }
         }
         Text(
@@ -399,6 +425,10 @@ private struct ProfileCard: View {
         VStack(alignment: .leading, spacing: 3) {
           HStack(spacing: 6) {
             Text(profile.name).font(.system(size: 14, weight: .semibold)).lineLimit(1)
+            if profile.source != nil {
+              Badge(text: ".corescope.yml", color: Tint.netIn, symbol: "doc.text")
+                .help(L("Definido no arquivo do projeto: edite o arquivo para mudar o perfil."))
+            }
             Badge(
               text: up == 0 ? L("Parado") : up == total ? L("Rodando") : L("%@ de %@ rodando", "\(up)", "\(total)"),
               color: up == 0 ? .secondary : up == total ? Tint.brand : .orange)
@@ -424,10 +454,19 @@ private struct ProfileCard: View {
           }.disabled(store.busy.contains(profile.id))
         }
         Menu {
-          Button(L("Editar"), action: edit)
+          if let source = profile.source {
+            Button(L("Abrir .corescope.yml")) { NSWorkspace.shared.open(URL(fileURLWithPath: source)) }
+            Button(L("Mostrar no Finder")) {
+              NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: source)])
+            }
+          } else {
+            Button(L("Editar"), action: edit)
+          }
           Button(L("Mostrar logs no Finder")) { NSWorkspace.shared.open(ProfileStore.logs) }
-          Divider()
-          Button(L("Apagar perfil"), role: .destructive) { confirmDelete = true }
+          if profile.source == nil {
+            Divider()
+            Button(L("Apagar perfil"), role: .destructive) { confirmDelete = true }
+          }
         } label: {
           Image(systemName: "ellipsis.circle")
         }.menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()

@@ -855,4 +855,6 @@ private let entries = """
   %@: o comando ao parar saiu com %@ ¦ %@: the stop command exited with %@ ¦ %@: el comando al detener salió con %@
   concluído ¦ completed ¦ completado
   %@ processos ¦ %@ processes ¦ %@ procesos
+  Abrir .corescope.yml ¦ Open .corescope.yml ¦ Abrir .corescope.yml
+  Definido no arquivo do projeto: edite o arquivo para mudar o perfil. ¦ Defined in the project file: edit the file to change the profile. ¦ Definido en el archivo del proyecto: edita el archivo para cambiar el perfil.
   """

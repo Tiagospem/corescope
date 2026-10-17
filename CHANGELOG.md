@@ -10,6 +10,12 @@ section as the GitHub release notes.
 
 ## [Unreleased]
 
+### Added
+- **Profiles as code**: a committed `.corescope.yml` (profiles with commands, stop commands and
+  containers; preferred ports; Services checks; log globs; agent capacity rules) is found
+  automatically and shown read-only in Profiles and Services. `corescope config` validates it;
+  MCP `read_project_config` / `write_project_config` let agents read and write it.
+
 ## [0.4.0] - 2026-10-17
 
 ### Added
