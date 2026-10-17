@@ -71,9 +71,14 @@ enum PortLookup {
       $0.isVisible && String(describing: type(of: $0)).contains("MenuBarExtraWindow")
     }) {
       window.makeKeyAndOrderFront(nil)
-    } else if let popover, popover.isShown {
+    } else if let popover, popover.isShown, popover.contentViewController?.view.window?.isVisible == true {
       popover.contentViewController?.view.window?.makeKey()
     } else if let button = statusButton() {
+      // A popover hidden without closing (focus moved to another app) is replaced, not reused.
+      if let stale = popover {
+        popover = nil
+        stale.close()
+      }
       if button.action != nil {
         // macOS 14–26: SwiftUI wires the MenuBarExtra to the button's target/action.
         button.performClick(nil)
@@ -88,19 +93,51 @@ enum PortLookup {
     }
   }
 
-  static func close() { popover?.performClose(nil) }
+  /// Closes the menu bar content, whichever way it is shown. The MenuBarExtra window is closed
+  /// through its status button, so SwiftUI's open/closed state stays in step (hiding the window
+  /// behind its back made the next click or link only "close" it).
+  static func close() {
+    popover?.performClose(nil)
+    guard
+      let window = NSApp.windows.first(where: {
+        $0.isVisible && String(describing: type(of: $0)).contains("MenuBarExtraWindow")
+      })
+    else { return }
+    if let button = statusButton(), button.action != nil {
+      button.performClick(nil)
+    } else {
+      window.orderOut(nil)
+    }
+  }
 
   private static func show(from button: NSStatusBarButton) {
     let popover = NSPopover()
-    popover.behavior = .transient
+    // Opened by a link or the shortcut, the app is still activating; its main window then takes
+    // key and would close a transient popover at once. It turns transient (closes on any click
+    // outside) once activation has settled.
+    popover.behavior = .applicationDefined
+    for delay in [0.3, 1.0] {
+      DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak popover] in
+        guard let popover, popover.isShown else { return }
+        // Take key back from the main window activation gave it, so typing lands in the field.
+        if let window = popover.contentViewController?.view.window, !window.isKeyWindow {
+          window.makeKey()
+          NotificationCenter.default.post(name: focus, object: nil)
+        }
+        if delay >= 1 { popover.behavior = .transient }
+      }
+    }
     popover.contentViewController = NSHostingController(rootView: MenuSummary())
     popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
     popover.contentViewController?.view.window?.makeKey()
     self.popover = popover
+    if let observer = closeObserver { NotificationCenter.default.removeObserver(observer) }
     closeObserver = NotificationCenter.default.addObserver(
       forName: NSPopover.didCloseNotification, object: popover, queue: .main
-    ) { _ in
-      // Release the hosted view: nothing stays in memory between lookups.
+    ) { [weak popover] _ in
+      // Release the hosted view: nothing stays in memory between lookups. Only for the current
+      // popover: a stale one closing late must not drop its replacement.
+      guard Self.popover === popover else { return }
       if let observer = Self.closeObserver { NotificationCenter.default.removeObserver(observer) }
       Self.closeObserver = nil
       Self.popover = nil
@@ -243,3 +280,4 @@ struct PortQuickLookup: View {
     if action.closes { PortLookup.close() }
   }
 }
+

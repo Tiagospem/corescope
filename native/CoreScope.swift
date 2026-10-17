@@ -1,6 +1,11 @@
 import AppKit
 import SwiftUI
 
+/// Version and build from the bundle (scripts/build.sh), so nothing else hardcodes them.
+enum AppVersion {
+  static let short = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
+  static let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
+}
 enum AppIcon {
   /// The bundle icon, set explicitly so the Dock never shows a stale generic tile.
   static let image: NSImage? = Bundle.main.url(forResource: "AppIcon", withExtension: "icns")
@@ -81,7 +86,7 @@ struct CoreScopeApp: App {
         CommandGroup(replacing: .appInfo) {
           Button(L("Sobre o CoreScope")) {
             NSApp.orderFrontStandardAboutPanel(options: [
-              .applicationName: "CoreScope", .applicationVersion: "0.5.0",
+              .applicationName: "CoreScope", .applicationVersion: AppVersion.short,
               .credits: NSAttributedString(
                 string:
                   "Monitor local para desenvolvedores · Rust + SwiftUI\n© 2026 Tiago Padilha · MIT License\ngithub.com/Tiagospem/corescope"),
@@ -349,7 +354,6 @@ struct MenuSummary: View {
   private func open(_ page: Page?) {
     // The popover is the key window at click time; dismiss it before showing the main window.
     PortLookup.close()
-    NSApp.keyWindow?.orderOut(nil)
     WindowOpener.shared.open = { openWindow(id: "main") }
     WindowOpener.shared.showMain(page: page)
   }
