@@ -145,9 +145,10 @@ struct PreferencesView: View {
           L("Histerese de saída: 5 pontos de CPU e 2 pontos de espaço livre. Memória usa eventos reais do macOS; térmico usa os estados sério/crítico, com estabilização de 5 s. Não há ajuste que transforme ocupação de RAM em pressão.")
         ).font(.caption).foregroundStyle(.secondary)
       }
+      HistorySettings()
       Section(L("Privacidade e custo do monitor")) {
         Text(
-          L("Sem rede ou telemetria. Sem argumentos, ambiente, logs de processos ou banco de dados. Preferências e identidades acompanhadas/ignoradas ficam no UserDefaults. Histórico somente em RAM, até 120 amostras / 10 minutos.")
+          L("Sem rede ou telemetria. Sem argumentos, ambiente ou logs de processos. Preferências e identidades acompanhadas/ignoradas ficam no UserDefaults. Gráficos ao vivo em RAM (120 amostras / 10 minutos); o histórico persistente é opcional e local.")
         ).font(.callout)
         if let s = monitor.snapshot {
           LabeledContent(
@@ -174,5 +175,51 @@ struct PreferencesView: View {
       }
     }.formStyle(.grouped)
       .onAppear { loginEnabled = SMAppService.mainApp.status == .enabled }
+  }
+}
+
+/// Opt-in persistent history: toggle, retention, size and deletion.
+private struct HistorySettings: View {
+  @ObservedObject var p = Preferences.shared
+  @ObservedObject var store = HistoryStore.shared
+  @ObservedObject var monitor = Monitor.shared
+  @ViewState private var confirmDelete = false
+  var body: some View {
+    Section(L("Histórico")) {
+      Toggle(L("Gravar histórico neste Mac"), isOn: $p.historyEnabled)
+      Picker(L("Manter por"), selection: $p.historyRetention) {
+        Text(L("1 dia")).tag(1)
+        Text(L("7 dias")).tag(7)
+        Text(L("30 dias")).tag(30)
+      }.disabled(!p.historyEnabled)
+      Text(
+        L("Um resumo por minuto (CPU, memória, swap, disco, rede, térmico e os 10 processos com mais CPU e memória: nome, executável, diretório e origem; nunca argumentos ou ambiente), gravado em uma transação por minuto em ~/Library/Application Support/CoreScope/history.sqlite. Dados além da retenção são apagados automaticamente. Desligar interrompe a gravação; o que já foi salvo fica até você apagar.")
+      ).font(.caption).foregroundStyle(.secondary)
+      if let state = monitor.snapshot?.history_state, state != "off", state != "recording" {
+        Text(L("Falha ao gravar: %@", state)).font(.caption).foregroundStyle(.orange)
+      }
+      LabeledContent(L("Armazenado")) {
+        if let info = store.info, info.minutes > 0 {
+          Text(
+            L(
+              "%@ · %@ minutos desde %@", formatBytes(info.bytes), "\(info.minutes)",
+              Date(timeIntervalSince1970: info.oldest ?? 0).formatted(date: .abbreviated, time: .shortened))
+          ).monospacedDigit()
+        } else {
+          Text(L("Nada salvo"))
+        }
+      }
+      Button(L("Apagar histórico…"), role: .destructive) { confirmDelete = true }
+        .disabled((store.info?.bytes ?? 0) == 0)
+        .confirmationDialog(L("Apagar todo o histórico salvo?"), isPresented: $confirmDelete) {
+          Button(L("Apagar histórico"), role: .destructive) { store.delete() }
+          Button(L("Cancelar"), role: .cancel) {}
+        } message: {
+          Text(L("Remove o arquivo do disco. A gravação continua se estiver ligada."))
+        }
+    }
+    .onAppear { store.loadInfo() }
+    .onChange(of: p.historyEnabled) { _, _ in store.loadInfo() }
+    .onChange(of: monitor.snapshot.map { Int($0.at / 60) }) { _, _ in store.loadInfo() }
   }
 }

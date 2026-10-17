@@ -238,7 +238,7 @@ final class TokenUsageStore: ObservableObject {
     var projects: [String: TokenRow] = [:]
     var codexEventDeduper = CodexEventDeduper()
     for (tally, modified) in files.values {
-      let cwd = Demo.enabled ? tally.cwd.map(Demo.path) : tally.cwd
+      let cwd = Demo.enabled ? tally.cwd.map { Demo.path($0) } : tally.cwd
       let project = usageProject(cwd) ?? L("Sem projeto")
       let agent = tally.kind.rawValue
       let session = tally.session.map { (tally.kind == .claude ? "claude:" : "codex:") + $0 }

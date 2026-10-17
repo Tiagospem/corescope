@@ -1,7 +1,11 @@
 #include <stdint.h>
 typedef struct {
  uint64_t ticks[4], physical, active, wired, compressed, swap;
+ // Activity Monitor categories: anonymous (internal), purgeable and file-backed (external) bytes.
+ uint64_t internal, purgeable, external;
  uint32_t cores; int cpu_ok, memory_ok, swap_ok;
+ // kern.memorystatus_level: percentage of memory the kernel considers available; -1 unavailable.
+ int32_t memory_level;
 } CSHost;
 typedef struct {
  int32_t pid, ppid; uint32_t uid, flags;
@@ -27,3 +31,9 @@ int os_ports(int32_t pid, CSPort *out, int cap);
 int os_cwd(int32_t pid, char *out, int cap);
 // Cumulative bytes on non-loopback interfaces (64-bit counters). 0 success.
 int os_network(uint64_t *in_bytes, uint64_t *out_bytes);
+// Cumulative ticks per logical CPU (user, system, idle, nice): up to cap CPUs, -1 on failure.
+int os_core_ticks(uint64_t *ticks, int cap);
+// Cluster type per logical CPU from the IODeviceTree ('P', 'E' or 0 when unknown); count read.
+int os_core_kinds(uint8_t *out, int cap);
+// hw.perflevelN.logicalcpu for levels 0 (highest performance) and 1; 0 when absent.
+void os_perflevels(uint32_t *level0, uint32_t *level1);

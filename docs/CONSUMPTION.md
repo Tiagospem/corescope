@@ -29,6 +29,17 @@ The attempt to minimize/close via automation kept returning the Settings window.
 
 The files named “quiet”/“final” keep the names from the collection; “quiet” means no new explicit calls on our part during the window, not certification of an idle environment. No percentage improvement should be inferred between runs with different loads, surfaces and interactions.
 
+## Persistent history: on vs off
+
+16/10/2026, same Mac, release build of the history branch. Each run: fresh app launch, main window on **Overview** (including the new per-core CPU and memory breakdown cards), sampling every 3 s, 20–25 s warm-up, then `scripts/measure.c` for 120 s. History was turned on only from the command line (`-historyEnabled YES`, argument domain), without changing the saved preference. The machine was loaded by builds and agents from other sessions (E cores near 100%), so the baseline sits above the 2.8% in the table above; compare these rows with each other, not with older runs.
+
+| History | CPU (one core) | Mean / max footprint | Interrupt wakeups |
+|---|---:|---:|---:|
+| Off | 4.55% | 88.7 / 125.7 MiB | 3.40/s |
+| On (7 days) | 4.78% | 95.0 / 135.0 MiB | 3.24/s |
+
+Observed difference: **+0.2 CPU points** (within run-to-run variation: another run with history on measured 4.48%) and **~+6 MiB footprint** (the minute accumulator and SQLite's page cache). Writes: a single commit per minute to the WAL (the `-wal` file's mtime changes only at the minute boundary); 20 top rows per minute, deduplicated process identities (28 after 13 minutes), ~366 KB after 14 minutes with the WAL not yet recycled. Measured with the window visible; the window-closed cost (10 s cadence) was not measured in this round.
+
 ## Engineering targets and status
 
 Targets proposed for acceptance, not previously measured requirements nor a promise of universal performance:

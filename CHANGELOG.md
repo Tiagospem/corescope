@@ -11,6 +11,15 @@ section as the GitHub release notes.
 ## [Unreleased]
 
 ### Added
+- **Opt-in persistent history** (off by default; Settings › History, keep 1, 7 or 30 days):
+  one-minute rollups of CPU, memory, swap, disk/network rates, thermal state, memory pressure
+  and the top 10 processes by CPU and memory (name, executable, folder, origin — never
+  arguments or environment) in a local SQLite file, written once per minute. New **History**
+  page with 1 h / 24 h / 7 d views; click a chart to see what dominated that moment.
+  *Delete history* removes the file.
+- **CPU per core** grouped into performance (P) and efficiency (E) cores.
+- **Memory breakdown** like Activity Monitor (app memory, wired, compressed, cached files,
+  swap) and memory pressure % next to the macOS pressure events.
 - **Token usage** on the Agents page, counted from the agents' local transcripts
   (`~/.claude/projects`, `~/.codex/sessions`): input, output and prompt-cache tokens and
   the model on each session card, plus today / last-7-days totals per agent and project.

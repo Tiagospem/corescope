@@ -93,6 +93,13 @@ struct OverviewView: View {
             columns: Array(repeating: GridItem(.flexible(), spacing: 12, alignment: .top), count: 2),
             alignment: .leading, spacing: 12
           ) {
+            CoresCard(snapshot: s)
+            MemoryBreakdownCard(snapshot: s)
+          }
+          LazyVGrid(
+            columns: Array(repeating: GridItem(.flexible(), spacing: 12, alignment: .top), count: 2),
+            alignment: .leading, spacing: 12
+          ) {
             ServersCard(groups: s.serverGroups)
             OrphansCard(orphans: s.orphans)
           }
@@ -115,6 +122,136 @@ struct OverviewView: View {
       } else {
         ProgressView(L("Lendo métricas do macOS…")).frame(maxWidth: .infinity, minHeight: 320)
       }
+    }
+  }
+}
+
+/// Busy % per logical CPU, grouped by performance (P) and efficiency (E) cores.
+private struct CoresCard: View {
+  let snapshot: Snapshot
+  var body: some View {
+    let cores = Array(snapshot.core_load.enumerated())
+    let groups: [(String, [(offset: Int, element: CoreLoad)])] =
+      cores.contains { $0.element.kind.isEmpty }
+      ? [(L("Núcleos"), cores)]
+      : [
+        (L("Desempenho (P)"), cores.filter { $0.element.kind == "P" }),
+        (L("Eficiência (E)"), cores.filter { $0.element.kind == "E" }),
+      ]
+    Card {
+      CardHeader(title: L("CPU por núcleo"), symbol: "cpu", tint: Tint.cpu, count: snapshot.core_load.count)
+      if cores.isEmpty {
+        EmptyNote(text: L("Contadores por núcleo temporariamente indisponíveis."))
+      }
+      ForEach(groups, id: \.0) { title, items in
+        VStack(alignment: .leading, spacing: 6) {
+          HStack {
+            Text(L("%@ · %@", title, "\(items.count)")).font(.caption.weight(.semibold))
+            Spacer()
+            let values = items.compactMap(\.element.value)
+            Text(values.isEmpty ? "—" : L("média %@", String(format: "%.0f%%", values.reduce(0, +) / Double(values.count))))
+              .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+          }.accessibilityElement(children: .combine).accessibilityAddTraits(.isHeader)
+          HStack(alignment: .bottom, spacing: 5) {
+            ForEach(items, id: \.offset) { index, core in
+              CoreBar(index: index, core: core)
+            }
+          }.frame(height: 64)
+        }
+      }
+      Text(L(snapshot.core_source)).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+        .help(L("Ticks por CPU lógica via host_processor_info; o tipo de cada núcleo vem do IODeviceTree e é conferido com sysctl hw.perflevel0/1."))
+    }
+  }
+}
+private struct CoreBar: View {
+  let index: Int
+  let core: CoreLoad
+  var body: some View {
+    let value = core.value ?? 0
+    VStack(spacing: 3) {
+      GeometryReader { g in
+        ZStack(alignment: .bottom) {
+          RoundedRectangle(cornerRadius: 3).fill(Color.primary.opacity(0.07))
+          RoundedRectangle(cornerRadius: 3)
+            .fill(value >= 90 ? Tint.warning : core.kind == "E" ? Tint.cpu.opacity(0.6) : Tint.cpu)
+            .frame(height: core.value == nil ? 0 : max(2, g.size.height * value / 100))
+        }
+      }
+      Text("\(index)").font(.system(size: 9)).foregroundStyle(.tertiary).monospacedDigit()
+    }
+    .frame(maxWidth: 26)
+    .help(L("CPU %@ (%@): %@", "\(index)", core.kind.isEmpty ? "?" : core.kind, core.value.map { String(format: "%.0f%%", $0) } ?? "—"))
+    .accessibilityElement()
+    .accessibilityLabel(core.kind.isEmpty ? L("Núcleo %@", "\(index)") : L("Núcleo %@ (%@)", "\(index)", core.kind))
+    .accessibilityValue(core.value.map { String(format: "%.0f%%", $0) } ?? L("indisponível"))
+  }
+}
+
+/// Activity Monitor style memory categories, swap and the kernel's pressure percentage.
+private struct MemoryBreakdownCard: View {
+  let snapshot: Snapshot
+  var body: some View {
+    let s = snapshot
+    let total = s.physical.value ?? 0
+    let parts: [(String, Metric, Color)] = [
+      ("Memória de apps", s.app_memory, Tint.memory),
+      ("Wired", s.wired, .orange),
+      ("Comprimida", s.compressed, Tint.netOut),
+      ("Arquivos em cache", s.cached_files, .gray),
+    ]
+    Card {
+      CardHeader(title: L("Detalhe da memória"), symbol: "memorychip", tint: Tint.memory) {
+        Text(L("de %@", s.physical.bytes)).font(.caption).foregroundStyle(.secondary)
+      }
+      GeometryReader { g in
+        HStack(spacing: 1) {
+          ForEach(parts, id: \.0) { _, metric, color in
+            color.frame(width: total > 0 ? g.size.width * min(1, (metric.value ?? 0) / total) : 0)
+          }
+          Spacer(minLength: 0)
+        }.background(Color.primary.opacity(0.07))
+      }.frame(height: 10).clipShape(RoundedRectangle(cornerRadius: 3))
+        // The stacked bar repeats the rows below; VoiceOver reads the rows instead.
+        .accessibilityHidden(true)
+      Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 5) {
+        ForEach(parts, id: \.0) { title, metric, color in
+          GridRow {
+            HStack(spacing: 5) {
+              Circle().fill(color).frame(width: 7, height: 7).accessibilityHidden(true)
+              Text(L(title))
+            }
+            Text(metric.bytes).monospacedDigit().foregroundStyle(.secondary).gridColumnAlignment(.trailing)
+          }.help(metric.explanation).accessibilityElement(children: .combine)
+        }
+        GridRow {
+          HStack(spacing: 5) {
+            Image(systemName: "arrow.left.arrow.right").font(.system(size: 8)).frame(width: 7)
+              .accessibilityHidden(true)
+            Text(L("Swap usado"))
+          }
+          Text(s.swap.bytes).monospacedDigit().foregroundStyle(.secondary)
+        }.help(s.swap.explanation).accessibilityElement(children: .combine)
+      }.font(.callout)
+      Divider()
+      HStack(spacing: 8) {
+        Text(L("Pressão de memória")).font(.callout).accessibilityHidden(true)
+        if let pct = s.pressure_percent.value {
+          MeterBar(fraction: pct / 100, color: pct >= 80 ? Tint.danger : pct >= 60 ? Tint.warning : Tint.cpu)
+            .frame(maxWidth: 140)
+            .accessibilityLabel(L("Pressão de memória"))
+        }
+        Text(s.pressure_percent.percent).monospacedDigit()
+          .accessibilityLabel(s.pressure_percent.value == nil ? L("Pressão de memória") : "")
+          .accessibilityHidden(s.pressure_percent.value != nil)
+        Spacer()
+        Badge(
+          text: L("evento: %@", s.pressureLabel.lowercased()),
+          color: (s.pressure.value ?? 0) >= 2 ? .red : (s.pressure.value ?? 0) >= 1 ? .orange : .secondary)
+      }.help(s.pressure_percent.explanation + "\n" + s.pressure.explanation)
+      Text(
+        L("Pressão % = 100 − memória disponível segundo o kernel (kern.memorystatus_level). Os eventos são os avisos do macOS; RAM ocupada, sozinha, não é pressão.")
+      ).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
     }
   }
 }

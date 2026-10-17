@@ -1,6 +1,8 @@
 //! CoreScope: bounded local telemetry and explicitly authorized process control.
 pub mod containers;
+pub mod history;
 mod os;
+mod sqlite;
 use os::*;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -99,6 +101,10 @@ pub struct Config {
     pub disk_critical: f64,
     pub watched: Vec<String>,
     pub ignored: Vec<String>,
+    /// Persistent history retention in days; 0 keeps history off (the default).
+    pub history_days: u32,
+    /// Database file; empty uses ~/Library/Application Support/CoreScope/history.sqlite.
+    pub history_path: String,
 }
 impl Default for Config {
     fn default() -> Self {
@@ -113,6 +119,8 @@ impl Default for Config {
             disk_critical: 5.,
             watched: vec![],
             ignored: vec![],
+            history_days: 0,
+            history_path: String::new(),
         }
     }
 }
@@ -125,6 +133,13 @@ impl Config {
         self.disk_critical = self.disk_critical.clamp(1., self.disk_warning - 1.);
         self.watched.truncate(12);
         self.ignored.truncate(256);
+        // Only the retentions offered in the interface: 1, 7 or 30 days.
+        self.history_days = match self.history_days {
+            0 => 0,
+            1 => 1,
+            2..=7 => 7,
+            _ => 30,
+        };
     }
 }
 #[derive(Default)]
@@ -154,6 +169,51 @@ fn cpu_percent(old: &[u64; 4], new: &[u64; 4]) -> Option<f64> {
 }
 fn rate(old: u64, new: u64, elapsed: f64) -> Option<f64> {
     (elapsed > 0. && elapsed <= 60. && new >= old).then(|| (new - old) as f64 / elapsed)
+}
+/// Core type per logical CPU. The device tree map is used only when it covers every CPU and
+/// agrees with the sysctl performance-level counts; otherwise types stay unknown (empty).
+fn classify_cores(
+    tree: &[u8],
+    perf: (u32, u32),
+    count: usize,
+) -> (Vec<&'static str>, &'static str) {
+    let unknown = vec![""; count];
+    if count == 0 {
+        return (unknown, "host_processor_info indisponível");
+    }
+    if perf.1 == 0 {
+        return (unknown, "sysctl · um único nível de desempenho");
+    }
+    let mapped = tree.len() >= count && tree[..count].iter().all(|k| *k == b'P' || *k == b'E');
+    let performance = tree.iter().take(count).filter(|k| **k == b'P').count();
+    if !mapped || performance != perf.0 as usize || count - performance != perf.1 as usize {
+        return (
+            unknown,
+            "Tipo por núcleo indisponível (mapa do IODeviceTree incompleto)",
+        );
+    }
+    (
+        tree[..count]
+            .iter()
+            .map(|k| if *k == b'P' { "P" } else { "E" })
+            .collect(),
+        "IODeviceTree · cluster-type, conferido com sysctl hw.perflevel0/1",
+    )
+}
+/// Activity Monitor's categories from host_statistics64: app memory is anonymous memory that
+/// is not purgeable; cached files are file-backed plus purgeable pages.
+fn memory_breakdown(internal: u64, purgeable: u64, external: u64) -> (u64, u64) {
+    (internal.saturating_sub(purgeable), external + purgeable)
+}
+/// kern.memorystatus_level is the share of memory the kernel considers available.
+fn pressure_percent(level: i32) -> Option<f64> {
+    (0..=100).contains(&level).then_some(100. - level as f64)
+}
+#[derive(Clone, Serialize)]
+pub struct CoreLoad {
+    /// "P", "E" or "" when the type is unknown.
+    pub kind: &'static str,
+    pub value: Option<f64>,
 }
 #[derive(Clone, Default, Serialize)]
 pub struct Point {
@@ -455,8 +515,15 @@ pub struct Snapshot {
     pub wired: Metric,
     pub compressed: Metric,
     pub swap: Metric,
+    pub app_memory: Metric,
+    pub cached_files: Metric,
+    pub pressure_percent: Metric,
     pub pressure: Metric,
     pub thermal: Metric,
+    pub core_load: Vec<CoreLoad>,
+    pub core_source: &'static str,
+    /// "off", "recording" or the last write error.
+    pub history_state: String,
     pub processes: Vec<Process>,
     pub volumes: Vec<Volume>,
     pub disks: Vec<Disk>,
@@ -499,6 +566,10 @@ pub struct Collector {
     net_raw: Option<(Instant, u64, u64)>,
     volume_state: String,
     disk_state: String,
+    core_ticks: Option<Vec<[u64; 4]>>,
+    /// Core types never change while the app runs: read once.
+    core_kinds: Option<(Vec<&'static str>, &'static str)>,
+    recorder: history::Recorder,
 }
 fn blocked(p: &RawProcess, uid: u32, protected: &HashSet<i32>) -> &'static str {
     let name = string(&p.name);
@@ -598,6 +669,7 @@ impl Collector {
         self.extras.clear();
         self.last_extras = None;
         self.net_raw = None;
+        self.core_ticks = None;
     }
     pub fn sample(&mut self, mut config: Config) -> Snapshot {
         config.sanitize();
@@ -619,6 +691,9 @@ impl Collector {
         };
         self.ticks = (h.cpu_ok != 0).then_some(h.ticks);
         let mem = |v: u64| (h.memory_ok != 0).then_some(v as f64);
+        let core_load = self.sample_cores();
+        let (app_memory, cached_files) = memory_breakdown(h.internal, h.purgeable, h.external);
+        let pressure_pct = pressure_percent(h.memory_level);
         let mut pids = vec![0i32; 8192];
         let count = unsafe { os_pids(pids.as_mut_ptr(), pids.len() as i32) };
         pids.truncate(count.max(0) as usize);
@@ -801,18 +876,60 @@ impl Collector {
         let disk_read = total(|d| d.read.value);
         let disk_write = total(|d| d.write.value);
         let (net_in, net_out) = self.sample_network();
+        let memory_used = mem(h.active + h.wired + h.compressed);
         push(
             &mut self.history,
             Point {
                 at,
                 cpu,
-                memory: mem(h.active + h.wired + h.compressed),
+                memory: memory_used,
                 disk_read,
                 disk_write,
                 net_in,
                 net_out,
             },
         );
+        let history_state = if config.history_days == 0 {
+            self.recorder.disable();
+            "off".to_string()
+        } else {
+            let path = if config.history_path.is_empty() {
+                history::default_path()
+            } else {
+                config.history_path.clone()
+            };
+            self.recorder.set_path(&path);
+            let system = history::System {
+                cpu,
+                memory: memory_used,
+                swap: (h.swap_ok != 0).then_some(h.swap as f64),
+                disk_read,
+                disk_write,
+                net_in,
+                net_out,
+                thermal: Some(config.thermal as i64),
+                pressure: Some(config.pressure as i64),
+                pressure_pct,
+            };
+            self.recorder.add(
+                at,
+                config.history_days,
+                system,
+                processes.iter().map(|p| history::Proc {
+                    key: (p.pid, p.start),
+                    name: &p.name,
+                    path: &p.path,
+                    cwd: &p.cwd,
+                    origin: p.origin.as_ref().map_or("", |o| o.label),
+                    cpu: p.cpu.value,
+                    memory: p.memory.value,
+                }),
+            );
+            self.recorder
+                .error
+                .clone()
+                .unwrap_or_else(|| "recording".into())
+        };
         let mut diagnostics = Vec::new();
         let current = self.gates.entry("cpu").or_default().level;
         let desired = cpu
@@ -904,6 +1021,24 @@ impl Collector {
                 "sysctl · vm.swapusage",
                 at,
             ),
+            app_memory: Metric::new(
+                mem(app_memory),
+                "B",
+                "host_statistics64 · internal − purgeable",
+                at,
+            ),
+            cached_files: Metric::new(
+                mem(cached_files),
+                "B",
+                "host_statistics64 · external + purgeable",
+                at,
+            ),
+            pressure_percent: Metric::new(
+                pressure_pct,
+                "%",
+                "100 − sysctl kern.memorystatus_level (memória disponível segundo o kernel)",
+                at,
+            ),
             pressure: Metric::new(
                 (config.pressure >= 0).then_some(config.pressure as f64),
                 "estado",
@@ -916,6 +1051,9 @@ impl Collector {
                 "ProcessInfo.thermalState",
                 at,
             ),
+            core_source: self.core_kinds.as_ref().map_or("", |k| k.1),
+            core_load,
+            history_state,
             processes,
             volumes: self.volumes.clone(),
             disks: self.disks.clone(),
@@ -964,6 +1102,32 @@ impl Collector {
             disk_state: self.disk_state.clone(),
             current_uid: uid,
         }
+    }
+    /// Busy % per logical CPU from tick deltas, tagged with its core type.
+    fn sample_cores(&mut self) -> Vec<CoreLoad> {
+        let ticks = core_ticks();
+        let count = ticks.as_ref().map_or(0, Vec::len);
+        if self.core_kinds.as_ref().is_none_or(|k| k.0.len() != count) {
+            self.core_kinds = Some(classify_cores(&core_kinds(count), perflevels(), count));
+        }
+        let kinds = &self.core_kinds.as_ref().expect("set above").0;
+        let out = match (&self.core_ticks, &ticks) {
+            (Some(old), Some(new)) if old.len() == new.len() => old
+                .iter()
+                .zip(new)
+                .zip(kinds)
+                .map(|((o, n), kind)| CoreLoad {
+                    kind,
+                    value: cpu_percent(o, n),
+                })
+                .collect(),
+            _ => kinds
+                .iter()
+                .map(|kind| CoreLoad { kind, value: None })
+                .collect(),
+        };
+        self.core_ticks = ticks;
+        out
     }
     fn sample_network(&mut self) -> (Option<f64>, Option<f64>) {
         let Some((rx, tx)) = network() else {
@@ -1162,6 +1326,56 @@ pub unsafe extern "C" fn cs_free(pointer: *mut c_char) {
     if !pointer.is_null() {
         let _ = catch_unwind(|| unsafe { drop(CString::from_raw(pointer)) });
     }
+}
+
+fn json<T: Serialize>(value: Result<T, String>) -> Result<String, String> {
+    value.and_then(|v| serde_json::to_string(&v).map_err(|e| e.to_string()))
+}
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct HistoryRequest {
+    op: String,
+    from: i64,
+    to: i64,
+    bucket: i64,
+    path: String,
+}
+/// Persistent history: `series`, `top` and `info` read through their own read-only connection;
+/// `flush` writes the pending minute and `delete` closes the file and removes it.
+///
+/// # Safety
+/// `request` is a valid NUL-terminated UTF-8 JSON pointer for the duration of this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cs_history(request: *const c_char) -> *mut c_char {
+    response(|| {
+        if request.is_null() {
+            return Err("Consulta ausente".into());
+        }
+        let bytes = unsafe { CStr::from_ptr(request) }.to_bytes();
+        let r: HistoryRequest = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
+        let path = if r.path.is_empty() {
+            history::default_path()
+        } else {
+            r.path
+        };
+        match r.op.as_str() {
+            "series" => json(history::series(&path, r.from, r.to, r.bucket)),
+            "top" => json(history::top(&path, r.from, r.to)),
+            "info" => json(history::info(&path)),
+            "flush" | "delete" => {
+                let mut c = collector().lock().map_err(|_| "Coletor indisponível")?;
+                if r.op == "flush" {
+                    // No purge here: retention is applied by the minute writes.
+                    c.recorder.flush(0);
+                    return Ok("{\"ok\":true}".into());
+                }
+                c.recorder.set_path(&path);
+                c.recorder.delete()?;
+                Ok("{\"ok\":true}".into())
+            }
+            _ => Err("Operação desconhecida".into()),
+        }
+    })
 }
 
 /// Observes identity without modifying the collector or sending signals.
@@ -1417,6 +1631,297 @@ mod tests {
             (5.0..=120.0).contains(&cpu),
             "discardable single-thread CPU load measured {cpu}%"
         );
+    }
+    #[test]
+    fn core_types_need_a_complete_consistent_map() {
+        let (kinds, _) = classify_cores(b"EEEEEEPPPP", (4, 6), 10);
+        assert_eq!(kinds.iter().filter(|k| **k == "P").count(), 4);
+        assert_eq!(kinds[0], "E");
+        // Missing entries or counts that disagree with sysctl never guess a type.
+        assert!(
+            classify_cores(b"EEEEEEPPP\0", (4, 6), 10)
+                .0
+                .iter()
+                .all(|k| k.is_empty())
+        );
+        assert!(
+            classify_cores(b"EEEEEEEPPP", (4, 6), 10)
+                .0
+                .iter()
+                .all(|k| k.is_empty())
+        );
+        assert!(
+            classify_cores(b"", (8, 0), 8)
+                .0
+                .iter()
+                .all(|k| k.is_empty())
+        );
+    }
+    #[test]
+    fn memory_categories_and_pressure_percent() {
+        assert_eq!(memory_breakdown(10, 3, 5), (7, 8));
+        assert_eq!(memory_breakdown(1, 3, 0), (0, 3));
+        assert_eq!(pressure_percent(74), Some(26.));
+        assert_eq!(pressure_percent(-1), None);
+        assert_eq!(pressure_percent(101), None);
+    }
+    #[test]
+    fn live_cores_have_types_and_load_on_second_sample() {
+        let mut c = Collector::default();
+        let first = c.sample(Config::default());
+        assert_eq!(first.core_load.len(), first.cores as usize);
+        assert!(first.core_load.iter().all(|c| c.value.is_none()));
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        let second = c.sample(Config::default());
+        assert!(second.core_load.iter().all(|c| c.value.is_some()));
+        let (p, e) = perflevels();
+        if e > 0 && !second.core_load[0].kind.is_empty() {
+            let count = |k| second.core_load.iter().filter(|c| c.kind == k).count() as u32;
+            assert_eq!((count("P"), count("E")), (p, e));
+        }
+        assert!(second.app_memory.value.unwrap() > 0.);
+        assert!(second.cached_files.value.is_some());
+        assert!((0. ..=100.).contains(&second.pressure_percent.value.unwrap()));
+        assert_eq!(second.history_state, "off");
+    }
+    fn temp_db(tag: &str) -> String {
+        let dir = std::env::temp_dir().join(format!(
+            "corescope-test-{}-{tag}-{}",
+            std::process::id(),
+            now()
+        ));
+        dir.join("history.sqlite").to_string_lossy().into_owned()
+    }
+    fn proc_sample(i: i32) -> (String, String) {
+        (format!("p{i}"), format!("/bin/p{i}"))
+    }
+    #[test]
+    fn history_writes_once_per_minute_and_ranks_top_ten() {
+        let path = temp_db("rollup");
+        let mut r = history::Recorder::new(&path);
+        let names: Vec<(String, String)> = (0..15).map(proc_sample).collect();
+        let base = 1_800_000_000.; // a minute boundary
+        for step in 0..6 {
+            let at = base + step as f64 * 10.;
+            let system = history::System {
+                cpu: Some(10. + step as f64),
+                memory: Some(1e9),
+                thermal: Some(if step == 3 { 2 } else { 0 }),
+                ..Default::default()
+            };
+            r.add(
+                at,
+                7,
+                system,
+                names
+                    .iter()
+                    .enumerate()
+                    .map(|(i, (name, path))| history::Proc {
+                        key: (i as i32 + 100, 1),
+                        name,
+                        path,
+                        cwd: "/tmp/project",
+                        origin: if i == 0 { "Claude Code" } else { "" },
+                        cpu: Some(i as f64),
+                        memory: Some(1e6 * (15 - i) as f64),
+                    }),
+            );
+            // Nothing is written while the minute is open.
+            assert!(!std::path::Path::new(&path).exists());
+        }
+        r.add(
+            base + 60.,
+            7,
+            history::System::default(),
+            std::iter::empty(),
+        );
+        assert!(r.error.is_none(), "{:?}", r.error);
+        let series = history::series(&path, base as i64, base as i64 + 180, 60).unwrap();
+        assert_eq!(series.points.len(), 3);
+        let first = &series.points[0];
+        assert_eq!(first.samples, 6);
+        assert!((first.cpu.unwrap() - 12.5).abs() < 1e-9);
+        assert_eq!(first.cpu_max, Some(15.));
+        assert_eq!(first.thermal, Some(2));
+        // The open minute and the future are gaps, never zeros.
+        assert!(series.points[1].cpu.is_none() && series.points[2].samples == 0);
+        let top = history::top(&path, base as i64, base as i64 + 60).unwrap();
+        assert_eq!(top.minutes, 1);
+        assert_eq!(top.cpu.len(), history::TOP);
+        assert_eq!(top.cpu[0].name, "p14");
+        assert!((top.cpu[0].cpu - 14.).abs() < 1e-9);
+        assert!(top.cpu.windows(2).all(|w| w[0].cpu >= w[1].cpu));
+        assert_eq!(top.memory[0].name, "p0");
+        assert_eq!(top.memory[0].origin, "Claude Code");
+        assert_eq!(top.memory[0].cwd, "/tmp/project");
+        assert_eq!(top.memory.len(), history::TOP);
+        r.delete().unwrap();
+        assert!(!std::path::Path::new(&path).exists());
+        assert_eq!(history::info(&path).unwrap().minutes, 0);
+    }
+    #[test]
+    fn history_merges_repeated_partial_minute_writes() {
+        let path = temp_db("repeated-minute");
+        let base = 1_800_000_000.;
+        let (first_name, first_path) = proc_sample(0);
+        let (second_name, second_path) = proc_sample(1);
+        let mut first = history::Recorder::new(&path);
+        first.add(
+            base,
+            7,
+            history::System {
+                cpu: Some(10.),
+                ..Default::default()
+            },
+            std::iter::once(history::Proc {
+                key: (100, 1),
+                name: &first_name,
+                path: &first_path,
+                cwd: "/tmp",
+                origin: "",
+                cpu: Some(80.),
+                memory: Some(500.),
+            }),
+        );
+        first.flush(7);
+        first.disable();
+
+        let mut second = history::Recorder::new(&path);
+        second.add(
+            base + 10.,
+            7,
+            history::System {
+                cpu: Some(30.),
+                ..Default::default()
+            },
+            std::iter::once(history::Proc {
+                key: (200, 1),
+                name: &second_name,
+                path: &second_path,
+                cwd: "/tmp",
+                origin: "",
+                cpu: Some(100.),
+                memory: Some(1_000.),
+            }),
+        );
+        second.add(
+            base + 60.,
+            7,
+            history::System::default(),
+            std::iter::empty(),
+        );
+
+        let series = history::series(&path, base as i64, base as i64 + 60, 60).unwrap();
+        assert_eq!(series.points[0].samples, 2);
+        assert_eq!(series.points[0].cpu, Some(20.));
+        assert_eq!(series.points[0].cpu_max, Some(30.));
+        let top = history::top(&path, base as i64, base as i64 + 60).unwrap();
+        assert_eq!(top.cpu.len(), 2);
+        assert_eq!(top.cpu[0].name, second_name);
+        assert_eq!(top.cpu[0].cpu, 50.);
+        assert_eq!(top.cpu[1].name, first_name);
+        assert_eq!(top.cpu[1].cpu, 40.);
+        second.delete().unwrap();
+    }
+    #[test]
+    fn history_series_counts_valid_minutes_per_metric() {
+        let path = temp_db("metric-counts");
+        let mut r = history::Recorder::new(&path);
+        let base = 1_800_000_000.;
+        r.add(
+            base,
+            7,
+            history::System {
+                cpu: Some(100.),
+                memory: Some(1.),
+                net_in: Some(1.),
+                ..Default::default()
+            },
+            std::iter::empty(),
+        );
+        for step in 0..30 {
+            r.add(
+                base + 1800. + step as f64 * 60.,
+                7,
+                history::System {
+                    cpu: Some(0.),
+                    memory: Some(0.),
+                    ..Default::default()
+                },
+                std::iter::empty(),
+            );
+        }
+        r.add(
+            base + 3600.,
+            7,
+            history::System::default(),
+            std::iter::empty(),
+        );
+        r.flush(7);
+
+        let series = history::series(&path, base as i64, base as i64 + 3600, 1800).unwrap();
+        assert_eq!(series.points[0].cpu_minutes, 1);
+        assert_eq!(series.points[1].cpu_minutes, 30);
+        assert_eq!(series.points[0].memory_minutes, 1);
+        assert_eq!(series.points[1].memory_minutes, 30);
+        assert_eq!(series.points[0].net_in_minutes, 1);
+        assert_eq!(series.points[1].net_in_minutes, 0);
+        r.delete().unwrap();
+    }
+    #[test]
+    fn history_retention_purges_old_minutes() {
+        let path = temp_db("retention");
+        let mut r = history::Recorder::new(&path);
+        let now = 1_800_000_000.;
+        for at in [
+            now - 3. * 86400.,
+            now - 2. * 86400.,
+            now - 3600.,
+            now,
+            now + 60.,
+        ] {
+            let s = history::System {
+                cpu: Some(5.),
+                ..Default::default()
+            };
+            r.add(at, 30, s, std::iter::empty());
+        }
+        assert_eq!(history::info(&path).unwrap().minutes, 4);
+        // Shrinking retention to one day purges on the next minute write.
+        r.add(
+            now + 120.,
+            1,
+            history::System::default(),
+            std::iter::empty(),
+        );
+        let info = history::info(&path).unwrap();
+        assert_eq!(info.minutes, 3);
+        assert_eq!(info.oldest, Some(now as i64 - 3600));
+        assert!(info.bytes > 0);
+        r.disable();
+        // A read-only connection still works after the writer closed the WAL.
+        assert_eq!(history::top(&path, 0, i64::MAX).unwrap().minutes, 3);
+        r.delete().unwrap();
+    }
+    #[test]
+    fn history_ffi_reads_and_rejects_unknown_ops() {
+        let path = temp_db("ffi");
+        let request = CString::new(format!(
+            "{{\"op\":\"series\",\"from\":0,\"to\":600,\"bucket\":60,\"path\":\"{path}\"}}"
+        ))
+        .unwrap();
+        unsafe {
+            let p = cs_history(request.as_ptr());
+            let v: serde_json::Value =
+                serde_json::from_slice(CStr::from_ptr(p).to_bytes()).unwrap();
+            assert_eq!(v["points"].as_array().unwrap().len(), 10);
+            assert_eq!(v["info"]["minutes"], 0);
+            cs_free(p);
+            let bad = CString::new("{\"op\":\"drop\"}").unwrap();
+            let p = cs_history(bad.as_ptr());
+            assert!(CStr::from_ptr(p).to_str().unwrap().contains("error"));
+            cs_free(p);
+        }
     }
     #[test]
     fn ffi_roundtrip_and_invalid_json() {
