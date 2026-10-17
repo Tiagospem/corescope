@@ -138,13 +138,13 @@ struct TokenReport: Equatable {
   func claude(_ meta: ClaudeSessionMeta?) -> SessionTokens? {
     meta?.sessionId.flatMap { sessions["claude:" + $0] }
   }
-  /// Codex keeps no pid → session map on disk: pick the newest Codex conversation in the
-  /// process's folder that was written since the process started.
+  /// Codex keeps no pid → session map on disk: only show a candidate when exactly one
+  /// conversation in the process's folder was written since the process started.
   func codex(for root: ProcessItem) -> SessionTokens? {
     guard root.name.lowercased().hasPrefix("codex") else { return nil }
     let since = root.startDate.addingTimeInterval(-60)
-    return sessions.filter { $0.key.hasPrefix("codex:") && $0.value.cwd == root.cwd && $0.value.updated >= since }
-      .max { $0.value.updated < $1.value.updated }?.value
+    let matches = sessions.filter { $0.key.hasPrefix("codex:") && $0.value.cwd == root.cwd && $0.value.updated >= since }
+    return matches.count == 1 ? matches.first?.value : nil
   }
 }
 
