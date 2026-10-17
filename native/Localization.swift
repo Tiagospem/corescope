@@ -777,4 +777,30 @@ private let entries = """
   As pastas mudaram desde a última análise. ¦ The folders changed since the last scan. ¦ Las carpetas cambiaron desde el último análisis.
   Resultado de %@: pode estar desatualizado. Analise de novo para ver o estado atual. ¦ Result from %@: it may be out of date. Scan again to see the current state. ¦ Resultado de %@: puede estar desactualizado. Analiza de nuevo para ver el estado actual.
   A análise percorre as pastas de projeto e pode levar alguns segundos; nada é lido até você clicar em Analisar. ¦ Scanning walks your project folders and can take a few seconds; nothing is read until you click Scan. ¦ El análisis recorre las carpetas de proyecto y puede tardar unos segundos; no se lee nada hasta que pulses Analizar.
+  %@ chaves ¦ %@ keys ¦ %@ claves
+  + %@ bancos ¦ + %@ databases ¦ + %@ bases de datos
+  Bancos ¦ Databases ¦ Bases de datos
+  Conexão recusada ¦ Connection refused ¦ Conexión rechazada
+  Conexões ¦ Connections ¦ Conexiones
+  Consultas acima do long_query_time desde que o servidor subiu ¦ Queries over long_query_time since the server started ¦ Consultas por encima de long_query_time desde que arrancó el servidor
+  Consultas rodando há mais de 5 s ¦ Queries running for more than 5 s ¦ Consultas en ejecución desde hace más de 5 s
+  Consultas só de leitura em 127.0.0.1, pelo protocolo de cada banco. O CoreScope nunca pede, guarda ou lê senhas: conecta apenas quando o servidor aceita acesso local sem senha (MySQL root sem senha, PostgreSQL com trust para o seu usuário, Redis sem AUTH) e, se não, mostra que pede senha. Cada consulta tem limite de tempo também no servidor. ¦ Read-only queries on 127.0.0.1, over each database's own protocol. CoreScope never asks for, stores or reads passwords: it connects only when the server allows passwordless local access (MySQL root without a password, PostgreSQL trust for your user, Redis without AUTH) and otherwise shows that a password is required. Every query also has a time limit on the server. ¦ Consultas de solo lectura en 127.0.0.1, con el protocolo de cada base de datos. CoreScope nunca pide, guarda ni lee contraseñas: solo se conecta cuando el servidor acepta acceso local sin contraseña (MySQL root sin contraseña, PostgreSQL con trust para tu usuario, Redis sin AUTH) y, si no, indica que pide contraseña. Cada consulta tiene también un límite de tiempo en el servidor.
+  Entradas no SLOWLOG do Redis ¦ Entries in Redis's SLOWLOG ¦ Entradas en el SLOWLOG de Redis
+  Erro ¦ Error ¦ Error
+  Lentas ¦ Slow ¦ Lentas
+  MySQL/MariaDB, PostgreSQL e Redis encontrados em processos e contêineres locais. ¦ MySQL/MariaDB, PostgreSQL and Redis found in local processes and containers. ¦ MySQL/MariaDB, PostgreSQL y Redis encontrados en procesos y contenedores locales.
+  Nenhum MySQL, PostgreSQL ou Redis local em execução. ¦ No local MySQL, PostgreSQL or Redis running. ¦ Ningún MySQL, PostgreSQL o Redis local en ejecución.
+  Não é MySQL ¦ Not a MySQL server ¦ No es un servidor MySQL
+  Não é PostgreSQL ¦ Not a PostgreSQL server ¦ No es un servidor PostgreSQL
+  Não é Redis ¦ Not a Redis server ¦ No es un servidor Redis
+  Pacote grande demais ¦ Packet too large ¦ Paquete demasiado grande
+  Pede senha ¦ Needs a password ¦ Pide contraseña
+  Pede senha: o CoreScope não usa senhas, então não lê este servidor. ¦ Needs a password: CoreScope does not use passwords, so it does not read this server. ¦ Pide contraseña: CoreScope no usa contraseñas, así que no lee este servidor.
+  Procurando bancos locais… ¦ Looking for local databases… ¦ Buscando bases de datos locales…
+  Resposta grande demais ¦ Reply too large ¦ Respuesta demasiado grande
+  Resposta inválida ¦ Invalid reply ¦ Respuesta no válida
+  Sem resposta ¦ No answer ¦ Sin respuesta
+  Slowlog ¦ Slowlog ¦ Slowlog
+  contêiner ¦ container ¦ contenedor
+  no ar há %@ ¦ up for %@ ¦ activo desde hace %@
   """

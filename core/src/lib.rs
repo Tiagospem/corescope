@@ -1,5 +1,6 @@
 //! CoreScope: bounded local telemetry and explicitly authorized process control.
 pub mod containers;
+pub mod databases;
 pub mod devspace;
 pub mod history;
 mod os;
@@ -1508,6 +1509,22 @@ pub unsafe extern "C" fn cs_dev_space_docker(
             .map_err(|_| "Ação de contêiner inválida")?;
         let freed = devspace::docker_prune(socket, kind, &home())?;
         Ok(serde_json::json!({ "reclaimed": freed }).to_string())
+    })
+}
+
+/// Local databases (MySQL/MariaDB, PostgreSQL, Redis) found among processes and containers,
+/// queried read-only where the server allows passwordless local access.
+#[unsafe(no_mangle)]
+pub extern "C" fn cs_databases() -> *mut c_char {
+    response(|| {
+        let containers = CONTAINERS
+            .get_or_init(|| Mutex::new(containers::Reader::default()))
+            .lock()
+            .map_err(|_| "Leitor de contêineres indisponível")?
+            .read(false)
+            .containers;
+        let endpoints = databases::detect(&processes_now(), &containers);
+        json(Ok(databases::probe(endpoints)))
     })
 }
 

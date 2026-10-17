@@ -37,6 +37,10 @@ section as the GitHub release notes.
   login shell (logged to ~/Library/Application Support/CoreScope/logs) plus containers to start;
   Stop ends only the process trees CoreScope started and stops only containers a profile started
   that no other started profile still uses (shared databases stay up until the last one stops).
+- **Databases page**: local MySQL/MariaDB, PostgreSQL and Redis (processes and containers) with
+  version, uptime, size per database, connections, slow-query counters and queries running over
+  5 s, over each wire protocol, read-only and time-capped. Never uses or reads passwords; servers
+  that need one are shown as such. Also `corescope db` and the MCP tool `list_databases`.
 
 ## [0.3.2] - 2026-10-17
 

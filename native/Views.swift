@@ -52,6 +52,7 @@ enum Page: String, CaseIterable, Identifiable {
   case cleanup = "Limpeza"
   case health = "Serviços"
   case profiles = "Perfis"
+  case databases = "Bancos"
   case sensors = "Sensores"
   case settings = "Ajustes"
   var id: String { rawValue }
@@ -67,6 +68,7 @@ enum Page: String, CaseIterable, Identifiable {
     case .cleanup: "trash"
     case .health: "heart.text.square"
     case .profiles: "play.square.stack"
+    case .databases: "cylinder.split.1x2"
     case .sensors: "thermometer.medium"
     case .settings: "gearshape"
     }
@@ -129,6 +131,7 @@ struct MainView: View {
           case .cleanup: CleanupView()
           case .health: HealthView()
           case .profiles: ProfilesView()
+          case .databases: DatabasesView()
           case .sensors: SensorsView()
           case .settings: PreferencesView()
           }

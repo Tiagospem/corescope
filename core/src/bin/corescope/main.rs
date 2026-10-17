@@ -23,6 +23,8 @@ USAGE:
   corescope space [FOLDER...]           reclaimable dev space: node_modules, Rust target/, Xcode,
                                         package caches, unused Docker data (read-only; delete
                                         from the CoreScope app, which moves folders to the Trash)
+  corescope db                          local MySQL/PostgreSQL/Redis: size, connections, slow
+                                        and long-running queries (no passwords used or read)
   corescope mcp                         run the local MCP server on stdio
 
 OPTIONS:
@@ -101,6 +103,7 @@ fn main() {
             let folders: Vec<std::path::PathBuf> = positional[1..].iter().map(Into::into).collect();
             print(json_out, space(&folders, !flag("--no-docker")))
         }
+        Some("db") => print(json_out, databases(&sample(false))),
         Some("mcp") => mcp::serve(),
         Some(other) => fail(
             json_out,
@@ -235,6 +238,18 @@ pub fn top(snapshot: &Snapshot, memory: bool, count: usize) -> Value {
            "processes": rows.iter().take(count).map(|p| process_json(p)).collect::<Vec<_>>()})
 }
 
+/// Local databases found among processes and containers, probed read-only.
+pub fn databases(snapshot: &Snapshot) -> Value {
+    let containers = corescope::containers::Reader::default()
+        .read(false)
+        .containers;
+    let found = corescope::databases::probe(corescope::databases::detect(
+        &snapshot.processes,
+        &containers,
+    ));
+    json!({ "databases": found })
+}
+
 /// Reclaimable space under FOLDERs, or under the suggested folders when none are given.
 pub fn space(folders: &[std::path::PathBuf], docker: bool) -> Value {
     let home: std::path::PathBuf = std::env::var_os("HOME").map(Into::into).unwrap_or_default();
@@ -277,6 +292,11 @@ fn english(error: &str) -> String {
             "already exited or not accessible",
         ),
         ("Identidade mudou", "identity changed (PID reused); refused"),
+        ("Conexão recusada", "connection refused"),
+        ("Sem resposta", "no answer"),
+        ("Não é MySQL", "not a MySQL server"),
+        ("Não é PostgreSQL", "not a PostgreSQL server"),
+        ("Não é Redis", "not a Redis server"),
         (
             "O processo pai encerrou",
             "its parent exited and it kept running, adopted by launchd",
@@ -401,6 +421,53 @@ fn print(json_out: bool, value: Value) -> i32 {
                     ""
                 }
             );
+        }
+    } else if let Some(rows) = value["databases"].as_array() {
+        if rows.is_empty() {
+            println!("no local MySQL, PostgreSQL or Redis found");
+        }
+        for r in rows {
+            let size = r["size"]
+                .as_f64()
+                .map(|b| format!("{:.1} MB", b / 1_048_576.))
+                .unwrap_or("—".into());
+            println!(
+                "{} :{} {} — {}",
+                text(&r["kind"]),
+                num(&r["port"]),
+                text(&r["label"]),
+                match r["status"].as_str() {
+                    Some("ok") => format!(
+                        "v{} · {} connections · {} · {} slow queries",
+                        text(&r["version"]),
+                        num(&r["connections"]),
+                        size,
+                        num(&r["slow_queries"])
+                    ),
+                    Some("auth") => "needs a password (CoreScope does not use passwords)".into(),
+                    _ => english(r["error"].as_str().unwrap_or("error")),
+                }
+            );
+            for d in r["databases"].as_array().into_iter().flatten().take(8) {
+                let detail = d["keys"]
+                    .as_u64()
+                    .map(|k| format!("{k} keys"))
+                    .or_else(|| {
+                        d["bytes"]
+                            .as_f64()
+                            .map(|b| format!("{:.1} MB", b / 1_048_576.))
+                    })
+                    .unwrap_or_default();
+                println!("    {:<28} {detail}", text(&d["name"]));
+            }
+            for q in r["long_queries"].as_array().into_iter().flatten() {
+                println!(
+                    "    running {}s [{}] {}",
+                    num(&q["seconds"]),
+                    text(&q["database"]),
+                    text(&q["query"])
+                );
+            }
         }
     } else if let Some(rows) = value["space"].as_array() {
         let size = |v: &Value| {

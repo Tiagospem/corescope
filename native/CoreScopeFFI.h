@@ -14,6 +14,8 @@ char *cs_dev_space(const char *request);
 char *cs_dev_space_verify(const char *path);
 // Unused Docker data through the engine; kind is docker_dangling, docker_unused or docker_build_cache.
 char *cs_dev_space_docker(const char *socket, const char *kind);
+// Local MySQL/PostgreSQL/Redis, read-only and without passwords: [Database].
+char *cs_databases(void);
 void cs_free(char *pointer);
 
 int32_t cs_is_same(int32_t pid, uint64_t start);
