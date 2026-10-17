@@ -625,4 +625,8 @@ private let entries = """
   Ler o limite atual pelo Codex ¦ Read the current limit through Codex ¦ Leer el límite actual con Codex
   O Codex consulta sua conta com o login dele, como o app do Codex faz. O CoreScope não lê credenciais. Pode desligar em Ajustes › Agentes. ¦ Codex queries your account with its own login, as the Codex app does. CoreScope reads no credentials. Turn it off in Settings › Agents. ¦ Codex consulta tu cuenta con su propio inicio de sesión, como hace la app de Codex. CoreScope no lee credenciales. Desactívalo en Ajustes › Agentes.
   O Codex não grava mais o limite em disco. Com isto ligado, o CoreScope executa o app-server do próprio Codex a cada 5 minutos e pede o limite; o Codex consulta a OpenAI com o login dele. Nenhuma credencial é lida pelo CoreScope. ¦ Codex no longer stores its limit on disk. With this on, CoreScope runs Codex's own app-server every 5 minutes and asks for the limit; Codex queries OpenAI with its own login. CoreScope reads no credentials. ¦ Codex ya no guarda el límite en disco. Con esto activado, CoreScope ejecuta el app-server del propio Codex cada 5 minutos y pide el límite; Codex consulta a OpenAI con su propio inicio de sesión. CoreScope no lee credenciales.
+  ativo %@ ¦ active %@ ¦ activo %@
+  Roda dentro do app do Codex ¦ Runs inside the Codex app ¦ Se ejecuta dentro de la app de Codex
+  Abrir no Codex ¦ Open in Codex ¦ Abrir en Codex
+  Abre esta conversa no app do Codex ¦ Opens this conversation in the Codex app ¦ Abre esta conversación en la app de Codex
   """

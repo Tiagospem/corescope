@@ -10,6 +10,14 @@ section as the GitHub release notes.
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-10-17
+
+### Added
+- **Codex desktop threads** on the Agents page while the Codex app is open: title, project,
+  working / idle and last activity, with **Open in Codex** (`codex://threads/<id>`), Finder and
+  Terminal. Read-only from Codex's local databases; the desktop runs all threads in one backend
+  process, so they have no ✕ of their own.
+
 ## [0.3.1] - 2026-10-17
 
 ### Added
@@ -113,7 +121,8 @@ First public release.
   compact / standard / detailed layouts and in-panel controls.
 - English, Portuguese and Spanish; offline-only.
 
-[Unreleased]: https://github.com/Tiagospem/corescope/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/Tiagospem/corescope/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/Tiagospem/corescope/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/Tiagospem/corescope/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/Tiagospem/corescope/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/Tiagospem/corescope/compare/v0.2.0...v0.2.1

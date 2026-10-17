@@ -345,6 +345,8 @@ final class AgentStore: ObservableObject {
   @Published private(set) var claudeLink: ClaudeStatusLine.Link?
   @Published private(set) var claudeError: String?
   @Published private(set) var claudeSessions: [Int32: ClaudeSessionMeta] = [:]
+  /// Codex desktop threads (running or active in the last hour), from Codex's local databases.
+  @Published private(set) var codexThreads: [CodexThread] = []
   /// Separate object so token updates redraw only the views that show tokens.
   let tokens = TokenUsageStore()
   private let queue = DispatchQueue(label: "app.corescope.agents", qos: .utility)
@@ -386,7 +388,9 @@ final class AgentStore: ObservableObject {
       let codex = (live ? CodexAppServer.readLimits() : nil) ?? (keepLive ? nil : self.readCodex())
       let claude = readClaude ? self.readClaudeLimits() : ClaudeUsage()
       let sessions = Self.readClaudeSessions()
+      let threads = CodexThreads.read()
       DispatchQueue.main.async {
+        if threads != self.codexThreads { self.codexThreads = threads }
         // Publish only real changes so idle refreshes do not redraw the interface.
         if let codex, codex != self.codex { self.codex = codex }
         if claude != self.claude { self.claude = claude }
@@ -661,9 +665,12 @@ struct AgentsView: View {
           LimitsCard()
           TokensCard()
           let sessions = s.agentSessions
+          // Desktop threads have no process of their own; show them while the app is open.
+          let codexThreads =
+            s.processes.contains { $0.host == "Codex Desktop" } ? agents.codexThreads : []
           HStack {
             Text(L("Sessões ativas")).font(.system(size: 15, weight: .semibold))
-            Badge(text: "\(sessions.count)", color: .orange)
+            Badge(text: "\(sessions.count + codexThreads.count)", color: .orange)
             Spacer()
             let tree = sessions.flatMap { s.subtree(of: $0) }
             Text(
@@ -673,7 +680,7 @@ struct AgentsView: View {
                 formatBytes(tree.compactMap(\.memory.value).reduce(0, +)))
             ).font(.caption).foregroundStyle(.secondary).monospacedDigit()
           }
-          if sessions.isEmpty {
+          if sessions.isEmpty && codexThreads.isEmpty {
             Card {
               EmptyNote(
                 text: L(
@@ -686,6 +693,7 @@ struct AgentsView: View {
               root: root, tree: s.subtree(of: root), meta: meta,
               tokens: tokens.report.claude(meta) ?? tokens.report.codex(for: root))
           }
+          ForEach(codexThreads) { thread in CodexThreadCard(thread: thread) }
           let orphans = s.orphans
           if !orphans.isEmpty {
             Card {
