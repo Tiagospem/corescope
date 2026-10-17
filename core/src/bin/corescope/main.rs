@@ -697,6 +697,7 @@ mod tests {
         assert!(TcpListener::bind(("127.0.0.1", found)).is_ok());
     }
     #[test]
+    #[cfg_attr(not(target_os = "macos"), ignore = "reads the macOS process table")]
     fn subtree_starts_at_root_and_includes_children() {
         let mut child = std::process::Command::new("/bin/sleep")
             .arg("5")

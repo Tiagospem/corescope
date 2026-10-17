@@ -10,6 +10,8 @@ section as the GitHub release notes.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-17
+
 ### Added
 - **`corescope` command-line tool** bundled in the app (*Settings › Command line* links it into
   `~/.local/bin`): `ports`, `free-port`, `kill-port`, `agents`, `orphans`, `top`, `kill
@@ -54,6 +56,10 @@ section as the GitHub release notes.
   agents can list/create/start/stop profiles and read their logs, manage Services checks and SSH
   machines, scan and clean dev space, read and change notification settings and see stuck
   sessions. Destructive tools carry MCP annotations so hosts ask first.
+
+### Changed
+- The Rust core also builds on Linux, with stubs in place of the macOS adapter, for the image
+  Anthropic's OSS Scanner audits (`.oss-scanner/`, with a threat model).
 
 ## [0.3.2] - 2026-10-17
 
@@ -166,7 +172,8 @@ First public release.
   compact / standard / detailed layouts and in-panel controls.
 - English, Portuguese and Spanish; offline-only.
 
-[Unreleased]: https://github.com/Tiagospem/corescope/compare/v0.3.2...HEAD
+[Unreleased]: https://github.com/Tiagospem/corescope/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/Tiagospem/corescope/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/Tiagospem/corescope/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/Tiagospem/corescope/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/Tiagospem/corescope/compare/v0.2.1...v0.3.0
