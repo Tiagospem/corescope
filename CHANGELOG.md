@@ -10,6 +10,12 @@ section as the GitHub release notes.
 
 ## [Unreleased]
 
+### Added
+- **Codex desktop threads** on the Agents page while the Codex app is open: title, project,
+  working / idle and last activity, with **Open in Codex** (`codex://threads/<id>`), Finder and
+  Terminal. Read-only from Codex's local databases; the desktop runs all threads in one backend
+  process, so they have no ✕ of their own.
+
 ## [0.3.1] - 2026-10-17
 
 ### Added
