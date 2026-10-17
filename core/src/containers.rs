@@ -412,16 +412,27 @@ pub fn act(id: &str, action: &str) -> Result<(), String> {
         .unwrap_or_default();
     let host = std::env::var("DOCKER_HOST").ok();
     for socket in sockets(&home, host.as_deref()) {
-        // Only the engine that owns this id is asked to act on it.
+        // Locate the owning engine without reading the container's environment.
         let Ok(found) = request(
             &socket,
             "GET",
-            &format!("/containers/{id}/json"),
+            &format!("/containers/json?all=1&filters=%7B%22id%22%3A%5B%22{id}%22%5D%7D"),
             Duration::from_secs(3),
         ) else {
             continue;
         };
         if found.status != 200 {
+            continue;
+        }
+        let owns_id = serde_json::from_slice::<Vec<Value>>(&found.body)
+            .map(|items| {
+                items.len() == 1
+                    && items[0]["Id"]
+                        .as_str()
+                        .is_some_and(|full| full.starts_with(id))
+            })
+            .unwrap_or(false);
+        if !owns_id {
             continue;
         }
         // The engine waits up to t seconds for a clean exit before SIGKILL.
