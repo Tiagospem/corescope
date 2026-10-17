@@ -92,13 +92,24 @@ If you work with Claude Code, Codex, editors and terminals all day, your Mac fil
 </tr>
 </table>
 
+### 🔔 Notifications and port lookup
+
+- **Opt-in notifications** (Settings → Notifications, all off by default, delivered locally through macOS UserNotifications):
+  - a **new possible orphan** appeared, with its project and port — and a **Terminate** button that sends SIGTERM through the same path as the app (identity revalidated right before the signal);
+  - a process **stays above** a memory size (default 2 GB) or CPU (default 150 % of one core) for a while (default 60 s);
+  - macOS **memory pressure** reaches *warning* or *critical*, naming the biggest consumer.
+
+  At most one notification per process identity (PID + start time) per hour. Protected processes and other users' processes never notify. Rules run on the snapshots CoreScope already collects — no extra timer or sampling.
+- **Port lookup in the menu bar:** type a port (e.g. `3000`) to see which of your processes listens on it — name, project, origin — with *open `localhost:port`* and ✕. An empty result reads *Free*.
+- **Global shortcut ⌥⌘K** (configurable in Settings → Port shortcut) opens the menu bar popover with the port field focused. It is registered with Carbon's `RegisterEventHotKey`, so it needs **no Accessibility or Input Monitoring permission**: the app receives only that one key combination, never other keystrokes. (macOS 27 no longer exposes a public way to open a `MenuBarExtra` window, so there the shortcut shows the same menu in a standard popover anchored to the status item.)
+
 ### And also
 
 - **Storage & I/O:** per-device read/write, volume capacity (without double-counting APFS containers), NVMe temperature via public SMART APIs.
 - **Honest metrics:** every value carries its source and timestamp; missing data is labeled, never faked. Memory is *active + wired + compressed*, and is never presented as "pressure".
 - **Languages:** English, Portuguese and Spanish — follows your system language or a choice in Settings.
 - **Dock behavior:** always, only while the window is open (default — close it and CoreScope lives in the menu bar), or never.
-- **Shortcuts:** ⌘1…⌘6 pages · ⌘R refresh · ⇧⌘P floating panel · ⇧⌘Space pause / resume.
+- **Shortcuts:** ⌘1…⌘6 pages · ⌘R refresh · ⇧⌘P floating panel · ⇧⌘Space pause / resume · ⌥⌘K port lookup (global).
 
 ## Install
 
@@ -138,6 +149,7 @@ CoreScope is **local-only**: no network access, no telemetry, no accounts.
 - Agent data comes from local files only: the newest `rate_limits` event in `~/.codex/sessions` and the session metadata in `~/.claude/sessions`. Claude Code does not store its weekly limit on disk, so CoreScope does not show it — and does not read credentials to fetch it.
 - Token usage is counted from the agents' transcripts, read-only, and only once you open the Agents page: `~/.claude/projects/<project>/<session>.jsonl` and `~/.claude/projects/<project>/<session>/subagents/*.jsonl` (the `usage` object of assistant entries) and `~/.codex/sessions/YYYY/MM/DD/*.jsonl` (`token_count` events). Only files written in the last 7 days and the transcripts of running sessions are read, each from where the previous pass stopped. **Message content is never retained:** lines are scanned in a small reusable buffer and only token counts, model ids, session ids, working directories and the id of the last message seen in each file are kept, in memory — nothing is written to disk.
 - Containers come from the Docker Engine API over its local Unix socket — never TCP, never registry or Docker Hub credentials. Nothing is read while no container view is on screen.
+- Notifications are optional and local (UserNotifications); nothing is sent anywhere. The global shortcut uses `RegisterEventHotKey` and sees only its own key combination.
 - Live charts (up to 10 minutes) live in memory only. Preferences and watched processes stay in `UserDefaults`.
 - **Persistent history is opt-in** (off by default; Settings › History, retention 1, 7 or 30 days). When on, CoreScope writes one-minute rollups — system CPU, memory, swap, disk/network rates, thermal state, memory pressure and, per minute, the top 10 processes by CPU and by memory (name, executable, working directory and agent/editor origin; never arguments or environment) — to `~/Library/Application Support/CoreScope/history.sqlite`, in one SQLite transaction per minute. Older rows are purged automatically and *Delete history* removes the file.
 - Nothing is ever killed automatically. Termination only targets your own, eligible processes, revalidates each process identity (PID + start time + executable) right before signaling, and never touches system services or CoreScope's own ancestors.

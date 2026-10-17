@@ -405,6 +405,48 @@ final class Preferences: ObservableObject {
   @Published var thermalInPanel =
     UserDefaults.standard.object(forKey: "thermalInPanel") as? Bool ?? true
   { didSet { save("thermalInPanel", thermalInPanel) } }
+  // Notifications: every kind is off until the user opts in.
+  @Published var notifyOrphans = UserDefaults.standard.bool(forKey: "notifyOrphans") {
+    didSet { save("notifyOrphans", notifyOrphans) }
+  }
+  @Published var notifyHeavy = UserDefaults.standard.bool(forKey: "notifyHeavy") {
+    didSet { save("notifyHeavy", notifyHeavy) }
+  }
+  @Published var notifyPressure = UserDefaults.standard.bool(forKey: "notifyPressure") {
+    didSet { save("notifyPressure", notifyPressure) }
+  }
+  /// Memory threshold in GB (phys_footprint).
+  @Published var notifyMemoryGB =
+    UserDefaults.standard.object(forKey: "notifyMemoryGB") as? Double ?? 2
+  { didSet { save("notifyMemoryGB", notifyMemoryGB) } }
+  /// CPU threshold in percent of one core.
+  @Published var notifyCPU = UserDefaults.standard.object(forKey: "notifyCPU") as? Double ?? 150 {
+    didSet { save("notifyCPU", notifyCPU) }
+  }
+  /// Seconds a process must stay above either threshold.
+  @Published var notifySustain =
+    UserDefaults.standard.object(forKey: "notifySustain") as? Double ?? 60
+  { didSet { save("notifySustain", notifySustain) } }
+  var notificationsEnabled: Bool { notifyOrphans || notifyHeavy || notifyPressure }
+  // Global port lookup shortcut (Carbon key code + modifier mask); default ⌥⌘K.
+  @Published var hotkeyEnabled = UserDefaults.standard.object(forKey: "hotkeyEnabled") as? Bool ?? true
+  {
+    didSet {
+      save("hotkeyEnabled", hotkeyEnabled)
+      Hotkey.shared.apply()
+    }
+  }
+  @Published var hotkeyCode = UserDefaults.standard.object(forKey: "hotkeyCode") as? Int ?? 40 {
+    didSet { save("hotkeyCode", hotkeyCode) }
+  }
+  @Published var hotkeyModifiers =
+    UserDefaults.standard.object(forKey: "hotkeyModifiers") as? Int
+    ?? (HotkeyModifier.command | HotkeyModifier.option)
+  { didSet { save("hotkeyModifiers", hotkeyModifiers) } }
+  @Published var hotkeyKey = UserDefaults.standard.string(forKey: "hotkeyKey") ?? "K" {
+    didSet { save("hotkeyKey", hotkeyKey) }
+  }
+  var hotkeyLabel: String { shortcutLabel(modifiers: hotkeyModifiers, key: hotkeyKey) }
   private func save(_ key: String, _ value: Any) { UserDefaults.standard.set(value, forKey: key) }
   func toggleWatch(_ id: String) {
     if watched.contains(id) {
@@ -492,6 +534,7 @@ final class Monitor: ObservableObject {
       guard let self, let source = self.pressureSource else { return }
       self.pressure = source.data.contains(.critical) ? 2 : source.data.contains(.warning) ? 1 : 0
       self.pressureAt = Date().timeIntervalSince1970
+      Notifier.shared.pressureChanged(self.pressure, snapshot: self.snapshot)
     }
     source.resume()
     pressureSource = source
@@ -575,8 +618,10 @@ final class Monitor: ObservableObject {
         if !self.sleeping && !self.manuallyPaused {
           switch result {
           case .success(let s):
-            self.snapshot = Demo.enabled ? Demo.scrub(s) : s
+            let shown = Demo.enabled ? Demo.scrub(s) : s
+            self.snapshot = shown
             self.error = nil
+            Notifier.shared.evaluate(shown)
           case .failure(let e): self.error = e.localizedDescription
           }
         }

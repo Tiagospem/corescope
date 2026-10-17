@@ -31,6 +31,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     Preferences.shared.applyAppearance()
     NSApp.activate(ignoringOtherApps: true)
     FloatingController.shared.apply()
+    Hotkey.shared.apply()
+    Notifier.shared.activate()
     // Dock presence follows the main window when the user chose "only while open".
     let center = NotificationCenter.default
     for name in [NSWindow.didBecomeKeyNotification, NSWindow.willCloseNotification] {
@@ -218,6 +220,7 @@ struct MenuSummary: View {
         }.buttonStyle(HoverButtonStyle()).help(L("Ajustes")).accessibilityLabel(L("Ajustes"))
       }
       if let s = monitor.snapshot {
+        PortQuickLookup(snapshot: s)
         Grid(horizontalSpacing: 8, verticalSpacing: 8) {
           GridRow {
             MiniTile(
@@ -331,6 +334,7 @@ struct MenuSummary: View {
   }
   private func open(_ page: Page?) {
     // The popover is the key window at click time; dismiss it before showing the main window.
+    PortLookup.close()
     NSApp.keyWindow?.orderOut(nil)
     WindowOpener.shared.open = { openWindow(id: "main") }
     WindowOpener.shared.showMain(page: page)

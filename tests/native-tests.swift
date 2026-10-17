@@ -65,8 +65,25 @@ import Foundation
       precondition(demo(system, executable: true) == system)
     }
     precondition(demo("") == "")
+
+    // Notifications: one per identity per hour, sustained thresholds, no replay at launch.
+    var debounce = NotificationDebounce()
+    precondition(debounce.allow("42:1", at: 0) && !debounce.allow("42:1", at: 3599))
+    precondition(debounce.allow("42:2", at: 10) && debounce.allow("42:1", at: 3600))
+    var sustain = SustainTracker()
+    precondition(sustain.update(above: ["a"], at: 0, duration: 60).isEmpty)
+    precondition(sustain.update(above: ["a", "b"], at: 60, duration: 60) == ["a"])
+    precondition(sustain.update(above: ["b"], at: 90, duration: 60).isEmpty)
+    precondition(sustain.update(above: ["a", "b"], at: 120, duration: 60) == ["b"])
+    var arrivals = NewArrivals()
+    precondition(arrivals.update(["x"]).isEmpty && arrivals.update(["x", "y"]) == ["y"])
+    precondition(arrivals.update(["y"]).isEmpty)
+    precondition(parsePort("3000") == 3000 && parsePort(":8080") == 8080)
+    precondition(parsePort("0") == nil && parsePort("70000") == nil && parsePort("abc") == nil)
+    precondition(
+      shortcutLabel(modifiers: HotkeyModifier.command | HotkeyModifier.option, key: "k") == "⌥⌘K")
     print(
-      "20 native assertions passed: descendants, cycle, ordering, off-screen recovery, negative-origin monitor, forest roots, flatten, collapse, totals, ancestors, filter, formatting, container ports, shared ports, demo paths"
+      "25 native assertions passed: descendants, cycle, ordering, off-screen recovery, negative-origin monitor, forest roots, flatten, collapse, totals, ancestors, filter, formatting, container ports, shared ports, demo paths, debounce, sustained thresholds, new arrivals, port parsing, shortcut label"
     )
     print(
       "token usage assertions passed: timestamps, formatting, Claude block dedupe, embedded entries, partial lines, long-line skip, fast/full parity, Codex repeats and forks"

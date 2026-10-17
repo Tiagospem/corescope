@@ -4,6 +4,8 @@ import SwiftUI
 struct PreferencesView: View {
   @ObservedObject var p = Preferences.shared
   @ObservedObject var monitor = Monitor.shared
+  @ObservedObject var notifier = Notifier.shared
+  @ObservedObject var hotkey = Hotkey.shared
   // Read on appear: SMAppService.status is a synchronous XPC call.
   @ViewState private var loginEnabled = false
   @ViewState private var loginError: String?
@@ -86,6 +88,53 @@ struct PreferencesView: View {
               .accessibilityLabel(L("Mover %@ para a direita", "\(item)"))
           }
         }
+      }
+      Section(L("Notificações")) {
+        Toggle(L("Novo possível órfão"), isOn: notify($p.notifyOrphans))
+        Toggle(L("Processo pesado por muito tempo"), isOn: notify($p.notifyHeavy))
+        if p.notifyHeavy {
+          LabeledContent(L("Memória acima de")) {
+            Slider(value: $p.notifyMemoryGB, in: 0.5...16, step: 0.5).frame(width: 180)
+            Text(String(format: "%.1f GB", p.notifyMemoryGB)).monospacedDigit().frame(width: 56)
+          }
+          LabeledContent(L("CPU acima de")) {
+            Slider(value: $p.notifyCPU, in: 50...800, step: 10).frame(width: 180)
+            Text("\(Int(p.notifyCPU))%").monospacedDigit().frame(width: 56)
+          }
+          LabeledContent(L("Por pelo menos")) {
+            Slider(value: $p.notifySustain, in: 15...600, step: 15).frame(width: 180)
+            Text(formatDuration(p.notifySustain)).monospacedDigit().frame(width: 56)
+          }
+        }
+        Toggle(L("Pressão de memória do macOS (atenção/crítica)"), isOn: notify($p.notifyPressure))
+        if notifier.denied && p.notificationsEnabled {
+          HStack {
+            Text(L("O macOS está bloqueando as notificações do CoreScope."))
+              .font(.caption).foregroundStyle(.orange)
+            Spacer()
+            Button(L("Abrir Ajustes do Sistema")) {
+              if let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension") {
+                NSWorkspace.shared.open(url)
+              }
+            }
+          }
+        }
+        Text(
+          L("Desligadas por padrão e locais. No máximo uma notificação por processo (PID + início) por hora; processos protegidos ou de outros usuários nunca notificam. “Encerrar” envia SIGTERM pelo mesmo caminho do app, que revalida a identidade antes do sinal; nada é encerrado sem o seu clique.")
+        ).font(.caption).foregroundStyle(.secondary)
+      }
+      Section(L("Atalho de porta")) {
+        Toggle(L("Atalho global para buscar porta"), isOn: $p.hotkeyEnabled)
+        if p.hotkeyEnabled {
+          LabeledContent(L("Combinação")) { ShortcutRecorder() }
+          if hotkey.failed {
+            Text(L("Outro app já usa esta combinação. Escolha outra."))
+              .font(.caption).foregroundStyle(.orange)
+          }
+        }
+        Text(
+          L("Abre o menu do CoreScope com o campo Porta em foco. Registrado com RegisterEventHotKey: não pede permissão de Acessibilidade e o app recebe só esta combinação.")
+        ).font(.caption).foregroundStyle(.secondary)
       }
       Section(L("Agentes")) {
         Toggle(L("Limite do Codex na barra de menus"), isOn: $p.limitsInMenuBar)
@@ -174,7 +223,17 @@ struct PreferencesView: View {
         }
       }
     }.formStyle(.grouped)
+      .onAppear { if p.notificationsEnabled { notifier.activate() } }
       .onAppear { loginEnabled = SMAppService.mainApp.status == .enabled }
+  }
+  /// Turning a notification kind on asks macOS for permission the first time.
+  private func notify(_ binding: Binding<Bool>) -> Binding<Bool> {
+    Binding(
+      get: { binding.wrappedValue },
+      set: { value in
+        binding.wrappedValue = value
+        if value { notifier.activate() }
+      })
   }
 }
 
