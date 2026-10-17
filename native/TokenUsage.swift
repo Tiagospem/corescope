@@ -155,7 +155,9 @@ struct TranscriptTally {
   /// Parses one JSONL line, cheaply skipping lines that cannot carry usage.
   mutating func consume(_ line: UnsafeRawBufferPointer) {
     let head = UnsafeRawBufferPointer(rebasing: line[0..<min(line.count, 512)])
-    guard wants(line) else { return }
+    guard wants(head)
+      || (kind == .claude && !contains(head, "\"role\":\"user\"") && contains(line, "\"message\":{"))
+    else { return }
     autoreleasepool {
       switch kind {
       case .claude:
