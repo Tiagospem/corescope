@@ -93,6 +93,16 @@ func tokenTests() {
     (url, size) = write("abc.jsonl", body + String(partial.prefix(40)))
   }
   TranscriptTally.forceFullParse = false
+  let lateMessage =
+    #"{"parentUuid":null,"cwd":"\#(String(repeating: "x", count: 600))","message":{"model":"claude-opus-5-5","id":"late","type":"message","role":"assistant","usage":{"input_tokens":11,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":3}},"type":"assistant","timestamp":"2026-10-16T12:00:00.000Z"}"#
+  let (lateURL, lateSize) = write("late.jsonl", assistant("first", 1) + "\n" + lateMessage + "\n")
+  for full in [false, true] {
+    TranscriptTally.forceFullParse = full
+    var lateTally = TranscriptTally(kind: .claude, path: lateURL.path)
+    lateTally.read(lateURL, size: lateSize, chunk: 256)
+    precondition(lateTally.total == TokenCounts(input: 21, output: 4, cacheWrite: 100, cacheRead: 1000))
+  }
+  TranscriptTally.forceFullParse = false
   let sub = dir.appendingPathComponent("abc/subagents")
   try? FileManager.default.createDirectory(at: sub, withIntermediateDirectories: true)
   let subagent = TranscriptTally(kind: .claude, path: sub.appendingPathComponent("agent-1.jsonl").path)

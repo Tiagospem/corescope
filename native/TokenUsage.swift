@@ -81,7 +81,9 @@ struct TranscriptTally {
     var skipping = false
     while position < size {
       if filled == buffer.count {
-        let keep = buffer.withUnsafeBytes { wants(UnsafeRawBufferPointer(rebasing: $0[0..<min($0.count, 512)])) }
+        let keep = buffer.withUnsafeBytes {
+          wants(UnsafeRawBufferPointer(rebasing: $0[0..<min($0.count, 512)]), prefix: true)
+        }
         if keep && buffer.count < maxLine {
           buffer += [UInt8](repeating: 0, count: buffer.count)
         } else {
@@ -121,12 +123,12 @@ struct TranscriptTally {
   }
 
   /// Whether a line starting with `head` can carry usage or session details.
-  func wants(_ head: UnsafeRawBufferPointer) -> Bool {
+  func wants(_ head: UnsafeRawBufferPointer, prefix: Bool = false) -> Bool {
     switch kind {
     case .claude:
       // Assistant entries name their role within the first bytes; user and tool-result lines,
       // the largest ones, are skipped without being searched.
-      return !contains(head, "\"role\":\"user\"") && contains(head, "\"message\":{")
+      return !contains(head, "\"role\":\"user\"") && (prefix || contains(head, "\"message\":{"))
     case .codex:
       // The event type sits near the start; payload lines are not searched in full.
       let near = UnsafeRawBufferPointer(rebasing: head[0..<min(head.count, 256)])
@@ -138,7 +140,7 @@ struct TranscriptTally {
   /// Parses one JSONL line, cheaply skipping lines that cannot carry usage.
   mutating func consume(_ line: UnsafeRawBufferPointer) {
     let head = UnsafeRawBufferPointer(rebasing: line[0..<min(line.count, 512)])
-    guard wants(head) else { return }
+    guard wants(line) else { return }
     autoreleasepool {
       switch kind {
       case .claude:
