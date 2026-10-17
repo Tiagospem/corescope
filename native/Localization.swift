@@ -429,4 +429,22 @@ private let entries = """
   Total com descendentes: %@ ¦ Total with descendants: %@ ¦ Total con descendientes: %@
   Expandido ¦ Expanded ¦ Expandido
   Recolhido ¦ Collapsed ¦ Contraído
+  Sem projeto ¦ No project ¦ Sin proyecto
+  Tokens ¦ Tokens ¦ Tokens
+  Entrada ¦ Input ¦ Entrada
+  Saída ¦ Output ¦ Salida
+  Cache ¦ Cache ¦ Caché
+  Cache de prompt: %@ gravados · %@ lidos ¦ Prompt cache: %@ written · %@ read ¦ Caché de prompt: %@ escritos · %@ leídos
+  + %@ subagentes ¦ + %@ subagents ¦ + %@ subagentes
+  Tokens desta sessão (subagentes incluídos), lidos do registro local do agente. ¦ Tokens used by this session (subagents included), read from the agent's local log. ¦ Tokens de esta sesión (subagentes incluidos), leídos del registro local del agente.
+  Uso de tokens ¦ Token usage ¦ Uso de tokens
+  Lendo registros locais dos agentes… ¦ Reading local agent logs… ¦ Leyendo registros locales de los agentes…
+  Nenhum token registrado nos últimos 7 dias. ¦ No tokens recorded in the last 7 days. ¦ No hay tokens registrados en los últimos 7 días.
+  Hoje ¦ Today ¦ Hoy
+  Últimos 7 dias ¦ Last 7 days ¦ Últimos 7 días
+  7 dias ¦ 7 days ¦ 7 días
+  Contado dos registros locais do Claude Code e do Codex. Cache = tokens de prompt gravados e lidos do cache. Sem valores em dólar. ¦ Counted from Claude Code and Codex local logs. Cache = prompt tokens written to and read from the cache. No dollar amounts. ¦ Contado de los registros locales de Claude Code y Codex. Caché = tokens de prompt escritos y leídos de la caché. Sin importes en dólares.
+  entrada %@ · saída %@ · cache %@ ¦ input %@ · output %@ · cache %@ ¦ entrada %@ · salida %@ · caché %@
+  Hoje: %@ | 7 dias: %@ ¦ Today: %@ | 7 days: %@ ¦ Hoy: %@ | 7 días: %@
+  + %@ outros projetos ¦ + %@ more projects ¦ + %@ proyectos más
   """
