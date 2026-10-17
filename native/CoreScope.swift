@@ -35,6 +35,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     FloatingController.shared.apply()
     Hotkey.shared.apply()
     Notifier.shared.activate()
+    _ = HealthStore.shared
     // Dock presence follows the main window when the user chose "only while open".
     let center = NotificationCenter.default
     for name in [NSWindow.didBecomeKeyNotification, NSWindow.willCloseNotification] {

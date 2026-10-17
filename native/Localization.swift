@@ -710,4 +710,33 @@ private let entries = """
   Travado após ¦ Stuck after ¦ Atascado tras
   %@ min sem atividade ¦ %@ min without activity ¦ %@ min sin actividad
   Uma sessão ocupada (Claude Code, Codex) que não escreve na própria transcrição por esse tempo. Se um comando iniciado nesta vez está usando CPU, é só um comando longo; se está parado, pode estar esperando uma entrada. Vale também para o selo na página Agentes. Lê apenas datas de modificação, nunca o conteúdo. ¦ A busy session (Claude Code, Codex) that has not written to its transcript for this long. If a command started in this turn is using CPU, it is just a long command; if it sits idle, it may be waiting for input. Also drives the badge on the Agents page. Reads modification dates only, never content. ¦ Una sesión ocupada (Claude Code, Codex) que no escribe en su transcripción durante ese tiempo. Si un comando iniciado en este turno usa CPU, solo es un comando largo; si está parado, puede estar esperando una entrada. También controla la insignia de la página Agentes. Solo lee fechas de modificación, nunca el contenido.
+  Destino inválido ¦ Invalid target ¦ Destino no válido
+  porta aberta ¦ port open ¦ puerto abierto
+  %@ fora do ar ¦ %@ is down ¦ %@ está caído
+  %@ voltou ¦ %@ is back ¦ %@ volvió
+  sem resposta ¦ no answer ¦ sin respuesta
+  sem resposta em 5 s ¦ no answer in 5 s ¦ sin respuesta en 5 s
+  sem resposta em 3 s ¦ no answer in 3 s ¦ sin respuesta en 3 s
+  conexão recusada ¦ connection refused ¦ conexión rechazada
+  host não encontrado ¦ host not found ¦ host no encontrado
+  sem rede ¦ no network ¦ sin red
+  certificado TLS inválido ¦ invalid TLS certificate ¦ certificado TLS no válido
+  porta inválida ¦ invalid port ¦ puerto no válido
+  No ar ¦ Up ¦ Activo
+  Respondeu com erro ¦ Answered with an error ¦ Respondió con error
+  Fora do ar ¦ Down ¦ Caído
+  Adicionar serviço ¦ Add service ¦ Añadir servicio
+  Nome ¦ Name ¦ Nombre
+  URL ou porta: 3000, localhost:5432, https://…/health ¦ URL or port: 3000, localhost:5432, https://…/health ¦ URL o puerto: 3000, localhost:5432, https://…/health
+  Salvar ¦ Save ¦ Guardar
+  Destino fora deste Mac: o CoreScope vai acessar %@ a cada 30 s. ¦ Target outside this Mac: CoreScope will contact %@ every 30 s. ¦ Destino fuera de este Mac: CoreScope accederá a %@ cada 30 s.
+  Portas abertas agora: ¦ Open ports now: ¦ Puertos abiertos ahora:
+  Nenhum serviço monitorado. Adicione uma URL de health check ou uma porta (API local, banco, staging). ¦ No services watched. Add a health check URL or a port (local API, database, staging). ¦ Ningún servicio vigilado. Añade una URL de health check o un puerto (API local, base de datos, staging).
+  Serviços ¦ Services ¦ Servicios
+  Verificar agora ¦ Check now ¦ Comprobar ahora
+  Notificar quando um serviço cair ou voltar ¦ Notify when a service goes down or comes back ¦ Notificar cuando un servicio caiga o vuelva
+  Verifica a cada 30 s enquanto o CoreScope está aberto: HTTP GET (2xx/3xx no ar, 4xx respondeu com erro, 5xx ou sem resposta fora do ar) ou conexão TCP na porta. Sem cookies nem cache; só os destinos que você adicionou são acessados. Alerta depois de duas falhas seguidas. ¦ Checked every 30 s while CoreScope is open: HTTP GET (2xx/3xx up, 4xx answered with an error, 5xx or no answer down) or a TCP connection to the port. No cookies or cache; only the targets you added are contacted. Alerts after two failures in a row. ¦ Se comprueba cada 30 s mientras CoreScope está abierto: HTTP GET (2xx/3xx activo, 4xx respondió con error, 5xx o sin respuesta caído) o una conexión TCP al puerto. Sin cookies ni caché; solo se contactan los destinos que añadiste. Avisa tras dos fallos seguidos.
+  Verificando… ¦ Checking… ¦ Comprobando…
+  Abrir no navegador ¦ Open in browser ¦ Abrir en el navegador
+  Editar ¦ Edit ¦ Editar
   """

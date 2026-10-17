@@ -452,7 +452,10 @@ final class Preferences: ObservableObject {
   @Published var stallMinutes = UserDefaults.standard.object(forKey: "stallMinutes") as? Double ?? 10 {
     didSet { save("stallMinutes", stallMinutes) }
   }
-  var notificationsEnabled: Bool { notifyOrphans || notifyHeavy || notifyPressure || notifyStalls }
+  @Published var notifyServiceDown = UserDefaults.standard.bool(forKey: "notifyServiceDown") {
+    didSet { save("notifyServiceDown", notifyServiceDown) }
+  }
+  var notificationsEnabled: Bool { notifyOrphans || notifyHeavy || notifyPressure || notifyStalls || notifyServiceDown }
   // Global port lookup shortcut (Carbon key code + modifier mask); default ⌥⌘K.
   @Published var hotkeyEnabled = UserDefaults.standard.object(forKey: "hotkeyEnabled") as? Bool ?? true
   {

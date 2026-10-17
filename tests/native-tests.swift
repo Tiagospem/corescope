@@ -150,8 +150,16 @@ import Foundation
     let stuck = agentStall(busySince: busy, lastWrite: 1100, children: [prompt], now: 2000, threshold: 600)
     precondition(stuck == .waiting("npm", since: 1100) && stuck?.suspicious == true)
     precondition(claudeProjectFolder("/Volumes/HD Externo/a_b/.claude") == "-Volumes-HD-Externo-a-b--claude")
+    precondition(HealthTarget("3000") == .tcp(host: "localhost", port: 3000))
+    precondition(HealthTarget(":5432") == .tcp(host: "localhost", port: 5432))
+    precondition(HealthTarget("db.local:6379") == .tcp(host: "db.local", port: 6379))
+    precondition(HealthTarget("localhost:3000/health") == .http(URL(string: "http://localhost:3000/health")!))
+    precondition(HealthTarget("https://staging.app/up")?.isLocal == false)
+    precondition(HealthTarget("http://api.localhost:8080")?.isLocal == true)
+    precondition(HealthTarget("nonsense") == nil && HealthTarget("host:99999") == nil && HealthTarget("http://") == nil)
+    precondition(HealthLevel(httpStatus: 204) == .up && HealthLevel(httpStatus: 404) == .warn && HealthLevel(httpStatus: 503) == .down)
     print(
-      "25 native assertions passed: descendants, cycle, ordering, off-screen recovery, negative-origin monitor, forest roots, flatten, collapse, totals, ancestors, filter, formatting, container ports, shared ports, demo paths, debounce, sustained thresholds, new arrivals, port parsing, shortcut label, agent stalls; plus settings JSON, Unicode escapes, status line install/chain, Claude limits"
+      "25 native assertions passed: descendants, cycle, ordering, off-screen recovery, negative-origin monitor, forest roots, flatten, collapse, totals, ancestors, filter, formatting, container ports, shared ports, demo paths, debounce, sustained thresholds, new arrivals, port parsing, shortcut label, agent stalls, health targets; plus settings JSON, Unicode escapes, status line install/chain, Claude limits"
     )
     print(
       "token usage assertions passed: timestamps, formatting, Claude block dedupe, embedded entries, partial lines, long-line skip, fast/full parity, Codex repeats and forks"

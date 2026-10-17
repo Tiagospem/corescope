@@ -105,6 +105,7 @@ struct OverviewView: View {
           }
           if Preferences.shared.limitsInOverview { LimitsCard() }
           AgentSessionsCard(snapshot: s)
+          HealthCard()
           ContainersCard()
           LazyVGrid(
             columns: Array(repeating: GridItem(.flexible(), spacing: 12, alignment: .top), count: 2),

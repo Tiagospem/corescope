@@ -29,6 +29,9 @@ section as the GitHub release notes.
   writes for N minutes (default 10) show *Looks stuck* (idle command, possibly waiting for input,
   or nothing running) or *Long command* (a command of this turn using CPU) on the Agents page;
   optional notification that opens the session in Claude or Codex.
+- **Services page**: HTTP and TCP health checks for local or remote endpoints every 30 s, with
+  latency history, an Overview card, one-click suggestions from open ports and optional
+  down/recovered notifications.
 
 ## [0.3.2] - 2026-10-17
 

@@ -569,3 +569,54 @@ func agentStall(
 func claudeProjectFolder(_ cwd: String) -> String {
   String(cwd.map { $0.isASCII && ($0.isLetter || $0.isNumber) ? $0 : "-" })
 }
+
+/// What a health check probes: an HTTP(S) endpoint, or a TCP port that must accept connections.
+enum HealthTarget: Equatable {
+  case http(URL)
+  case tcp(host: String, port: UInt16)
+  /// "3000", ":3000", "db.local:5432", "localhost:3000/health", "https://staging.app/up".
+  init?(_ text: String) {
+    let t = text.trimmingCharacters(in: .whitespaces)
+    if t.lowercased().hasPrefix("http://") || t.lowercased().hasPrefix("https://") {
+      guard let url = URL(string: t), url.host?.isEmpty == false else { return nil }
+      self = .http(url)
+      return
+    }
+    if t.contains("/") {
+      guard let url = URL(string: "http://" + t), url.host?.isEmpty == false else { return nil }
+      self = .http(url)
+      return
+    }
+    if let port = parsePort(t) {
+      self = .tcp(host: "localhost", port: port)
+      return
+    }
+    guard let colon = t.lastIndex(of: ":"), let port = parsePort(String(t[t.index(after: colon)...])) else {
+      return nil
+    }
+    let host = String(t[..<colon]).trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+    guard !host.isEmpty, !host.contains(" ") else { return nil }
+    self = .tcp(host: host, port: port)
+  }
+  var label: String {
+    switch self {
+    case .http(let url): url.absoluteString
+    case .tcp(let host, let port): "\(host):\(port)"
+    }
+  }
+  /// Only loopback targets keep CoreScope's "no network" promise; others are the user's choice.
+  var isLocal: Bool {
+    let host: String
+    switch self {
+    case .http(let url): host = url.host ?? ""
+    case .tcp(let h, _): host = h
+    }
+    return ["localhost", "127.0.0.1", "::1"].contains(host.lowercased()) || host.hasSuffix(".localhost")
+  }
+}
+/// 2xx/3xx is healthy; 4xx answers but is probably the wrong path; anything else is down.
+enum HealthLevel: Int, Comparable {
+  case up = 0, warn = 1, down = 2
+  static func < (a: Self, b: Self) -> Bool { a.rawValue < b.rawValue }
+  init(httpStatus: Int) { self = httpStatus < 400 ? .up : httpStatus < 500 ? .warn : .down }
+}

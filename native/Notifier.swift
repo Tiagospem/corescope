@@ -107,6 +107,17 @@ final class Notifier: NSObject, ObservableObject, UNUserNotificationCenterDelega
       body: body, process: nil, at: Date().timeIntervalSince1970)
   }
 
+  /// A watched service went down or came back; clicking opens the Services page.
+  func serviceChanged(key: String, title: String, body: String) {
+    if center == nil { activate() }
+    guard let center, !denied else { return }
+    let content = UNMutableNotificationContent()
+    content.title = title
+    content.body = body
+    content.threadIdentifier = "services"
+    center.add(UNNotificationRequest(identifier: "service.\(key).\(Date().timeIntervalSince1970)", content: content, trigger: nil))
+  }
+
   /// A busy agent session stopped making progress; clicking opens it (Claude Desktop or Codex).
   func agentStalled(key: String, title: String, body: String, url: URL?) {
     if center == nil { activate() }
@@ -166,7 +177,8 @@ final class Notifier: NSObject, ObservableObject, UNUserNotificationCenterDelega
         {
           NSWorkspace.shared.open(url)
         } else {
-          WindowOpener.shared.showMain(page: response.notification.request.identifier.hasPrefix("stall.") ? .agents : .processes)
+          let id = response.notification.request.identifier
+          WindowOpener.shared.showMain(page: id.hasPrefix("stall.") ? .agents : id.hasPrefix("service.") ? .health : .processes)
         }
       }
       completionHandler()
