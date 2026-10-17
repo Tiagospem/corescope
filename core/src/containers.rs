@@ -307,6 +307,7 @@ impl Reader {
             let state = match result {
                 Ok(r) if r.status == 200 => match parse_list(&r.body, name) {
                     Ok(mut list) => {
+                        list.sort_by_key(|c| c.state != "running");
                         list.truncate(MAX_CONTAINERS);
                         containers.extend(list.into_iter().map(|c| (socket.clone(), c)));
                         "ok"
