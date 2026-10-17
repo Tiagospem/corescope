@@ -27,6 +27,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     DispatchQueue.main.async { Preferences.shared.applyActivationPolicy() }
   }
+  func applicationWillTerminate(_ notification: Notification) {
+    // Keeps the minute in progress instead of dropping it on quit.
+    if Preferences.shared.historyEnabled { HistoryStore.flush() }
+  }
   func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
   func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
     if !hasVisibleWindows { WindowOpener.shared.showMain() }

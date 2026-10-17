@@ -109,6 +109,11 @@ struct ProcessItem: Decodable, Identifiable {
   var shortCwd: String { abbreviateHome(cwd) }
   var portsLabel: String { ports.map { ":\($0.port)" }.joined(separator: " ") }
 }
+struct CoreLoad: Decodable {
+  /// "P", "E" or "" when the core type is unknown.
+  let kind: String
+  let value: Double?
+}
 struct Volume: Decodable, Identifiable {
   let id: String
   let mount: String
@@ -148,8 +153,14 @@ struct Snapshot: Decodable {
   let wired: Metric
   let compressed: Metric
   let swap: Metric
+  let app_memory: Metric
+  let cached_files: Metric
+  let pressure_percent: Metric
   let pressure: Metric
   let thermal: Metric
+  let core_load: [CoreLoad]
+  let core_source: String
+  let history_state: String
   var processes: [ProcessItem]
   let volumes: [Volume]
   let disks: [Disk]
@@ -381,6 +392,15 @@ final class Preferences: ObservableObject {
   @Published var selectedSensor = UserDefaults.standard.string(forKey: "selectedSensor") ?? "" {
     didSet { save("selectedSensor", selectedSensor) }
   }
+  /// Persistent history is opt-in: off until the user enables it in Settings.
+  @Published var historyEnabled = UserDefaults.standard.bool(forKey: "historyEnabled") {
+    didSet { save("historyEnabled", historyEnabled) }
+  }
+  /// Retention in days: 1, 7 or 30.
+  @Published var historyRetention =
+    UserDefaults.standard.object(forKey: "historyRetention") as? Int ?? 7
+  { didSet { save("historyRetention", historyRetention) } }
+  var historyDays: Int { historyEnabled ? historyRetention : 0 }
   @Published var thermalInPanel =
     UserDefaults.standard.object(forKey: "thermalInPanel") as? Bool ?? true
   { didSet { save("thermalInPanel", thermalInPanel) } }
@@ -521,7 +541,7 @@ final class Monitor: ObservableObject {
       "thermal": ProcessInfo.processInfo.thermalState.rawValue, "pressure": pressure,
       "pressure_at": pressureAt, "cpu_warning": p.cpuWarning, "cpu_critical": p.cpuCritical,
       "sustain": p.sustain, "disk_warning": p.diskWarning, "disk_critical": p.diskCritical,
-      "watched": p.watched, "ignored": p.ignored,
+      "watched": p.watched, "ignored": p.ignored, "history_days": p.historyDays,
     ]
     guard let data = try? JSONSerialization.data(withJSONObject: config),
       let json = String(data: data, encoding: .utf8)

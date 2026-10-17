@@ -29,10 +29,49 @@ void os_host(CSHost *o) {
  o->memory_ok=host_statistics64(host,HOST_VM_INFO64,(host_info64_t)&vm,&n)==KERN_SUCCESS;
  vm_size_t page=0; host_page_size(host,&page);
  mach_port_deallocate(mach_task_self(),host);
- if(o->memory_ok){o->active=(uint64_t)vm.active_count*page;o->wired=(uint64_t)vm.wire_count*page;o->compressed=(uint64_t)vm.compressor_page_count*page;}
+ if(o->memory_ok){o->active=(uint64_t)vm.active_count*page;o->wired=(uint64_t)vm.wire_count*page;o->compressed=(uint64_t)vm.compressor_page_count*page;
+  o->internal=(uint64_t)vm.internal_page_count*page;o->purgeable=(uint64_t)vm.purgeable_count*page;o->external=(uint64_t)vm.external_page_count*page;}
  size_t len=sizeof(o->physical); if(sysctlbyname("hw.memsize",&o->physical,&len,NULL,0))o->memory_ok=0;
  len=sizeof(o->cores);sysctlbyname("hw.logicalcpu",&o->cores,&len,NULL,0);
  struct xsw_usage sw={0};len=sizeof(sw);o->swap_ok=sysctlbyname("vm.swapusage",&sw,&len,NULL,0)==0;o->swap=sw.xsu_used;
+ int level=-1;len=sizeof(level);if(sysctlbyname("kern.memorystatus_level",&level,&len,NULL,0))level=-1;o->memory_level=level;
+}
+int os_core_ticks(uint64_t *ticks,int cap){
+ natural_t count=0;processor_info_array_t info=NULL;mach_msg_type_number_t n=0;
+ mach_port_t host=mach_host_self();
+ kern_return_t r=host_processor_info(host,PROCESSOR_CPU_LOAD_INFO,&count,&info,&n);
+ mach_port_deallocate(mach_task_self(),host);
+ if(r!=KERN_SUCCESS||!info)return -1;
+ processor_cpu_load_info_t load=(processor_cpu_load_info_t)info;int out=0;
+ for(natural_t i=0;i<count&&(int)i<cap;i++,out++)for(int s=0;s<CPU_STATE_MAX;s++)ticks[i*4+s]=load[i].cpu_ticks[s];
+ vm_deallocate(mach_task_self(),(vm_address_t)info,(vm_size_t)n*sizeof(integer_t));
+ return out;
+}
+int os_core_kinds(uint8_t *out,int cap){
+ memset(out,0,(size_t)cap);
+ io_registry_entry_t cpus=IORegistryEntryFromPath(kIOMainPortDefault,"IODeviceTree:/cpus");
+ if(!cpus)return 0;
+ io_iterator_t it=0;int found=0;
+ if(IORegistryEntryGetChildIterator(cpus,kIODeviceTreePlane,&it)==KERN_SUCCESS){
+  io_object_t cpu;
+  while((cpu=IOIteratorNext(it))){
+   CFTypeRef id=IORegistryEntryCreateCFProperty(cpu,CFSTR("logical-cpu-id"),kCFAllocatorDefault,0);
+   CFTypeRef kind=IORegistryEntryCreateCFProperty(cpu,CFSTR("cluster-type"),kCFAllocatorDefault,0);
+   int64_t index=-1;
+   if(id&&CFGetTypeID(id)==CFNumberGetTypeID())CFNumberGetValue(id,kCFNumberSInt64Type,&index);
+   if(kind&&CFGetTypeID(kind)==CFDataGetTypeID()&&CFDataGetLength(kind)>0&&index>=0&&index<cap){
+    uint8_t k=CFDataGetBytePtr(kind)[0];if(k=='P'||k=='E'){out[index]=k;found++;}
+   }
+   if(id)CFRelease(id);if(kind)CFRelease(kind);IOObjectRelease(cpu);
+  }
+  IOObjectRelease(it);
+ }
+ IOObjectRelease(cpus);return found;
+}
+void os_perflevels(uint32_t *level0,uint32_t *level1){
+ size_t len=sizeof(uint32_t);*level0=0;*level1=0;
+ if(sysctlbyname("hw.perflevel0.logicalcpu",level0,&len,NULL,0))*level0=0;
+ len=sizeof(uint32_t);if(sysctlbyname("hw.perflevel1.logicalcpu",level1,&len,NULL,0))*level1=0;
 }
 int os_pids(int32_t *o,int cap){int n=proc_listpids(PROC_ALL_PIDS,0,o,cap*sizeof(int32_t));return n>0?n/(int)sizeof(int32_t):-1;}
 int os_process(int32_t pid,CSProcess *o){

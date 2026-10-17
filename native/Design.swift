@@ -54,6 +54,13 @@ struct AreaChart: View {
           let y = size.height - 1 - CGFloat(min(value, top) / top) * (size.height - 3)
           segments[segments.count - 1].append(CGPoint(x: x, y: y))
         }
+        // An isolated value (e.g. one recorded minute between gaps) is a dot, not nothing.
+        for points in segments where points.count == 1 {
+          let r = lineWidth * 1.4
+          context.fill(
+            Path(ellipseIn: CGRect(x: points[0].x - r, y: points[0].y - r, width: 2 * r, height: 2 * r)),
+            with: .color(s.color))
+        }
         for points in segments where points.count > 1 {
           var line = Path()
           line.addLines(points)

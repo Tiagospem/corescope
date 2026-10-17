@@ -57,6 +57,11 @@ If you work with Claude Code, Codex, editors and terminals all day, your Mac fil
 - **Codex weekly limit**, read from the `rate_limits` events Codex itself writes to `~/.codex/sessions` — no network, no credentials. Optionally shown in the menu bar and floating panel.
 - **Possible orphans:** dev runtimes still running after their terminal, editor or agent went away.
 
+### 🕒 History (opt-in)
+
+- Answers *“what made my Mac slow yesterday at 3 pm?”*: 1 h, 24 h and 7 d views of CPU (mean and peak), memory and swap, disk, network, thermal state and memory pressure, with gaps where nothing was recorded.
+- Click any chart to see **the processes that dominated that moment** (top CPU and memory, with project and “via Claude Code”-style origin); step back period by period or jump to a date.
+
 ### 📊 Menu bar and floating panel
 
 <table>
@@ -116,7 +121,8 @@ CoreScope is **local-only**: no network access, no telemetry, no accounts.
 - Process names, executables, users, start times, working directories and listening ports are read locally through public macOS APIs (`libproc`, `sysctl`, IOKit). Working directories and ports are read only for **your own** processes.
 - **Arguments and environment variables are never collected.**
 - Agent data comes from local files only: the newest `rate_limits` event in `~/.codex/sessions` and the session metadata in `~/.claude/sessions`. Claude Code does not store its weekly limit on disk, so CoreScope does not show it — and does not read credentials to fetch it.
-- History (up to 10 minutes) lives in memory only. Preferences and watched processes stay in `UserDefaults`.
+- Live charts (up to 10 minutes) live in memory only. Preferences and watched processes stay in `UserDefaults`.
+- **Persistent history is opt-in** (off by default; Settings › History, retention 1, 7 or 30 days). When on, CoreScope writes one-minute rollups — system CPU, memory, swap, disk/network rates, thermal state, memory pressure and, per minute, the top 10 processes by CPU and by memory (name, executable, working directory and agent/editor origin; never arguments or environment) — to `~/Library/Application Support/CoreScope/history.sqlite`, in one SQLite transaction per minute. Older rows are purged automatically and *Delete history* removes the file.
 - Nothing is ever killed automatically. Termination only targets your own, eligible processes, revalidates each process identity (PID + start time + executable) right before signaling, and never touches system services or CoreScope's own ancestors.
 
 ## Resource usage
