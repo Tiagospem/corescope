@@ -475,8 +475,10 @@ pub fn top(path: &str, from: i64, to: i64) -> Result<Top, String> {
         };
         let mut s = db.prepare(&format!(
             "SELECT p.name, p.path, p.cwd, p.origin, sum(t.cpu), max(t.cpu), max(t.memory),
-             count(DISTINCT t.at) FROM top t JOIN procs p ON p.id=t.proc
-             WHERE t.at>=? AND t.at<? AND t.kind=? GROUP BY t.proc ORDER BY {order} DESC LIMIT {TOP}"
+             count(*) FROM (SELECT at, proc, sum(cpu) AS cpu, max(memory) AS memory
+             FROM top WHERE at>=? AND at<? AND kind=? GROUP BY at, proc) t
+             JOIN procs p ON p.id=t.proc
+             GROUP BY t.proc ORDER BY {order} DESC LIMIT {TOP}"
         ))?;
         s.bind(&[Value::Int(from), Value::Int(to), Value::Int(kind)])?;
         let mut list = vec![];
