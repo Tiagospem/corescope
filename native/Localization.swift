@@ -37,7 +37,8 @@ enum Localization {
 }
 
 /// Localized text for a Portuguese source key; `%@` placeholders take `args` in order.
-func L(_ key: String, _ args: String...) -> String {
+func L(_ key: String, _ args: String...) -> String { L(key, args) }
+func L(_ key: String, _ args: [String]) -> String {
   let entry = Localization.table[key]
   let text: String
   switch Localization.current {
@@ -644,4 +645,59 @@ private let entries = """
   CLI do agente não encontrado. ¦ Agent CLI not found. ¦ No se encontró la CLI del agente.
   Comando corescope não encontrado no app. ¦ corescope command not found in the app. ¦ No se encontró el comando corescope en la app.
   Opcional. Registra corescope mcp no Claude Code e no Codex (pelos comandos mcp add deles). Os agentes podem consultar portas, porta livre, maiores processos, sessões e órfãos, e encerrar só o que a própria sessão iniciou — nunca outras sessões, outros usuários ou serviços do sistema. Tudo local, sem rede. ¦ Optional. Registers corescope mcp with Claude Code and Codex (through their own mcp add commands). Agents can query ports, a free port, top processes, sessions and orphans, and stop only what their own session started — never other sessions, other users or system services. Fully local, no network. ¦ Opcional. Registra corescope mcp en Claude Code y Codex (con sus propios comandos mcp add). Los agentes pueden consultar puertos, un puerto libre, los procesos más pesados, sesiones y huérfanos, y detener solo lo que inició su propia sesión — nunca otras sesiones, otros usuarios ni servicios del sistema. Todo local, sin red.
+  %@ falharam: %@ ¦ %@ failed: %@ ¦ %@ fallaron: %@
+  %@ itens do Docker serão removidos pelo Docker, sem volta. ¦ %@ Docker items will be removed by Docker, permanently. ¦ %@ elementos de Docker serán eliminados por Docker, sin vuelta atrás.
+  %@ liberados em %@ itens. ¦ %@ freed from %@ items. ¦ %@ liberados en %@ elementos.
+  %@ pastas vão para a Lixeira (recuperáveis até esvaziá-la). ¦ %@ folders go to the Trash (recoverable until you empty it). ¦ %@ carpetas van a la Papelera (recuperables hasta vaciarla).
+  %@ selecionados · %@ ¦ %@ selected · %@ ¦ %@ seleccionados · %@
+  Adicionar ¦ Add ¦ Añadir
+  Adicionar pasta… ¦ Add folder… ¦ Añadir carpeta…
+  Além das pastas que você adicionar, o CoreScope procura em ~/Developer, ~/Projects, ~/Code… e na pasta que contém cada projeto em que um agente, editor ou terminal está trabalhando agora. ¦ Besides the folders you add, CoreScope looks in ~/Developer, ~/Projects, ~/Code… and in the folder holding each project an agent, editor or terminal is working in right now. ¦ Además de las carpetas que añadas, CoreScope busca en ~/Developer, ~/Projects, ~/Code… y en la carpeta que contiene cada proyecto en el que un agente, editor o terminal está trabajando ahora.
+  Analisando… ¦ Scanning… ¦ Analizando…
+  Analisar ¦ Scan ¦ Analizar
+  Analisar de novo ¦ Scan again ¦ Analizar de nuevo
+  Cache de build ¦ Build cache ¦ Caché de build
+  Caches de pacotes ¦ Package caches ¦ Cachés de paquetes
+  Caches do Simulador ¦ Simulator caches ¦ Cachés del Simulador
+  Caminho ausente ¦ Missing path ¦ Falta la ruta
+  Caminho inválido ¦ Invalid path ¦ Ruta no válida
+  Caminho não reconhecido para limpeza ¦ Not a recognized cleanup item ¦ No es un elemento de limpieza reconocido
+  Caminho não é uma pasta real ¦ Not a real folder (symlink or changed) ¦ No es una carpeta real (enlace o cambió)
+  Desmarcar ¦ Deselect ¦ Desmarcar
+  Docker: %@ ¦ Docker: %@ ¦ Docker: %@
+  Em uso por ¦ In use by ¦ En uso por
+  Em uso · %@ ¦ In use · %@ ¦ En uso · %@
+  Encontre node_modules, target/ do Rust, DerivedData, caches e imagens Docker sem uso. ¦ Find node_modules, Rust target/, DerivedData, caches and unused Docker images. ¦ Encuentra node_modules, target/ de Rust, DerivedData, cachés e imágenes de Docker sin uso.
+  Feche ou pare o processo para poder limpar ¦ Close or stop the process to clean it ¦ Cierra o detén el proceso para poder limpiarlo
+  Imagens sem contêiner ¦ Images without a container ¦ Imágenes sin contenedor
+  Imagens órfãs (sem tag) ¦ Dangling images (untagged) ¦ Imágenes huérfanas (sin etiqueta)
+  Item não existe mais ¦ Item no longer exists ¦ El elemento ya no existe
+  Limpando %@ itens… ¦ Cleaning %@ items… ¦ Limpiando %@ elementos…
+  Limpar ¦ Clean ¦ Limpiar
+  Limpar %@ itens (%@)? ¦ Clean %@ items (%@)? ¦ ¿Limpiar %@ elementos (%@)?
+  Limpar seleção ¦ Clear selection ¦ Quitar selección
+  Limpar… ¦ Clean… ¦ Limpiar…
+  Limpeza ¦ Cleanup ¦ Limpieza
+  Motor de contêineres não encontrado ¦ Container engine not found ¦ No se encontró el motor de contenedores
+  Nada para limpar nas pastas analisadas. ¦ Nothing to clean in the scanned folders. ¦ Nada que limpiar en las carpetas analizadas.
+  Pastas ¦ Folders ¦ Carpetas
+  Pastas vão para a Lixeira: dá para recuperá-las até esvaziar a Lixeira, e o espaço só é liberado depois disso. Itens que um processo está usando (servidor de dev, cargo, Xcode, um agente trabalhando no projeto) ficam bloqueados e são verificados de novo na hora de limpar. Dados do Docker são removidos pelo próprio Docker e não voltam: as imagens são baixadas de novo quando precisar. ¦ Folders go to the Trash: you can recover them until you empty it, and the space is freed only then. Items a process is using (dev server, cargo, Xcode, an agent working in the project) are locked and checked again right before cleaning. Docker data is removed by Docker itself and does not come back: images are pulled again when needed. ¦ Las carpetas van a la Papelera: puedes recuperarlas hasta vaciarla, y el espacio se libera solo entonces. Los elementos que usa un proceso (servidor de desarrollo, cargo, Xcode, un agente trabajando en el proyecto) quedan bloqueados y se comprueban de nuevo justo antes de limpiar. Los datos de Docker los elimina el propio Docker y no vuelven: las imágenes se descargan de nuevo cuando hagan falta.
+  Projetos ¦ Projects ¦ Proyectos
+  Remover pasta ¦ Remove folder ¦ Quitar carpeta
+  Removido pelo Docker ¦ Removed by Docker ¦ Lo elimina Docker
+  Seleciona as pastas que não mudam há mais de 30 dias ¦ Selects folders unchanged for more than 30 days ¦ Selecciona las carpetas sin cambios desde hace más de 30 días
+  Selecionar tudo ¦ Select all ¦ Seleccionar todo
+  Sem uso há 30+ dias ¦ Unused 30+ days ¦ Sin uso 30+ días
+  Suporte a dispositivo ¦ Device support ¦ Soporte de dispositivo
+  análise %@ (%@ s) ¦ scanned %@ (%@ s) ¦ análisis %@ (%@ s)
+  recuperáveis em %@ itens ¦ reclaimable in %@ items ¦ recuperables en %@ elementos
+  target/ do Rust ¦ Rust target/ ¦ target/ de Rust
+  Última modificação ¦ Last modified ¦ Última modificación
+  Limpando 1 item… ¦ Cleaning 1 item… ¦ Limpiando 1 elemento…
+  Limpar 1 item (%@)? ¦ Clean 1 item (%@)? ¦ ¿Limpiar 1 elemento (%@)?
+  1 pasta vai para a Lixeira (recuperável até esvaziá-la). ¦ 1 folder goes to the Trash (recoverable until you empty it). ¦ 1 carpeta va a la Papelera (recuperable hasta vaciarla).
+  1 item do Docker será removido pelo Docker, sem volta. ¦ 1 Docker item will be removed by Docker, permanently. ¦ 1 elemento de Docker será eliminado por Docker, sin vuelta atrás.
+  recuperáveis em 1 item ¦ reclaimable in 1 item ¦ recuperables en 1 elemento
+  %@ liberados em 1 item. ¦ %@ freed from 1 item. ¦ %@ liberados en 1 elemento.
+  Não foi possível limpar %@ ¦ Could not clean %@ ¦ No se pudo limpiar %@
   """

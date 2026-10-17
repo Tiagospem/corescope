@@ -5,7 +5,7 @@
 //! it (its nearest ancestor that is a Claude Code / Codex / … session) and only signals that
 //! session's descendants — never other sessions, other users, system services, the agent itself
 //! or the server's own ancestors. Identity is revalidated by the core right before each signal.
-use crate::{agents, free_port, orphans, ports, sample, subtree, top};
+use crate::{agents, free_port, orphans, ports, sample, space, subtree, top};
 use corescope::{Process, Snapshot, cs_is_same, signal_process};
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
@@ -124,6 +124,15 @@ fn tools() -> Vec<Value> {
             &[],
         ),
         tool(
+            "list_dev_space",
+            "Reclaimable developer disk space: node_modules, Rust target/, Xcode DerivedData, \
+             package-manager caches and unused Docker data, with sizes and whether a process \
+             uses each one. Read-only and takes a few seconds; deleting is done by the user in \
+             the CoreScope app. Optional folders to scan (default: detected project folders).",
+            json!({"folders": {"type": "array", "items": {"type": "string"}}}),
+            &[],
+        ),
+        tool(
             "list_my_processes",
             "Processes started by this agent session (the ones stop_process and \
              stop_port may act on).",
@@ -168,6 +177,16 @@ fn call(params: &Value) -> Value {
         "system_summary" => text(summary(&sample(true)), false),
         "list_agent_sessions" => text(agents(&sample(true)), false),
         "list_orphans" => text(orphans(&sample(false)), false),
+        "list_dev_space" => {
+            let folders: Vec<std::path::PathBuf> = args["folders"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .map(Into::into)
+                .collect();
+            text(space(&folders, true), false)
+        }
         "list_my_processes" => {
             let snapshot = sample(false);
             match session(&snapshot) {

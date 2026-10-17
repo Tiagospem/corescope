@@ -1,5 +1,6 @@
 //! CoreScope: bounded local telemetry and explicitly authorized process control.
 pub mod containers;
+pub mod devspace;
 pub mod history;
 mod os;
 mod sqlite;
@@ -1429,6 +1430,118 @@ pub unsafe extern "C" fn cs_container_action(
         containers::act(id, action)?;
         Ok("{\"ok\":true}".into())
     })
+}
+
+#[derive(Deserialize)]
+struct DevSpaceRequest {
+    #[serde(default)]
+    roots: Vec<String>,
+    #[serde(default)]
+    auto: bool,
+    #[serde(default)]
+    docker: bool,
+}
+fn home() -> std::path::PathBuf {
+    std::env::var_os("HOME").map(Into::into).unwrap_or_default()
+}
+/// One fresh sample for "who uses this folder", independent of the app's collector.
+fn processes_now() -> Vec<Process> {
+    Collector::default().sample(Config::default()).processes
+}
+/// Reclaimable developer space under `roots` (plus suggested roots with `auto`); read-only.
+///
+/// # Safety
+/// `request` is a valid NUL-terminated UTF-8 JSON pointer for the duration of this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cs_dev_space(request: *const c_char) -> *mut c_char {
+    response(|| {
+        if request.is_null() {
+            return Err("Consulta ausente".into());
+        }
+        let bytes = unsafe { CStr::from_ptr(request) }.to_bytes();
+        let r: DevSpaceRequest = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
+        let home = home();
+        let processes = processes_now();
+        let mut roots: Vec<std::path::PathBuf> = r.roots.iter().map(Into::into).collect();
+        if r.auto {
+            roots.extend(devspace::auto_roots(&home, &processes));
+        }
+        let roots = devspace::normalize(roots);
+        json(Ok(devspace::scan(&roots, &home, &processes, r.docker)))
+    })
+}
+/// Re-checks one folder right before the app moves it to the Trash.
+///
+/// # Safety
+/// `path` is a valid NUL-terminated UTF-8 string pointer for the duration of this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cs_dev_space_verify(path: *const c_char) -> *mut c_char {
+    response(|| {
+        if path.is_null() {
+            return Err("Caminho ausente".into());
+        }
+        let path = unsafe { CStr::from_ptr(path) }
+            .to_str()
+            .map_err(|_| "Caminho inválido")?;
+        devspace::verify(path, &home(), &processes_now())?;
+        Ok("{\"ok\":true}".into())
+    })
+}
+/// Removes unused Docker images or build cache through the engine. User must have confirmed.
+///
+/// # Safety
+/// `socket` and `kind` are valid NUL-terminated UTF-8 string pointers for the duration of this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cs_dev_space_docker(
+    socket: *const c_char,
+    kind: *const c_char,
+) -> *mut c_char {
+    response(|| {
+        if socket.is_null() || kind.is_null() {
+            return Err("Ação de contêiner inválida".into());
+        }
+        let socket = unsafe { CStr::from_ptr(socket) }
+            .to_str()
+            .map_err(|_| "Ação de contêiner inválida")?;
+        let kind = unsafe { CStr::from_ptr(kind) }
+            .to_str()
+            .map_err(|_| "Ação de contêiner inválida")?;
+        let freed = devspace::docker_prune(socket, kind, &home())?;
+        Ok(serde_json::json!({ "reclaimed": freed }).to_string())
+    })
+}
+
+/// A plain process for tests elsewhere in the crate.
+#[cfg(test)]
+pub(crate) fn process_fixture() -> Process {
+    let metric = || Metric::new(None, "", "", 0.);
+    Process {
+        id: "1:1".into(),
+        pid: 4242,
+        ppid: 1,
+        uid: 501,
+        user: "dev".into(),
+        start: 1,
+        name: "node".into(),
+        path: "/usr/bin/node".into(),
+        cpu: metric(),
+        memory: metric(),
+        resident: metric(),
+        threads: metric(),
+        read: metric(),
+        write: metric(),
+        eligible: true,
+        blocked: String::new(),
+        orphan: None,
+        orphan_parent: None,
+        cwd: String::new(),
+        ports: vec![],
+        tags: vec![],
+        host: None,
+        origin: None,
+        high_cpu_seconds: 0.,
+        history: VecDeque::new(),
+    }
 }
 
 #[cfg(test)]

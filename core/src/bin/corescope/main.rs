@@ -3,7 +3,7 @@
 //! processes, identity (PID + start time + executable) revalidated right before each signal.
 mod mcp;
 
-use corescope::{Collector, Config, Process, Snapshot, cs_is_same, signal_process};
+use corescope::{Collector, Config, Process, Snapshot, cs_is_same, devspace, signal_process};
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::io::{IsTerminal, Write};
@@ -20,6 +20,9 @@ USAGE:
   corescope orphans                     dev runtimes left running without their parent
   corescope top [--mem] [-n N]          top processes by CPU (or memory)
   corescope kill PID [--tree] [--force] stop a process (and its descendants with --tree)
+  corescope space [FOLDER...]           reclaimable dev space: node_modules, Rust target/, Xcode,
+                                        package caches, unused Docker data (read-only; delete
+                                        from the CoreScope app, which moves folders to the Trash)
   corescope mcp                         run the local MCP server on stdio
 
 OPTIONS:
@@ -94,6 +97,10 @@ fn main() {
                 "usage: corescope kill PID [--tree] [--force] [--yes]",
             ),
         },
+        Some("space") => {
+            let folders: Vec<std::path::PathBuf> = positional[1..].iter().map(Into::into).collect();
+            print(json_out, space(&folders, !flag("--no-docker")))
+        }
         Some("mcp") => mcp::serve(),
         Some(other) => fail(
             json_out,
@@ -226,6 +233,26 @@ pub fn top(snapshot: &Snapshot, memory: bool, count: usize) -> Value {
     rows.sort_by(|a, b| key(b).total_cmp(&key(a)));
     json!({"by": if memory {"memory"} else {"cpu"},
            "processes": rows.iter().take(count).map(|p| process_json(p)).collect::<Vec<_>>()})
+}
+
+/// Reclaimable space under FOLDERs, or under the suggested folders when none are given.
+pub fn space(folders: &[std::path::PathBuf], docker: bool) -> Value {
+    let home: std::path::PathBuf = std::env::var_os("HOME").map(Into::into).unwrap_or_default();
+    let snapshot = sample(false);
+    let roots = devspace::normalize(if folders.is_empty() {
+        devspace::auto_roots(&home, &snapshot.processes)
+    } else {
+        folders.to_vec()
+    });
+    let report = devspace::scan(&roots, &home, &snapshot.processes, docker);
+    let total: u64 = report
+        .items
+        .iter()
+        .filter(|i| i.busy.is_none())
+        .map(|i| i.bytes)
+        .sum();
+    json!({"space": report.items, "roots": report.roots, "reclaimable_bytes": total,
+           "docker_error": report.docker_error, "seconds": report.seconds})
 }
 
 /// Core messages are Portuguese (the app translates them); the CLI speaks English.
@@ -375,6 +402,37 @@ fn print(json_out: bool, value: Value) -> i32 {
                 }
             );
         }
+    } else if let Some(rows) = value["space"].as_array() {
+        let size = |v: &Value| {
+            let b = v.as_f64().unwrap_or(0.);
+            if b >= 1_073_741_824. {
+                format!("{:.1} GB", b / 1_073_741_824.)
+            } else {
+                format!("{:.0} MB", b / 1_048_576.)
+            }
+        };
+        println!("{:>9}  {:<18} {:<34} PATH", "SIZE", "KIND", "NAME");
+        for r in rows {
+            println!(
+                "{:>9}  {:<18} {:<34} {}{}",
+                size(&r["bytes"]),
+                text(&r["kind"]),
+                text(&r["name"]),
+                text(&r["path"]),
+                r["busy"]
+                    .as_str()
+                    .map(|b| format!("  (in use by {b})"))
+                    .unwrap_or_default()
+            );
+        }
+        println!(
+            "\n{} reclaimable · scanned {}",
+            size(&value["reclaimable_bytes"]),
+            value["roots"]
+                .as_array()
+                .map(|a| a.iter().map(text).collect::<Vec<_>>().join(", "))
+                .unwrap_or_default()
+        );
     } else if let Some(port) = value.get("free_port") {
         println!(
             "{}",

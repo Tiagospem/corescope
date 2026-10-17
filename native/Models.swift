@@ -397,6 +397,10 @@ final class Preferences: ObservableObject {
   { didSet { save("diskWarning", diskWarning) } }
   @Published var diskCritical = UserDefaults.standard.object(forKey: "diskCritical") as? Double ?? 5
   { didSet { save("diskCritical", diskCritical) } }
+  /// Extra folders the cleaner scans for node_modules and target/.
+  @Published var cleanupRoots = UserDefaults.standard.stringArray(forKey: "cleanupRoots") ?? [] {
+    didSet { save("cleanupRoots", cleanupRoots) }
+  }
   @Published var watched = UserDefaults.standard.stringArray(forKey: "watched") ?? [] {
     didSet { save("watched", Array(watched.prefix(12))) }
   }

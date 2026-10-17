@@ -79,6 +79,17 @@ If you work with Claude Code, Codex, editors and terminals all day, your Mac fil
 - **Stop / Restart** in place with the same click-to-arm, click-to-confirm button used for processes.
 - Read from the engine's **local Unix socket** only (`~/.orbstack/run/docker.sock`, `~/.docker/run/docker.sock`, Colima, `/var/run/docker.sock` or a `unix://` `DOCKER_HOST`), at most every 5 s and only while a container view is on screen.
 
+### 🧹 Cleanup
+
+Finds reclaimable developer space and shows what each item is, where it is, its size and when it last changed:
+
+- **Projects:** `node_modules` (next to a `package.json`) and Rust `target/` (with Cargo's `CACHEDIR.TAG`), in the folders you add and in the folders holding the projects your agents, editors and terminals are working in.
+- **Xcode:** DerivedData per project, device support files, Simulator caches.
+- **Package caches:** Homebrew, npm, Yarn, pnpm, Bun, Cargo, pip, uv, Go, Gradle, Composer, CocoaPods.
+- **Docker:** dangling images, images no container uses, unused build cache (through the engine's own API).
+
+Select items (or *Unused 30+ days*) and confirm: folders go to the **Trash**, so they can be recovered until you empty it. Anything a process is using — a dev server in the project, `cargo`, Xcode, an agent working there — is locked, and every folder is re-checked by the core right before it moves: still a real folder (no symlinks), still one of the kinds above, still unused. Docker data is removed by Docker and pulled again when needed.
+
 ### 📊 Menu bar and floating panel
 
 <table>
@@ -117,6 +128,7 @@ corescope agents                   # agent sessions, what they started, their po
 corescope orphans                  # dev runtimes left running without their parent
 corescope top --mem -n 10          # top processes by memory (or CPU)
 corescope kill 4242 --tree         # stop a process and everything it started
+corescope space                    # reclaimable node_modules, target/, Xcode, caches, Docker
 ```
 
 Termination follows the app's rules: only your own processes, never system services or the command's own ancestors (an agent cannot stop its own session), identity revalidated right before each signal, and no signal without `--yes` when there is no terminal to confirm in.
@@ -131,6 +143,7 @@ Off by default. *Settings → MCP server for agents → Enable* registers `cores
 | `top_processes` / `system_summary` | Heaviest processes by CPU or memory; CPU, memory, swap and disk at a glance |
 | `list_agent_sessions` / `list_orphans` | Agent sessions and what they started; dev runtimes left without a parent |
 | `list_my_processes` | What the calling agent session started, including servers it detached |
+| `list_dev_space` | Reclaimable space (read-only; cleaning stays in the app, with your confirmation) |
 | `stop_port` / `stop_process` | Stop a process (or a port's owner), **only if this agent session started it** |
 
 The server finds its agent session from its own parent chain. A process counts as the session's when it descends from it, or when it was detached (reparented to `launchd`) after the session started, inside the session's folder, and no other running session could claim it. Anything else — other sessions, other users, system services, apps, Docker — is refused with a message telling the agent to ask you. It runs locally, makes no network requests and reads no credentials. Before Codex rewrites `~/.codex/config.toml`, CoreScope keeps a one-time copy at `config.toml.corescope.bak`.
@@ -189,6 +202,7 @@ CoreScope is **local-only**: no network access, no telemetry, no accounts.
 - Notifications are optional and local (UserNotifications); nothing is sent anywhere. The global shortcut uses `RegisterEventHotKey` and sees only its own key combination.
 - Live charts (up to 10 minutes) live in memory only. Preferences and watched processes stay in `UserDefaults`.
 - **Persistent history is opt-in** (off by default; Settings › History, retention 1, 7 or 30 days). When on, CoreScope writes one-minute rollups — system CPU, memory, swap, disk/network rates, thermal state, memory pressure and, per minute, the top 10 processes by CPU and by memory (name, executable, working directory and agent/editor origin; never arguments or environment) — to `~/Library/Application Support/CoreScope/history.sqlite`, in one SQLite transaction per minute. Older rows are purged automatically and *Delete history* removes the file.
+- Cleanup reads folder sizes and modification times only (never file contents) and only when you open the page or press *Scan*. Docker sizes come from the engine's `/system/df`.
 - The MCP server (opt-in) answers only on stdio to the agent that launched it; registering it runs the agents' own `mcp add`/`mcp remove` commands, nothing else is changed.
 - Nothing is ever killed automatically. Termination only targets your own, eligible processes, revalidates each process identity (PID + start time + executable) right before signaling, and never touches system services or CoreScope's own ancestors.
 
@@ -234,7 +248,8 @@ The screenshots and GIF in this README were generated by `scripts/readme-media.s
 
 - ✅ `corescope` command-line tool: ports, kill-port, agents, orphans.
 - ✅ Optional local MCP server so Claude Code and Codex can ask about ports and resources and stop the processes they started.
-- Dev space cleaner, stuck-agent detection, service health checks, environment profiles, local databases, SSH machines, and battery/energy per process.
+- ✅ Dev space cleaner.
+- Stuck-agent detection, service health checks, environment profiles, local databases, SSH machines, and battery/energy per process.
 
 ### Backlog
 

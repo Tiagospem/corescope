@@ -20,6 +20,11 @@ section as the GitHub release notes.
   summary, agent sessions, orphans and the session's own processes; `stop_port`/`stop_process`
   stop only what the calling agent session started (children, or servers it detached inside its
   folder when no other session could claim them).
+- **Cleanup page**: reclaimable `node_modules`, Rust `target/`, Xcode DerivedData/device
+  support/Simulator caches, package-manager caches and unused Docker images/build cache, with
+  sizes and age. Folders go to the Trash after confirmation; items in use by a process are locked
+  and every folder is re-verified right before it moves. Also `corescope space` and the MCP tool
+  `list_dev_space` (read-only).
 
 ## [0.3.2] - 2026-10-17
 
