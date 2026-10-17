@@ -17,15 +17,12 @@
   <img alt="MIT" src="https://img.shields.io/badge/license-MIT-lightgrey">
 </p>
 
-<!--
-  Demo GIF slot. Record docs/screenshots/demo.gif as described in CONTRIBUTING.md
-  ("Recording the demo GIF"), then uncomment this block:
 <p align="center">
-  <img src="docs/screenshots/demo.gif" alt="CoreScope demo: the process tree, terminating a dev server with the inline ✕ button, and the Agents page" width="900">
+  <img src="docs/screenshots/demo.gif" alt="CoreScope tour: overview, process tree, agent sessions with token usage, containers and history" width="900">
 </p>
--->
+
 <p align="center">
-  <img src="docs/screenshots/overview.jpg" alt="CoreScope overview: CPU, memory, disk and network charts, listening servers, possible orphans, usage limits and agent sessions" width="900">
+  <img src="docs/screenshots/overview.jpg" alt="CoreScope overview: CPU, memory, disk and network charts, per-core CPU, memory breakdown, listening servers and possible orphans" width="900">
 </p>
 
 ---
@@ -57,7 +54,7 @@ If you work with Claude Code, Codex, editors and terminals all day, your Mac fil
 
 ### ✨ Agents
 
-<img src="docs/screenshots/agents.jpg" alt="Agents page listing Claude Code sessions with title, working/idle status, project, process count and resources, plus the Codex weekly limit" width="900">
+<img src="docs/screenshots/agents.jpg" alt="Agents page: usage limits, token usage per day, agent and project, and Claude Code sessions with title, status, project, processes and resources" width="900">
 
 - Every **Claude Code** session (desktop app and CLI) and **Codex** session, with its title, *working / idle* status, project, how long it has been running, how many processes it started, ports, CPU and memory.
 - **Terminate a whole session** — the agent and every server, shell and tool it spawned — in one action.
@@ -68,12 +65,16 @@ If you work with Claude Code, Codex, editors and terminals all day, your Mac fil
 
 ### 🕒 History (opt-in)
 
+<img src="docs/screenshots/history.jpg" alt="History page: CPU, memory, disk and network over the last hour, thermal and memory pressure, and the processes that dominated" width="900">
+
 - Answers *“what made my Mac slow yesterday at 3 pm?”*: 1 h, 24 h and 7 d views of CPU (mean and peak), memory and swap, disk, network, thermal state and memory pressure, with gaps where nothing was recorded.
 - Click any chart to see **the processes that dominated that moment** (top CPU and memory, with project and “via Claude Code”-style origin); step back period by period or jump to a date.
 
 ### 🐳 Containers
 
-- **Docker and OrbStack containers** (also Docker Desktop and Colima) with status, health, image, compose project, published ports, CPU and memory — on an Overview card and in full on the Agents page.
+<img src="docs/screenshots/containers.jpg" alt="Containers page listing OrbStack containers with status, image, published ports, CPU, memory and stop/restart buttons" width="900">
+
+- **Docker and OrbStack containers** (also Docker Desktop and Colima) with status, health, image, compose project, published ports, CPU and memory — on an Overview card and on their own **Containers** page.
 - **Listening servers name the container**: ports that OrbStack Helper or `com.docker.backend` hold for a container show up as *container &lt;name&gt;* instead of the VM helper.
 - **Stop / Restart** in place with the same click-to-arm, click-to-confirm button used for processes.
 - Read from the engine's **local Unix socket** only (`~/.orbstack/run/docker.sock`, `~/.docker/run/docker.sock`, Colima, `/var/run/docker.sock` or a `unix://` `DOCKER_HOST`), at most every 5 s and only while a container view is on screen.
@@ -110,7 +111,7 @@ If you work with Claude Code, Codex, editors and terminals all day, your Mac fil
 - **Honest metrics:** every value carries its source and timestamp; missing data is labeled, never faked. Memory is *active + wired + compressed*, and is never presented as "pressure".
 - **Languages:** English, Portuguese and Spanish — follows your system language or a choice in Settings.
 - **Dock behavior:** always, only while the window is open (default — close it and CoreScope lives in the menu bar), or never.
-- **Shortcuts:** ⌘1…⌘6 pages · ⌘R refresh · ⇧⌘P floating panel · ⇧⌘Space pause / resume · ⌥⌘K port lookup (global).
+- **Shortcuts:** ⌘1…⌘8 pages · ⌘R refresh · ⇧⌘P floating panel · ⇧⌘Space pause / resume · ⌥⌘K port lookup (global).
 
 ## Install
 
@@ -191,13 +192,13 @@ The Swift UI calls the Rust core over a small C ABI that returns one JSON snapsh
 ./scripts/build.sh    # release build into build/CoreScope.app
 ./scripts/package.sh  # DMG + zip + SHA-256 checksums into dist/ (release artifacts)
 open --env CORESCOPE_DEMO=1 build/CoreScope.app   # demo mode: live metrics, anonymized user, folders, projects and session titles (quit with ⌘Q first)
+./scripts/readme-media.sh  # regenerates the README screenshots and demo GIF (demo mode + tour, ~2 min)
 ```
 
-The screenshots in this README were taken in demo mode. It replaces every folder outside system locations with a fake project, but process names stay real, so check captures before sharing them (see [CONTRIBUTING.md](CONTRIBUTING.md)).
+The screenshots and GIF in this README were generated by `scripts/readme-media.sh`: the app runs in demo mode, visits each page and captures its own window (no Screen Recording permission needed). It replaces every folder outside system locations with a fake project, but process names stay real, so check captures before sharing them (see [CONTRIBUTING.md](CONTRIBUTING.md)).
 
 ## Roadmap
 
-- Claude Code usage limits through Claude Code's documented status line data (opt-in, local only).
 - Notarized releases and a universal (Intel) build.
 - Validation on Intel Macs and macOS 14.
 

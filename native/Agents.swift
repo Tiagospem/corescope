@@ -15,8 +15,13 @@ struct LimitWindow: Identifiable, Equatable {
     default: L("%@ h", String(windowMinutes / 60))
     }
   }
+  /// True when the recorded window already ended: the percentage is from before the reset.
+  var expired: Bool { resetsAt.map { $0 <= Date() } ?? false }
   var resetText: String? {
-    resetsAt.map { L("reinicia em %@", formatDuration(max(0, $0.timeIntervalSinceNow))) }
+    guard let resetsAt else { return nil }
+    return expired
+      ? L("janela já reiniciou · aguardando novo uso para atualizar")
+      : L("reinicia em %@", formatDuration(resetsAt.timeIntervalSinceNow))
   }
   var color: Color { usedPercent >= 90 ? .red : usedPercent >= 70 ? .orange : Tint.brand }
 }
@@ -86,6 +91,8 @@ struct SessionJumpButton: View {
   let meta: ClaudeSessionMeta?
   /// Icon-only for dense rows; a native bordered button with label in session cards.
   var compact = false
+  /// Bordered like the labeled form, but without the text (narrow layouts).
+  var iconOnly = false
   var body: some View {
     if let jump = SessionJump.target(for: root, meta: meta, in: Monitor.shared.snapshot) {
       if compact {
@@ -99,7 +106,11 @@ struct SessionJumpButton: View {
         Button {
           jump.open()
         } label: {
-          Label(jump.label, systemImage: "arrow.up.forward.app")
+          if iconOnly {
+            Image(systemName: "arrow.up.forward.app")
+          } else {
+            Label(jump.label, systemImage: "arrow.up.forward.app")
+          }
         }.buttonStyle(.bordered).help(jump.help)
       }
     }
@@ -140,12 +151,20 @@ struct TokenRow: Equatable, Identifiable {
   var today = TokenCounts()
   var week = TokenCounts()
 }
+struct TokenDay: Equatable, Identifiable {
+  let day: Int
+  var byAgent: [String: Int] = [:]
+  var id: Int { day }
+  var total: Int { byAgent.values.reduce(0, +) }
+}
 struct TokenReport: Equatable {
   /// False until the first pass over the transcripts finishes.
   var ready = false
   var total = TokenRow(id: "")
   var agents: [TokenRow] = []
   var projects: [TokenRow] = []
+  /// Last 7 local days, oldest first: (day, tokens per agent).
+  var days: [TokenDay] = []
   /// "claude:<session uuid>" or "codex:<session id>".
   var sessions: [String: SessionTokens] = [:]
   func claude(_ meta: ClaudeSessionMeta?) -> SessionTokens? {
@@ -247,6 +266,7 @@ final class TokenUsageStore: ObservableObject {
     files = next  // files that aged out or disappeared are forgotten
 
     var report = TokenReport(ready: true)
+    var days = Dictionary(uniqueKeysWithValues: (weekStart...today).map { ($0, TokenDay(day: $0)) })
     var agents: [String: TokenRow] = [:]
     var projects: [String: TokenRow] = [:]
     var codexEventDeduper = CodexEventDeduper()
@@ -273,6 +293,7 @@ final class TokenUsageStore: ObservableObject {
           if day == today { row.today += counts }
         }
         add(&report.total)
+        days[day]?.byAgent[agent, default: 0] += counts.total
         add(&agents[agent, default: TokenRow(id: agent)])
         add(&projects[project, default: TokenRow(id: project)])
       }
@@ -293,6 +314,7 @@ final class TokenUsageStore: ObservableObject {
     let byWeek: (TokenRow, TokenRow) -> Bool = { ($0.week.total, $0.id) > ($1.week.total, $1.id) }
     report.agents = agents.values.sorted(by: byWeek)
     report.projects = projects.values.sorted(by: byWeek)
+    report.days = days.values.sorted { $0.day < $1.day }
     return report
   }
 }
@@ -509,7 +531,7 @@ struct LimitBar: View {
         Spacer(minLength: 4)
         Text(String(format: "%.0f%%", window.usedPercent))
           .font(.system(size: compact ? 11 : 13, weight: .semibold, design: .rounded)).monospacedDigit()
-          .foregroundStyle(window.color)
+          .foregroundStyle(window.expired ? Color.secondary : window.color)
       }
       MeterBar(fraction: window.usedPercent / 100, color: window.color).accessibilityHidden(true)
       if !compact, let reset = window.resetText {
@@ -618,7 +640,6 @@ struct AgentsView: View {
               root: root, tree: s.subtree(of: root), meta: meta,
               tokens: tokens.report.claude(meta) ?? tokens.report.codex(for: root))
           }
-          ContainersSection()
           let orphans = s.orphans
           if !orphans.isEmpty {
             Card {
@@ -703,18 +724,11 @@ private struct SessionCard: View {
             .accessibilityValue(expanded ? L("Expandido") : L("Recolhido"))
         }
         Spacer(minLength: 8)
-        SessionJumpButton(root: root, meta: meta)
-        if !root.cwd.isEmpty {
-          Button {
-            NSWorkspace.shared.open(URL(fileURLWithPath: root.cwd))
-          } label: {
-            Label("Finder", systemImage: "folder")
-          }.help(L("Abrir no Finder"))
-          Button {
-            openTerminal(at: root.cwd)
-          } label: {
-            Label("Terminal", systemImage: "terminal")
-          }.help(L("Abrir Terminal aqui"))
+        // Labeled buttons when they fit; icons only (with tooltips) in narrow windows, so the
+        // row never pushes the card past the edge.
+        ViewThatFits(in: .horizontal) {
+          actions(labels: true)
+          actions(labels: false)
         }
       }
       .buttonStyle(.bordered).controlSize(.small)
@@ -731,6 +745,23 @@ private struct SessionCard: View {
         }.padding(.top, 2)
       }
     }
+  }
+  private func actions(labels: Bool) -> some View {
+    HStack(spacing: 8) {
+      SessionJumpButton(root: root, meta: meta, iconOnly: !labels)
+      if !root.cwd.isEmpty {
+        Button {
+          NSWorkspace.shared.open(URL(fileURLWithPath: root.cwd))
+        } label: {
+          if labels { Label("Finder", systemImage: "folder") } else { Image(systemName: "folder") }
+        }.help(L("Abrir no Finder"))
+        Button {
+          openTerminal(at: root.cwd)
+        } label: {
+          if labels { Label("Terminal", systemImage: "terminal") } else { Image(systemName: "terminal") }
+        }.help(L("Abrir Terminal aqui"))
+      }
+    }.fixedSize()
   }
   private func stat(_ title: String, _ value: String) -> some View {
     VStack(alignment: .trailing, spacing: 1) {
@@ -773,10 +804,20 @@ private struct SessionTokensLine: View {
 /// Tokens today and over the last 7 days, by agent and by project, from local transcripts.
 struct TokensCard: View {
   @ObservedObject var store = AgentStore.shared.tokens
+  @ViewState private var allProjects = false
   var body: some View {
     let report = store.report
     Card {
-      CardHeader(title: L("Uso de tokens"), symbol: "chart.bar.xaxis", tint: Tint.memory)
+      CardHeader(title: L("Uso de tokens"), symbol: "chart.bar.xaxis", tint: Tint.memory) {
+        HStack(spacing: 10) {
+          ForEach(report.agents) { row in
+            HStack(spacing: 4) {
+              Circle().fill(agentColor(row.id)).frame(width: 7, height: 7)
+              Text(row.id).font(.caption).foregroundStyle(.secondary)
+            }
+          }
+        }
+      }
       if !report.ready {
         HStack(spacing: 8) {
           ProgressView().controlSize(.small)
@@ -785,64 +826,180 @@ struct TokensCard: View {
       } else if report.total.week.total == 0 {
         EmptyNote(text: L("Nenhum token registrado nos últimos 7 dias."))
       } else {
-        HStack(alignment: .top, spacing: 18) {
+        HStack(alignment: .top, spacing: 14) {
           TokenTotal(title: L("Hoje"), counts: report.total.today)
+            .frame(width: 250)
           TokenTotal(title: L("Últimos 7 dias"), counts: report.total.week)
+            .frame(width: 250)
+          TokenDaysChart(days: report.days)
+            .frame(maxWidth: .infinity)
         }
-        HStack(alignment: .top, spacing: 18) {
-          TokenTable(title: L("Agente"), rows: report.agents)
-          TokenTable(title: L("Projeto"), rows: Array(report.projects.prefix(6)), more: report.projects.count - 6)
+        Divider().opacity(0.5)
+        HStack(alignment: .top, spacing: 24) {
+          TokenBars(title: L("Por agente"), rows: report.agents, color: { agentColor($0) })
+          TokenBars(
+            title: L("Por projeto"),
+            rows: allProjects ? report.projects : Array(report.projects.prefix(6)),
+            color: { _ in Tint.memory },
+            more: allProjects ? 0 : max(0, report.projects.count - 6),
+            toggle: report.projects.count > 6 ? { allProjects.toggle() } : nil,
+            expanded: allProjects)
         }
         Text(
           L(
             "Contado dos registros locais do Claude Code e do Codex. Cache = tokens de prompt gravados e lidos do cache. Sem valores em dólar."
           )
-        ).font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        ).font(.caption2).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
       }
     }
     .onAppear { store.start() }
   }
 }
+private func agentColor(_ agent: String) -> Color {
+  agent.lowercased().contains("codex") ? Tint.netIn : Color.orange
+}
 private func tokenBreakdown(_ c: TokenCounts) -> String {
   L("entrada %@ · saída %@ · cache %@", formatTokens(c.input), formatTokens(c.output), formatTokens(c.cache))
 }
+/// Big total with a bar showing how it splits into input, output and cache.
 private struct TokenTotal: View {
   let title: String
   let counts: TokenCounts
   var body: some View {
-    VStack(alignment: .leading, spacing: 2) {
+    VStack(alignment: .leading, spacing: 6) {
       Text(title).font(.caption).foregroundStyle(.secondary)
-      Text(formatTokens(counts.total)).font(.system(size: 20, weight: .semibold, design: .rounded))
+      Text(formatTokens(counts.total)).font(.system(size: 24, weight: .semibold, design: .rounded))
         .monospacedDigit()
-      Text(tokenBreakdown(counts)).font(.caption2).foregroundStyle(.secondary).monospacedDigit()
+      SegmentBar(segments: [
+        (Double(counts.input), Tint.cpu), (Double(counts.output), Tint.diskWrite),
+        (Double(counts.cache), Tint.memory.opacity(0.55)),
+      ])
+      HStack(spacing: 10) {
+        legend(L("entrada"), counts.input, Tint.cpu)
+        legend(L("saída"), counts.output, Tint.diskWrite)
+        legend("cache", counts.cache, Tint.memory.opacity(0.55))
+      }
     }
-    .frame(maxWidth: .infinity, alignment: .leading)
+    .padding(12)
+    .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 10))
+    .help(tokenBreakdown(counts))
+  }
+  private func legend(_ name: String, _ value: Int, _ color: Color) -> some View {
+    HStack(spacing: 4) {
+      RoundedRectangle(cornerRadius: 2).fill(color).frame(width: 7, height: 7)
+      Text(name).foregroundStyle(.secondary)
+      Text(formatTokens(value)).monospacedDigit()
+    }.font(.caption2).lineLimit(1).fixedSize()
   }
 }
-private struct TokenTable: View {
-  let title: String
-  let rows: [TokenRow]
-  var more = 0
+/// Horizontal bar split into proportional colored segments.
+private struct SegmentBar: View {
+  let segments: [(Double, Color)]
   var body: some View {
-    VStack(alignment: .leading, spacing: 4) {
-      Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 4) {
-        GridRow {
-          Text(title)
-          Text(L("Hoje")).gridColumnAlignment(.trailing)
-          Text(L("7 dias")).gridColumnAlignment(.trailing)
-        }.font(.caption2).foregroundStyle(.secondary)
-        ForEach(rows) { row in
-          GridRow {
-            Text(row.id).lineLimit(1).truncationMode(.middle)
-            Text(formatTokens(row.today.total))
-            Text(formatTokens(row.week.total))
+    GeometryReader { g in
+      let total = max(1, segments.map(\.0).reduce(0, +))
+      HStack(spacing: 1) {
+        ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
+          if segment.0 > 0 {
+            Rectangle().fill(segment.1).frame(width: max(2, g.size.width * segment.0 / total))
           }
-          .font(.caption).monospacedDigit()
-          .help(L("Hoje: %@ | 7 dias: %@", tokenBreakdown(row.today), tokenBreakdown(row.week)))
         }
       }
-      if more > 0 {
-        Text(L("+ %@ outros projetos", String(more))).font(.caption2).foregroundStyle(.secondary)
+      .frame(width: g.size.width, alignment: .leading)
+      .clipShape(Capsule())
+    }
+    .frame(height: 6)
+    .background(Color.primary.opacity(0.08), in: Capsule())
+  }
+}
+/// Last 7 days as stacked bars per agent, today highlighted.
+private struct TokenDaysChart: View {
+  let days: [TokenDay]
+  var body: some View {
+    let peak = max(1, days.map(\.total).max() ?? 1)
+    let agents = Array(Set(days.flatMap { $0.byAgent.keys })).sorted()
+    VStack(alignment: .leading, spacing: 6) {
+      Text(L("Por dia")).font(.caption).foregroundStyle(.secondary)
+      HStack(alignment: .bottom, spacing: 8) {
+        ForEach(Array(days.enumerated()), id: \.element.id) { index, day in
+          VStack(spacing: 4) {
+            Text(day.total > 0 ? formatTokens(day.total) : "–")
+              .font(.system(size: 9)).foregroundStyle(.secondary).monospacedDigit().lineLimit(1)
+            GeometryReader { g in
+              VStack(spacing: 1) {
+                Spacer(minLength: 0)
+                ForEach(agents.reversed(), id: \.self) { agent in
+                  let value = day.byAgent[agent] ?? 0
+                  if value > 0 {
+                    Rectangle().fill(agentColor(agent))
+                      .frame(height: max(2, g.size.height * Double(value) / Double(peak)))
+                  }
+                }
+              }
+              .clipShape(RoundedRectangle(cornerRadius: 3))
+            }
+            .frame(height: 64)
+            .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 3))
+            Text(weekday(day.day))
+              .font(.system(size: 10, weight: index == days.count - 1 ? .semibold : .regular))
+              .foregroundStyle(index == days.count - 1 ? .primary : .secondary)
+          }
+          .frame(maxWidth: .infinity)
+          .help(
+            day.byAgent.sorted { $0.key < $1.key }.map { "\($0.key): \(formatTokens($0.value))" }
+              .joined(separator: "\n"))
+        }
+      }
+    }
+  }
+  private func weekday(_ day: Int) -> String {
+    let date = Date(timeIntervalSince1970: Double(day) * 86400 + 43200)
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: Localization.current)
+    formatter.timeZone = TimeZone(identifier: "UTC")
+    formatter.dateFormat = "EEE"
+    return formatter.string(from: date).capitalized
+  }
+}
+/// Rows with a proportional bar for the 7-day total and today's value alongside.
+private struct TokenBars: View {
+  let title: String
+  let rows: [TokenRow]
+  let color: (String) -> Color
+  var more = 0
+  var toggle: (() -> Void)? = nil
+  var expanded = false
+  var body: some View {
+    let peak = max(1, rows.map(\.week.total).max() ?? 1)
+    VStack(alignment: .leading, spacing: 7) {
+      HStack {
+        Text(title).font(.caption).foregroundStyle(.secondary)
+        Spacer()
+        Text(L("hoje")).font(.caption2).foregroundStyle(.tertiary).frame(width: 52, alignment: .trailing)
+        Text(L("7 dias")).font(.caption2).foregroundStyle(.tertiary).frame(width: 58, alignment: .trailing)
+      }
+      ForEach(rows) { row in
+        HStack(spacing: 10) {
+          Text(row.id).font(.callout).lineLimit(1).truncationMode(.middle)
+            .frame(width: 130, alignment: .leading)
+          GeometryReader { g in
+            ZStack(alignment: .leading) {
+              Capsule().fill(Color.primary.opacity(0.06))
+              Capsule().fill(color(row.id).opacity(0.85))
+                .frame(width: max(3, g.size.width * Double(row.week.total) / Double(peak)))
+            }
+          }.frame(height: 6)
+          Text(row.today.total > 0 ? formatTokens(row.today.total) : "–")
+            .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+            .frame(width: 52, alignment: .trailing)
+          Text(formatTokens(row.week.total)).font(.callout.weight(.medium)).monospacedDigit()
+            .frame(width: 58, alignment: .trailing)
+        }
+        .help(L("Hoje: %@ | 7 dias: %@", tokenBreakdown(row.today), tokenBreakdown(row.week)))
+      }
+      if let toggle {
+        Button(expanded ? L("Mostrar menos") : L("+ %@ outros projetos", String(more))) { toggle() }
+          .buttonStyle(.link).font(.caption)
       }
     }
     .frame(maxWidth: .infinity, alignment: .topLeading)

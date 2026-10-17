@@ -69,34 +69,16 @@ These are not negotiable, because they are what CoreScope is:
 
 ## Recording the demo GIF
 
-The GIF at the top of the README is recorded in demo mode, which keeps live metrics and replaces your user name, folders, project names and session titles. Process names stay real, so inspect captures before sharing. Keep it short (about 15 s) and under ~3 MB.
+`./scripts/readme-media.sh` regenerates the README screenshots (`docs/screenshots/*.jpg`) and the
+GIF (`docs/screenshots/demo.gif`). It quits any running CoreScope, opens the built app in demo mode
+with `CORESCOPE_TOUR` set, waits for charts, tokens and containers to load, visits Overview,
+Processes, Agents, Containers and History, and writes each page from the app's own window at 2×
+(no Screen Recording permission). The sidebar is hidden in these captures because its translucent
+material cannot be rendered offscreen.
 
-1. Build, and start a throwaway server you can safely terminate on camera:
-
-   ```bash
-   ./scripts/build.sh
-   mkdir -p /tmp/corescope-demo && cd /tmp/corescope-demo && python3 -m http.server 8765 --bind 127.0.0.1
-   ```
-
-2. In another terminal, first quit any running CoreScope instance with ⌘Q (closing its window is not enough), then open CoreScope in demo mode and in English (`-language en` applies to this launch only and is not saved):
-
-   ```bash
-   open --env CORESCOPE_DEMO=1 build/CoreScope.app --args -language en
-   ```
-
-3. Press ⇧⌘5 → *Record Selected Portion*, frame the CoreScope window and record:
-   - **Processes** (⌘2): the tree view; expand one app to show its children and Σ totals.
-   - Type `8765` in the search field, click ✕ on the `Python` row, then **Terminate**; wait for the toast.
-   - Clear the search and open **Agents** (⌘3) for a couple of seconds.
-
-4. Convert the single recording you want to use to an optimized GIF (requires `ffmpeg`; replace the example path with that recording's exact filename):
-
-   ```bash
-   ffmpeg -i "$HOME/Desktop/Screen Recording.mov" -vf "fps=12,scale=900:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=128:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle" -loop 0 docs/screenshots/demo.gif
-   du -h docs/screenshots/demo.gif   # over ~3 MB? lower fps to 10 or scale to 800
-   ```
-
-5. Uncomment the demo GIF block at the top of `README.md`, and check the GIF frame by frame for anything private before committing.
+Demo mode replaces your user name, folders, project names and session titles, but process and
+container names stay real: inspect the images before committing them. Set `WARMUP=<seconds>`
+(default 75) for a longer warm-up.
 
 ## Pull requests
 

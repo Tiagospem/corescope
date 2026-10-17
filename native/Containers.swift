@@ -96,8 +96,9 @@ final class ContainerStore: ObservableObject {
   /// (and their registration) but needs no data, whatever other windows are showing.
   private var visibleWatchers: [Bool] {
     watchers.compactMap { token, stats in
+      // Tour captures run unattended, often with the display asleep (window "occluded").
       guard let w = windows[token]?.window, w.isVisible, !w.isMiniaturized,
-        w.occlusionState.contains(.visible)
+        w.occlusionState.contains(.visible) || Tour.folder != nil
       else { return nil }
       return stats
     }
@@ -320,12 +321,15 @@ struct ContainerGrid: View {
                 Text("· \(c.engine)").foregroundStyle(.tertiary)
               }.font(.caption2).foregroundStyle(.secondary).lineLimit(1)
             }
-          }.help("\(c.status)\n\(c.id.prefix(12))")
+          }
+          // Name and image columns absorb the extra width so the table spans the card.
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .help("\(c.status)\n\(c.id.prefix(12))")
           Text(c.project ?? "—").lineLimit(1).foregroundStyle(c.project == nil ? .secondary : .primary)
             .help(c.service.map { L("Serviço %@", $0) } ?? "")
           if showImage {
             Text(c.image).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-              .frame(maxWidth: 180, alignment: .leading).help(c.image)
+              .frame(minWidth: 120, maxWidth: .infinity, alignment: .leading).help(c.image)
           }
           ContainerPorts(ports: c.tcpPorts)
           Text(c.running ? c.cpuText : "—").monospacedDigit()
@@ -336,7 +340,7 @@ struct ContainerGrid: View {
               ContainerActionButton(container: c, action: "restart")
               ContainerActionButton(container: c, action: "stop")
             }
-          }
+          }.gridColumnAlignment(.trailing)
         }.font(.callout)
       }
     }
@@ -394,6 +398,14 @@ struct ContainersCard: View {
 }
 
 /// Agents page section: every container, stopped ones folded away.
+/// Sidebar page dedicated to containers, kept apart from agent sessions.
+struct ContainersView: View {
+  var body: some View {
+    ScrollView {
+      VStack(alignment: .leading, spacing: 16) { ContainersSection() }.padding(20)
+    }
+  }
+}
 struct ContainersSection: View {
   @ObservedObject var store = ContainerStore.shared
   @ViewState private var showStopped = false

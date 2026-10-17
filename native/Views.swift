@@ -46,6 +46,7 @@ enum Page: String, CaseIterable, Identifiable {
   case overview = "Visão geral"
   case processes = "Processos"
   case agents = "Agentes"
+  case containers = "Contêineres"
   case history = "Histórico"
   case storage = "Armazenamento"
   case sensors = "Sensores"
@@ -57,6 +58,7 @@ enum Page: String, CaseIterable, Identifiable {
     case .overview: "gauge.with.dots.needle.50percent"
     case .processes: "list.bullet.indent"
     case .agents: "sparkles"
+    case .containers: "shippingbox"
     case .history: "clock.arrow.circlepath"
     case .storage: "internaldrive"
     case .sensors: "thermometer.medium"
@@ -69,8 +71,11 @@ struct MainView: View {
   @ObservedObject var prefs = Preferences.shared
   @Environment(\.openWindow) private var openWindow
   @ViewState private var page: Page? = .overview
+  @ViewState private var columns: NavigationSplitViewVisibility =
+    Tour.folder != nil ? .detailOnly : .all
   var body: some View {
-    NavigationSplitView {
+    // Tour captures hide the sidebar: its translucent column cannot be rendered offscreen.
+    NavigationSplitView(columnVisibility: $columns) {
       // Data-driven List with an explicit tag per row: the ForEach + .badge form did not
       // register clicks as selection changes.
       List(Page.allCases, selection: $page) { item in
@@ -112,6 +117,7 @@ struct MainView: View {
           case .overview: OverviewView()
           case .processes: ProcessesView()
           case .agents: AgentsView()
+          case .containers: ContainersView()
           case .history: HistoryView()
           case .storage: StorageView()
           case .sensors: SensorsView()

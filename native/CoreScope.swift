@@ -28,6 +28,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }
   func applicationDidFinishLaunching(_ notification: Notification) {
     if let icon = AppIcon.image { NSApp.applicationIconImage = icon }
+    Tour.start()
+    DispatchQueue.main.asyncAfter(deadline: .now() + 1) { Tour.prepareWindow() }
     Preferences.shared.applyAppearance()
     NSApp.activate(ignoringOtherApps: true)
     FloatingController.shared.apply()
@@ -69,7 +71,7 @@ struct CoreScopeApp: App {
         CommandGroup(replacing: .appInfo) {
           Button(L("Sobre o CoreScope")) {
             NSApp.orderFrontStandardAboutPanel(options: [
-              .applicationName: "CoreScope", .applicationVersion: "0.2.1",
+              .applicationName: "CoreScope", .applicationVersion: "0.3.0",
               .credits: NSAttributedString(
                 string:
                   "Monitor local para desenvolvedores · Rust + SwiftUI\n© 2026 Tiago Padilha · MIT License\ngithub.com/Tiagospem/corescope"),
