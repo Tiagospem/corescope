@@ -82,7 +82,16 @@ enum SessionJump {
   func open() {
     switch self {
     case .desktop(let url): NSWorkspace.shared.open(url)
-    case .app(let app, _): app.activate()
+    // NSRunningApplication.activate() is ignored when another app is frontmost on recent
+    // macOS; reopening through LaunchServices reliably brings the app forward.
+    case .app(let app, _):
+      if let url = app.bundleURL {
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = true
+        NSWorkspace.shared.openApplication(at: url, configuration: configuration) { _, _ in }
+      } else {
+        app.activate()
+      }
     }
   }
 }
@@ -121,6 +130,10 @@ struct CodexUsage: Equatable {
   var plan: String?
   var credits: String?
   var observedAt: Date?
+  /// True when read from Codex's app-server (current); false for the last local log event.
+  var live = false
+  /// Free "full reset" credits the account can spend.
+  var resetCredits: Int?
   var weekly: LimitWindow? { windows.first { $0.windowMinutes == 10080 } ?? windows.last }
 }
 /// Claude Code plan usage saved by CoreScope's opt-in status line command.
@@ -355,10 +368,22 @@ final class AgentStore: ObservableObject {
     codex.windows.map { AgentLimit(title: "Codex", window: $0) }
       + claude.windows.map { AgentLimit(title: "Claude", window: $0) }
   }
+  private var lastLiveCodex: Date?
+  /// Reads the Codex limit from Codex itself now (button on the limits card).
+  func refreshCodexLive() {
+    lastLiveCodex = nil
+    refresh()
+  }
   func refresh() {
     let readClaude = Preferences.shared.claudeLimits
+    // Live Codex limits (opt-in): at most every 5 minutes; local logs otherwise.
+    let live = Preferences.shared.codexLiveLimits && (lastLiveCodex.map { -$0.timeIntervalSinceNow > 300 } ?? true)
+    if live { lastLiveCodex = Date() }
+    // Decided on the main thread: while live reading is on, a failed or skipped live read keeps
+    // the last live value instead of falling back to an older log event.
+    let keepLive = codex.live && Preferences.shared.codexLiveLimits
     queue.async {
-      let codex = self.readCodex()
+      let codex = (live ? CodexAppServer.readLimits() : nil) ?? (keepLive ? nil : self.readCodex())
       let claude = readClaude ? self.readClaudeLimits() : ClaudeUsage()
       let sessions = Self.readClaudeSessions()
       DispatchQueue.main.async {
@@ -559,9 +584,30 @@ struct LimitsCard: View {
             ForEach(agents.codex.windows) { w in LimitBar(title: "Codex", window: w) }
             Text(
               [agents.codex.plan.map { L("Plano %@", $0) }, agents.codex.credits.map { L("créditos %@", $0) },
-               agents.codex.observedAt.map { L("lido %@", $0.formatted(date: .omitted, time: .shortened)) }]
+               agents.codex.resetCredits.flatMap { $0 > 0 ? L("%@ resets grátis", String($0)) : nil },
+               agents.codex.observedAt.map {
+                 L(agents.codex.live ? "via Codex %@" : "do log local %@", $0.formatted(date: .omitted, time: .shortened))
+               }]
                 .compactMap { $0 }.joined(separator: " · ")
             ).font(.caption2).foregroundStyle(.secondary)
+          }
+          if CodexAppServer.binary != nil {
+            if prefs.codexLiveLimits {
+              Button {
+                agents.refreshCodexLive()
+              } label: {
+                Label(L("Atualizar"), systemImage: "arrow.clockwise")
+              }.buttonStyle(.bordered).controlSize(.small)
+                .help(L("Pede o limite atual ao próprio Codex (atualiza sozinho a cada 5 min)."))
+            } else {
+              Button {
+                prefs.codexLiveLimits = true
+                agents.refreshCodexLive()
+              } label: {
+                Label(L("Ler o limite atual pelo Codex"), systemImage: "arrow.down.circle")
+              }.buttonStyle(.bordered).controlSize(.small)
+                .help(L("O Codex consulta sua conta com o login dele, como o app do Codex faz. O CoreScope não lê credenciais. Pode desligar em Ajustes › Agentes."))
+            }
           }
         }.frame(maxWidth: .infinity, alignment: .leading)
         VStack(alignment: .leading, spacing: 10) {

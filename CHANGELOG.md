@@ -10,6 +10,20 @@ section as the GitHub release notes.
 
 ## [Unreleased]
 
+### Added
+- **Current Codex limits through Codex's own app-server** (opt-in): *Settings › Agents ›
+  Read the current limit through Codex*, or the button on the limits card, asks the installed
+  `codex app-server` for `account/rateLimits/read` every 5 minutes (usage, reset, plan,
+  credits, free resets). Codex makes the request with its own login; CoreScope reads no
+  credentials. Needed because recent Codex versions stopped writing `rate_limits` to logs.
+
+### Fixed
+- The Codex desktop app (inside ChatGPT.app) is recognized as **Codex Desktop**: its helper
+  processes and bundled backend no longer appear as dozens of "Codex CLI" sessions.
+- "Show in <app>" brings the terminal or editor forward reliably (LaunchServices instead of
+  `NSRunningApplication.activate()`, which recent macOS ignores from another app).
+- The limits card says whether the Codex value came from Codex (live) or an older local log.
+
 ## [0.3.0] - 2026-10-17
 
 ### Added

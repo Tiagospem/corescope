@@ -252,8 +252,19 @@ pub fn host(name: &str, path: &str) -> Option<(&'static str, &'static str)> {
     if app_main(path, "Claude") {
         return Some(("Claude Desktop", "agent"));
     }
-    if app_main(path, "Codex") {
+    // The Codex desktop app ships inside ChatGPT.app: its main executable and the bundled
+    // `codex` app-server (Resources/codex-cli) host the desktop's threads; neither is a session.
+    if app_main(path, "Codex")
+        || app_main(path, "ChatGPT")
+        || path.contains("/ChatGPT.app/Contents/Resources/codex-cli/")
+        || path.contains("/Codex.app/Contents/Resources/")
+    {
         return Some(("Codex Desktop", "agent"));
+    }
+    // Helper processes inside any app bundle (renderers, services, crash handlers) are never
+    // agent sessions, even when their names start with an agent's name.
+    if path.contains(".app/Contents/Frameworks/") {
+        return None;
     }
     if lower == "claude" || path.contains("/claude/versions/") || path.contains("/claude-code/") {
         return Some(("Claude Code", "agent"));
@@ -1526,6 +1537,24 @@ mod tests {
             Some("terminal")
         );
         assert!(host("node", "/opt/homebrew/bin/node").is_none());
+        // Codex desktop (inside ChatGPT.app): main app and bundled backend are the desktop host;
+        // framework helpers named "Codex (…)" are nothing; a standalone codex is a CLI session.
+        let fw = "/Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/Versions/1/Helpers/Codex (Service).app/Contents/MacOS/Codex (Service)";
+        assert!(host("Codex (Service)", fw).is_none());
+        assert_eq!(
+            host(
+                "ChatGPT",
+                "/Applications/ChatGPT.app/Contents/MacOS/ChatGPT"
+            )
+            .map(|h| h.0),
+            Some("Codex Desktop")
+        );
+        let backend = "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex";
+        assert_eq!(host("codex", backend).map(|h| h.0), Some("Codex Desktop"));
+        assert_eq!(
+            host("codex", "/opt/homebrew/bin/codex").map(|h| h.0),
+            Some("Codex")
+        );
         assert_eq!(
             host("Claude", "/Applications/Claude.app/Contents/MacOS/Claude").map(|h| h.0),
             Some("Claude Desktop")
