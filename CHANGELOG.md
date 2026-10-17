@@ -32,6 +32,9 @@ section as the GitHub release notes.
 - **Services page**: HTTP and TCP health checks for local or remote endpoints every 30 s, with
   latency history, an Overview card, one-click suggestions from open ports and optional
   down/recovered notifications.
+- **Profiles page**: per-project environments — commands run in the project folder through the
+  login shell (logged to ~/Library/Application Support/CoreScope/logs) plus containers to start;
+  Stop ends only the process trees CoreScope started and stops those containers.
 
 ## [0.3.2] - 2026-10-17
 

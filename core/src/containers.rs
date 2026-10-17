@@ -411,12 +411,12 @@ impl Reader {
 pub fn lookup_path(id: &str) -> String {
     format!("/containers/json?all=1&filters=%7B%22id%22%3A%5B%22{id}%22%5D%7D")
 }
-/// Stop or restart after the user confirmed this exact container.
+/// Start, stop or restart after the user asked for this exact container.
 pub fn act(id: &str, action: &str) -> Result<(), String> {
     if !valid_id(id) {
         return Err("Identificador de contêiner inválido".into());
     }
-    if !matches!(action, "stop" | "restart") {
+    if !matches!(action, "start" | "stop" | "restart") {
         return Err("Ação de contêiner inválida".into());
     }
     let home = std::env::var_os("HOME")

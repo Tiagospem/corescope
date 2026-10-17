@@ -739,4 +739,34 @@ private let entries = """
   Verificando… ¦ Checking… ¦ Comprobando…
   Abrir no navegador ¦ Open in browser ¦ Abrir en el navegador
   Editar ¦ Edit ¦ Editar
+  Perfis ¦ Profiles ¦ Perfiles
+  %@ de %@ rodando ¦ %@ of %@ running ¦ %@ de %@ en ejecución
+  %@ iniciado. ¦ %@ started. ¦ %@ iniciado.
+  %@: %@ ¦ %@: %@ ¦ %@: %@
+  Abrir log ¦ Open log ¦ Abrir log
+  Adicionar comando ¦ Add command ¦ Añadir comando
+  Apagar ¦ Delete ¦ Eliminar
+  Apagar o perfil %@? ¦ Delete the %@ profile? ¦ ¿Eliminar el perfil %@?
+  Apagar perfil ¦ Delete profile ¦ Eliminar perfil
+  Comando, ex.: npm run dev ¦ Command, e.g. npm run dev ¦ Comando, p. ej. npm run dev
+  Comandos ¦ Commands ¦ Comandos
+  Contêiner %@ não encontrado ¦ Container %@ not found ¦ Contenedor %@ no encontrado
+  Envia SIGTERM aos processos que o CoreScope iniciou para este perfil (e aos filhos deles) e para os contêineres do perfil. ¦ Sends SIGTERM to the processes CoreScope started for this profile (and their children) and stops the profile's containers. ¦ Envía SIGTERM a los procesos que CoreScope inició para este perfil (y a sus hijos) y detiene los contenedores del perfil.
+  Escolher… ¦ Choose… ¦ Elegir…
+  Iniciando %@… ¦ Starting %@… ¦ Iniciando %@…
+  Iniciar ¦ Start ¦ Iniciar
+  Mostrar logs no Finder ¦ Show logs in Finder ¦ Mostrar logs en el Finder
+  Nenhum contêiner encontrado. ¦ No containers found. ¦ No se encontraron contenedores.
+  Nenhum perfil ainda. Crie um com os comandos que você roda todo dia (npm run dev, php artisan serve…) e os contêineres do projeto. ¦ No profiles yet. Create one with the commands you run every day (npm run dev, php artisan serve…) and the project's containers. ¦ Aún no hay perfiles. Crea uno con los comandos que ejecutas a diario (npm run dev, php artisan serve…) y los contenedores del proyecto.
+  Novo perfil ¦ New profile ¦ Nuevo perfil
+  Não foi possível criar o log ¦ Could not create the log ¦ No se pudo crear el log
+  O comando terminou logo ao iniciar; veja o log ¦ The command exited right away; see the log ¦ El comando terminó al iniciar; mira el log
+  Os comandos rodam no seu shell de login, na pasta do perfil, com a saída em ~/Library/Application Support/CoreScope/logs. Parar encerra só os processos que o CoreScope iniciou (com a mesma verificação de identidade do resto do app) e para os contêineres do perfil. ¦ Commands run in your login shell, in the profile's folder, with output in ~/Library/Application Support/CoreScope/logs. Stop ends only the processes CoreScope started (with the same identity checks as the rest of the app) and stops the profile's containers. ¦ Los comandos se ejecutan en tu shell de inicio de sesión, en la carpeta del perfil, con la salida en ~/Library/Application Support/CoreScope/logs. Detener finaliza solo los procesos que CoreScope inició (con la misma verificación de identidad que el resto de la app) y detiene los contenedores del perfil.
+  Parar %@? ¦ Stop %@? ¦ ¿Detener %@?
+  Pasta ¦ Folder ¦ Carpeta
+  Pasta não encontrada ¦ Folder not found ¦ Carpeta no encontrada
+  Só a configuração é apagada; nada que esteja rodando é encerrado. ¦ Only the settings are deleted; nothing running is stopped. ¦ Solo se elimina la configuración; no se detiene nada en ejecución.
+  Um clique para subir (ou derrubar) o ambiente de um projeto: comandos na pasta dele e os contêineres de que ele precisa. ¦ One click to bring a project's environment up (or down): commands in its folder and the containers it needs. ¦ Un clic para levantar (o bajar) el entorno de un proyecto: comandos en su carpeta y los contenedores que necesita.
+  não encontrado ¦ not found ¦ no encontrado
+  Comando ¦ Command ¦ Comando
   """

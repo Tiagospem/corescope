@@ -5,7 +5,7 @@ char *cs_signal(int32_t pid, uint64_t start, const char *path, int32_t force);
 void cs_reset(void);
 // Persistent history: {"op":"series"|"top"|"info"|"flush"|"delete", from, to, bucket}.
 char *cs_history(const char *request);
-// Containers from local Docker Engine sockets only; action is "stop" or "restart".
+// Containers from local Docker Engine sockets only; action is "start", "stop" or "restart".
 char *cs_containers(int32_t stats);
 char *cs_container_action(const char *id, const char *action);
 // Reclaimable dev space: {"roots":[...],"auto":bool,"docker":bool}. Read-only.
