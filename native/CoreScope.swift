@@ -71,7 +71,7 @@ struct CoreScopeApp: App {
         CommandGroup(replacing: .appInfo) {
           Button(L("Sobre o CoreScope")) {
             NSApp.orderFrontStandardAboutPanel(options: [
-              .applicationName: "CoreScope", .applicationVersion: "0.3.1",
+              .applicationName: "CoreScope", .applicationVersion: "0.3.2",
               .credits: NSAttributedString(
                 string:
                   "Monitor local para desenvolvedores · Rust + SwiftUI\n© 2026 Tiago Padilha · MIT License\ngithub.com/Tiagospem/corescope"),
