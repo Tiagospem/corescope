@@ -1,5 +1,7 @@
 //! CoreScope: bounded local telemetry and explicitly authorized process control.
 pub mod containers;
+pub mod databases;
+pub mod devspace;
 pub mod history;
 mod os;
 mod sqlite;
@@ -478,11 +480,16 @@ pub struct Process {
     pub read: Metric,
     #[serde(serialize_with = "lean")]
     pub write: Metric,
+    /// Average power billed to the process since the previous sample.
+    #[serde(serialize_with = "lean")]
+    pub energy: Metric,
     pub eligible: bool,
     pub blocked: String,
     pub orphan: Option<String>,
     /// Parent observed before reparenting to launchd, when known.
     pub orphan_parent: Option<String>,
+    /// Session id: shared by everything a command started, even after it detaches.
+    pub sid: i32,
     pub cwd: String,
     pub ports: Vec<Port>,
     pub tags: Vec<&'static str>,
@@ -550,6 +557,18 @@ pub struct Snapshot {
     pub volume_state: String,
     pub disk_state: String,
     pub current_uid: u32,
+    /// Internal battery, when the Mac has one.
+    pub battery: Option<Battery>,
+    /// Sum of the processes' power: what the CPU work of all processes costs right now.
+    pub power: Metric,
+}
+#[derive(Clone, Serialize)]
+pub struct Battery {
+    pub percent: i32,
+    pub charging: bool,
+    pub on_ac: bool,
+    /// Minutes to empty (on battery) or to full (charging), when macOS estimates it.
+    pub minutes: Option<i32>,
 }
 struct Previous {
     raw: RawProcess,
@@ -821,6 +840,7 @@ impl Collector {
                     orphan_reason(raw.ppid, lost.as_deref(), age, &path, &tags)
                 },
                 orphan_parent: lost.clone(),
+                sid: raw.sid,
                 path,
                 cwd,
                 ports: listening,
@@ -853,6 +873,14 @@ impl Collector {
                     io(raw.write_bytes, old.map(|p| p.raw.write_bytes)),
                     "B/s",
                     "proc_pid_rusage · diskio_byteswritten",
+                    at,
+                ),
+                energy: Metric::new(
+                    io(raw.energy_nj, old.map(|p| p.raw.energy_nj))
+                        .filter(|_| raw.energy_ok != 0)
+                        .map(|nj| nj / 1e9),
+                    "W",
+                    "proc_pid_rusage · ri_energy_nj",
                     at,
                 ),
                 eligible: reason.is_empty(),
@@ -1013,6 +1041,8 @@ impl Collector {
                 .update(desired, elapsed, config.sustain);
         diagnostics.push(Diagnostic{id:"storage",level,title:if level>0{"Pouco espaço em um volume"}else{"Armazenamento: confira capacidade e atividade"}.into(),detail:"Volumes APFS podem compartilhar espaço: não some suas capacidades. Taxa alta de I/O não mede saturação ou latência; esta versão não diagnostica pressão de I/O.".into()});
         diagnostics.sort_by_key(|d| std::cmp::Reverse(d.level));
+        let watts: Vec<f64> = processes.iter().filter_map(|p| p.energy.value).collect();
+        let power_watts = (!watts.is_empty()).then(|| watts.iter().sum());
         Snapshot {
             at,
             cores: h.cores,
@@ -1092,6 +1122,18 @@ impl Collector {
                 net_out,
                 "B/s",
                 "sysctl NET_RT_IFLIST2 · interfaces sem loopback",
+                at,
+            ),
+            battery: os::battery().map(|(percent, charging, on_ac, minutes)| Battery {
+                percent,
+                charging,
+                on_ac,
+                minutes,
+            }),
+            power: Metric::new(
+                power_watts,
+                "W",
+                "soma de proc_pid_rusage · ri_energy_nj",
                 at,
             ),
             collector_ms: begin.elapsed().as_secs_f64() * 1000.,
@@ -1429,6 +1471,136 @@ pub unsafe extern "C" fn cs_container_action(
         containers::act(id, action)?;
         Ok("{\"ok\":true}".into())
     })
+}
+
+#[derive(Deserialize)]
+struct DevSpaceRequest {
+    #[serde(default)]
+    roots: Vec<String>,
+    #[serde(default)]
+    auto: bool,
+    #[serde(default)]
+    docker: bool,
+}
+fn home() -> std::path::PathBuf {
+    std::env::var_os("HOME").map(Into::into).unwrap_or_default()
+}
+/// One fresh sample for "who uses this folder", independent of the app's collector.
+fn processes_now() -> Vec<Process> {
+    Collector::default().sample(Config::default()).processes
+}
+/// Reclaimable developer space under `roots` (plus suggested roots with `auto`); read-only.
+///
+/// # Safety
+/// `request` is a valid NUL-terminated UTF-8 JSON pointer for the duration of this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cs_dev_space(request: *const c_char) -> *mut c_char {
+    response(|| {
+        if request.is_null() {
+            return Err("Consulta ausente".into());
+        }
+        let bytes = unsafe { CStr::from_ptr(request) }.to_bytes();
+        let r: DevSpaceRequest = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
+        let home = home();
+        let processes = processes_now();
+        let mut roots: Vec<std::path::PathBuf> = r.roots.iter().map(Into::into).collect();
+        if r.auto {
+            roots.extend(devspace::auto_roots(&home, &processes));
+        }
+        let roots = devspace::normalize(roots);
+        json(Ok(devspace::scan(&roots, &home, &processes, r.docker)))
+    })
+}
+/// Re-checks one folder right before the app moves it to the Trash.
+///
+/// # Safety
+/// `path` is a valid NUL-terminated UTF-8 string pointer for the duration of this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cs_dev_space_verify(path: *const c_char) -> *mut c_char {
+    response(|| {
+        if path.is_null() {
+            return Err("Caminho ausente".into());
+        }
+        let path = unsafe { CStr::from_ptr(path) }
+            .to_str()
+            .map_err(|_| "Caminho inválido")?;
+        devspace::verify(path, &home(), &processes_now())?;
+        Ok("{\"ok\":true}".into())
+    })
+}
+/// Removes unused Docker images or build cache through the engine. User must have confirmed.
+///
+/// # Safety
+/// `socket` and `kind` are valid NUL-terminated UTF-8 string pointers for the duration of this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cs_dev_space_docker(
+    socket: *const c_char,
+    kind: *const c_char,
+) -> *mut c_char {
+    response(|| {
+        if socket.is_null() || kind.is_null() {
+            return Err("Ação de contêiner inválida".into());
+        }
+        let socket = unsafe { CStr::from_ptr(socket) }
+            .to_str()
+            .map_err(|_| "Ação de contêiner inválida")?;
+        let kind = unsafe { CStr::from_ptr(kind) }
+            .to_str()
+            .map_err(|_| "Ação de contêiner inválida")?;
+        let freed = devspace::docker_prune(socket, kind, &home())?;
+        Ok(serde_json::json!({ "reclaimed": freed }).to_string())
+    })
+}
+
+/// Local databases (MySQL/MariaDB, PostgreSQL, Redis) found among processes and containers,
+/// queried read-only where the server allows passwordless local access.
+#[unsafe(no_mangle)]
+pub extern "C" fn cs_databases() -> *mut c_char {
+    response(|| {
+        let containers = CONTAINERS
+            .get_or_init(|| Mutex::new(containers::Reader::default()))
+            .lock()
+            .map_err(|_| "Leitor de contêineres indisponível")?
+            .read(false)
+            .containers;
+        let endpoints = databases::detect(&processes_now(), &containers);
+        json(Ok(databases::probe(endpoints)))
+    })
+}
+
+/// A plain process for tests elsewhere in the crate.
+#[cfg(test)]
+pub(crate) fn process_fixture() -> Process {
+    let metric = || Metric::new(None, "", "", 0.);
+    Process {
+        id: "1:1".into(),
+        pid: 4242,
+        ppid: 1,
+        uid: 501,
+        user: "dev".into(),
+        start: 1,
+        name: "node".into(),
+        path: "/usr/bin/node".into(),
+        cpu: metric(),
+        memory: metric(),
+        resident: metric(),
+        threads: metric(),
+        read: metric(),
+        write: metric(),
+        energy: metric(),
+        eligible: true,
+        blocked: String::new(),
+        orphan: None,
+        orphan_parent: None,
+        sid: 0,
+        cwd: String::new(),
+        ports: vec![],
+        tags: vec![],
+        host: None,
+        origin: None,
+        high_cpu_seconds: 0.,
+        history: VecDeque::new(),
+    }
 }
 
 #[cfg(test)]

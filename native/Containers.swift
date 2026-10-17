@@ -89,6 +89,13 @@ final class ContainerStore: ObservableObject {
     }
   }
   /// A surface that just opened gets data now, unless a read happened moments ago.
+  /// Re-reads soon after an action elsewhere (profiles) changed container state.
+  func refreshSoon() {
+    DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+      self.lastRead = .distantPast
+      self.tick()
+    }
+  }
   private func kick() {
     if Date().timeIntervalSince(lastRead) > 2 { tick() } else if timer == nil { schedule() }
   }

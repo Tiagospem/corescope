@@ -31,8 +31,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <key>CFBundleDevelopmentRegion</key><string>pt</string>
 <key>CFBundleLocalizations</key><array><string>pt</string><string>en</string><string>es</string></array>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>0.3.2</string>
-<key>CFBundleVersion</key><string>6</string>
+<key>CFBundleShortVersionString</key><string>0.4.0</string>
+<key>CFBundleVersion</key><string>7</string>
 <key>NSHumanReadableCopyright</key><string>© 2026 Tiago Padilha · MIT License</string>
 <key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
@@ -40,6 +40,10 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <key>NSPrincipalClass</key><string>NSApplication</string>
 </dict></plist>
 PLIST
+# Command-line tool (corescope ports, kill-port, agents, mcp…), signed before the app.
+mkdir -p "$APP/Contents/Resources/bin"
+cp core/target/release/corescope "$APP/Contents/Resources/bin/corescope"
+codesign --force --sign - "$APP/Contents/Resources/bin/corescope"
 codesign --force --sign - "$APP"
 # Refresh LaunchServices so the Dock and Finder pick up the current icon.
 /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$APP" >/dev/null 2>&1 || true

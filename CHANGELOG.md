@@ -10,6 +10,57 @@ section as the GitHub release notes.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-17
+
+### Added
+- **`corescope` command-line tool** bundled in the app (*Settings › Command line* links it into
+  `~/.local/bin`): `ports`, `free-port`, `kill-port`, `agents`, `orphans`, `top`, `kill
+  [--tree]`, all with `--json`. Same safe termination as the app; refuses without `--yes` when
+  there is no terminal to confirm in, and never signals its own ancestors.
+- **Local MCP server (opt-in)**: `corescope mcp`, registered with Claude Code and/or Codex from
+  *Settings › MCP server for agents*. Tools for ports, a free port, top processes, a system
+  summary, agent sessions, orphans and the session's own processes; `stop_port`/`stop_process`
+  stop only what the calling agent session started (children, or servers it detached inside its
+  folder when no other session could claim them).
+- **Cleanup page**: reclaimable `node_modules`, Rust `target/`, Xcode DerivedData/device
+  support/Simulator caches, package-manager caches and unused Docker images/build cache, with
+  sizes and age. Folders go to the Trash after confirmation; items in use by a process are locked
+  and every folder is re-verified right before it moves. Scans run only on demand; the last
+  result is cached and flagged when it may be out of date. Also `corescope space` and the MCP tool
+  `list_dev_space` (read-only).
+- **Stuck agent detection**: busy Claude Code sessions and Codex threads with no transcript
+  writes for N minutes (default 10) show *Looks stuck* (idle command, possibly waiting for input,
+  or nothing running) or *Long command* (a command of this turn using CPU) on the Agents page;
+  optional notification that opens the session in Claude or Codex.
+- **Services page**: HTTP and TCP health checks for local or remote endpoints every 30 s, with
+  latency history, an Overview card, one-click suggestions from open ports and optional
+  down/recovered notifications.
+- **Profiles page**: per-project environments — commands run in the project folder through the
+  login shell (logged to ~/Library/Application Support/CoreScope/logs) plus containers to start;
+  Stop ends only the process trees CoreScope started and stops only containers a profile started
+  that no other started profile still uses (shared databases stay up until the last one stops).
+  Commands run in their own session, so what they leave running (detached servers) stays tracked
+  across shell exits and app restarts; setup commands that exit count as done on exit 0, and an
+  optional *on stop* command undoes them.
+- **Databases page**: local MySQL/MariaDB, PostgreSQL and Redis (processes and containers) with
+  version, uptime, size per database, connections, slow-query counters and queries running over
+  5 s, over each wire protocol, read-only and time-capped. Never uses or reads passwords; servers
+  that need one are shown as such. Also `corescope db` and the MCP tool `list_databases`.
+- **Machines page**: remote servers over the user's own ssh (BatchMode, no prompts, unknown host
+  keys fail): OS, uptime, load per core, memory, disk, top processes and containers, from a fixed
+  read-only script; aliases suggested from ~/.ssh/config.
+- **Energy page**: battery state, watts per process (rusage v6 energy) and per agent session
+  with what it started; optional alert when an agent drains the battery. Also `corescope power`,
+  `top --energy` and the MCP tool `power_usage`.
+- **MCP drives the app**: through a private local socket (0600, same user, can be turned off),
+  agents can list/create/start/stop profiles and read their logs, manage Services checks and SSH
+  machines, scan and clean dev space, read and change notification settings and see stuck
+  sessions. Destructive tools carry MCP annotations so hosts ask first.
+
+### Changed
+- The Rust core also builds on Linux, with stubs in place of the macOS adapter, for the image
+  Anthropic's OSS Scanner audits (`.oss-scanner/`, with a threat model).
+
 ## [0.3.2] - 2026-10-17
 
 ### Added
@@ -121,7 +172,8 @@ First public release.
   compact / standard / detailed layouts and in-panel controls.
 - English, Portuguese and Spanish; offline-only.
 
-[Unreleased]: https://github.com/Tiagospem/corescope/compare/v0.3.2...HEAD
+[Unreleased]: https://github.com/Tiagospem/corescope/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/Tiagospem/corescope/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/Tiagospem/corescope/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/Tiagospem/corescope/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/Tiagospem/corescope/compare/v0.2.1...v0.3.0

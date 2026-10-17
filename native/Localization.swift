@@ -37,7 +37,8 @@ enum Localization {
 }
 
 /// Localized text for a Portuguese source key; `%@` placeholders take `args` in order.
-func L(_ key: String, _ args: String...) -> String {
+func L(_ key: String, _ args: String...) -> String { L(key, args) }
+func L(_ key: String, _ args: [String]) -> String {
   let entry = Localization.table[key]
   let text: String
   switch Localization.current {
@@ -629,4 +630,229 @@ private let entries = """
   Roda dentro do app do Codex ¦ Runs inside the Codex app ¦ Se ejecuta dentro de la app de Codex
   Abrir no Codex ¦ Open in Codex ¦ Abrir en Codex
   Abre esta conversa no app do Codex ¦ Opens this conversation in the Codex app ¦ Abre esta conversación en la app de Codex
+  Linha de comando ¦ Command line ¦ Línea de comandos
+  Comando corescope ¦ corescope command ¦ Comando corescope
+  Instalado em ~/.local/bin ¦ Installed in ~/.local/bin ¦ Instalado en ~/.local/bin
+  Remover ¦ Remove ¦ Quitar
+  Instalar ¦ Install ¦ Instalar
+  corescope ports · free-port · kill-port 3000 · agents · orphans · top · kill PID --tree. Todos aceitam --json. Se o terminal não encontrar o comando, adicione ~/.local/bin ao PATH. ¦ corescope ports · free-port · kill-port 3000 · agents · orphans · top · kill PID --tree. All accept --json. If your terminal can't find the command, add ~/.local/bin to PATH. ¦ corescope ports · free-port · kill-port 3000 · agents · orphans · top · kill PID --tree. Todos aceptan --json. Si el terminal no encuentra el comando, añade ~/.local/bin al PATH.
+  Servidor MCP para agentes ¦ MCP server for agents ¦ Servidor MCP para agentes
+  Desativar ¦ Disable ¦ Desactivar
+  Ativar ¦ Enable ¦ Activar
+  Ativo ¦ Active ¦ Activo
+  Não instalado ¦ Not installed ¦ No instalado
+  Aponta para outra cópia do app ¦ Points to another copy of the app ¦ Apunta a otra copia de la app
+  CLI do agente não encontrado. ¦ Agent CLI not found. ¦ No se encontró la CLI del agente.
+  Comando corescope não encontrado no app. ¦ corescope command not found in the app. ¦ No se encontró el comando corescope en la app.
+  Opcional. Registra corescope mcp no Claude Code e no Codex (pelos comandos mcp add deles). Os agentes podem consultar portas, porta livre, maiores processos, sessões e órfãos, e encerrar só o que a própria sessão iniciou — nunca outras sessões, outros usuários ou serviços do sistema. Tudo local, sem rede. ¦ Optional. Registers corescope mcp with Claude Code and Codex (through their own mcp add commands). Agents can query ports, a free port, top processes, sessions and orphans, and stop only what their own session started — never other sessions, other users or system services. Fully local, no network. ¦ Opcional. Registra corescope mcp en Claude Code y Codex (con sus propios comandos mcp add). Los agentes pueden consultar puertos, un puerto libre, los procesos más pesados, sesiones y huérfanos, y detener solo lo que inició su propia sesión — nunca otras sesiones, otros usuarios ni servicios del sistema. Todo local, sin red.
+  %@ falharam: %@ ¦ %@ failed: %@ ¦ %@ fallaron: %@
+  %@ itens do Docker serão removidos pelo Docker, sem volta. ¦ %@ Docker items will be removed by Docker, permanently. ¦ %@ elementos de Docker serán eliminados por Docker, sin vuelta atrás.
+  %@ liberados em %@ itens. ¦ %@ freed from %@ items. ¦ %@ liberados en %@ elementos.
+  %@ pastas vão para a Lixeira (recuperáveis até esvaziá-la). ¦ %@ folders go to the Trash (recoverable until you empty it). ¦ %@ carpetas van a la Papelera (recuperables hasta vaciarla).
+  %@ selecionados · %@ ¦ %@ selected · %@ ¦ %@ seleccionados · %@
+  Adicionar ¦ Add ¦ Añadir
+  Adicionar pasta… ¦ Add folder… ¦ Añadir carpeta…
+  Além das pastas que você adicionar, o CoreScope procura em ~/Developer, ~/Projects, ~/Code… e na pasta que contém cada projeto em que um agente, editor ou terminal está trabalhando agora. ¦ Besides the folders you add, CoreScope looks in ~/Developer, ~/Projects, ~/Code… and in the folder holding each project an agent, editor or terminal is working in right now. ¦ Además de las carpetas que añadas, CoreScope busca en ~/Developer, ~/Projects, ~/Code… y en la carpeta que contiene cada proyecto en el que un agente, editor o terminal está trabajando ahora.
+  Analisando… ¦ Scanning… ¦ Analizando…
+  Analisar ¦ Scan ¦ Analizar
+  Analisar de novo ¦ Scan again ¦ Analizar de nuevo
+  Cache de build ¦ Build cache ¦ Caché de build
+  Caches de pacotes ¦ Package caches ¦ Cachés de paquetes
+  Caches do Simulador ¦ Simulator caches ¦ Cachés del Simulador
+  Caminho ausente ¦ Missing path ¦ Falta la ruta
+  Caminho inválido ¦ Invalid path ¦ Ruta no válida
+  Caminho não reconhecido para limpeza ¦ Not a recognized cleanup item ¦ No es un elemento de limpieza reconocido
+  Caminho não é uma pasta real ¦ Not a real folder (symlink or changed) ¦ No es una carpeta real (enlace o cambió)
+  Desmarcar ¦ Deselect ¦ Desmarcar
+  Docker: %@ ¦ Docker: %@ ¦ Docker: %@
+  Em uso por ¦ In use by ¦ En uso por
+  Em uso · %@ ¦ In use · %@ ¦ En uso · %@
+  Encontre node_modules, target/ do Rust, DerivedData, caches e imagens Docker sem uso. ¦ Find node_modules, Rust target/, DerivedData, caches and unused Docker images. ¦ Encuentra node_modules, target/ de Rust, DerivedData, cachés e imágenes de Docker sin uso.
+  Feche ou pare o processo para poder limpar ¦ Close or stop the process to clean it ¦ Cierra o detén el proceso para poder limpiarlo
+  Imagens sem contêiner ¦ Images without a container ¦ Imágenes sin contenedor
+  Imagens órfãs (sem tag) ¦ Dangling images (untagged) ¦ Imágenes huérfanas (sin etiqueta)
+  Item não existe mais ¦ Item no longer exists ¦ El elemento ya no existe
+  Limpando %@ itens… ¦ Cleaning %@ items… ¦ Limpiando %@ elementos…
+  Limpar ¦ Clean ¦ Limpiar
+  Limpar %@ itens (%@)? ¦ Clean %@ items (%@)? ¦ ¿Limpiar %@ elementos (%@)?
+  Limpar seleção ¦ Clear selection ¦ Quitar selección
+  Limpar… ¦ Clean… ¦ Limpiar…
+  Limpeza ¦ Cleanup ¦ Limpieza
+  Motor de contêineres não encontrado ¦ Container engine not found ¦ No se encontró el motor de contenedores
+  Nada para limpar nas pastas analisadas. ¦ Nothing to clean in the scanned folders. ¦ Nada que limpiar en las carpetas analizadas.
+  Pastas ¦ Folders ¦ Carpetas
+  Pastas vão para a Lixeira: dá para recuperá-las até esvaziar a Lixeira, e o espaço só é liberado depois disso. Itens que um processo está usando (servidor de dev, cargo, Xcode, um agente trabalhando no projeto) ficam bloqueados e são verificados de novo na hora de limpar. Dados do Docker são removidos pelo próprio Docker e não voltam: as imagens são baixadas de novo quando precisar. ¦ Folders go to the Trash: you can recover them until you empty it, and the space is freed only then. Items a process is using (dev server, cargo, Xcode, an agent working in the project) are locked and checked again right before cleaning. Docker data is removed by Docker itself and does not come back: images are pulled again when needed. ¦ Las carpetas van a la Papelera: puedes recuperarlas hasta vaciarla, y el espacio se libera solo entonces. Los elementos que usa un proceso (servidor de desarrollo, cargo, Xcode, un agente trabajando en el proyecto) quedan bloqueados y se comprueban de nuevo justo antes de limpiar. Los datos de Docker los elimina el propio Docker y no vuelven: las imágenes se descargan de nuevo cuando hagan falta.
+  Projetos ¦ Projects ¦ Proyectos
+  Remover pasta ¦ Remove folder ¦ Quitar carpeta
+  Removido pelo Docker ¦ Removed by Docker ¦ Lo elimina Docker
+  Seleciona as pastas que não mudam há mais de 30 dias ¦ Selects folders unchanged for more than 30 days ¦ Selecciona las carpetas sin cambios desde hace más de 30 días
+  Selecionar tudo ¦ Select all ¦ Seleccionar todo
+  Sem uso há 30+ dias ¦ Unused 30+ days ¦ Sin uso 30+ días
+  Suporte a dispositivo ¦ Device support ¦ Soporte de dispositivo
+  análise %@ (%@ s) ¦ scanned %@ (%@ s) ¦ análisis %@ (%@ s)
+  recuperáveis em %@ itens ¦ reclaimable in %@ items ¦ recuperables en %@ elementos
+  target/ do Rust ¦ Rust target/ ¦ target/ de Rust
+  Última modificação ¦ Last modified ¦ Última modificación
+  Limpando 1 item… ¦ Cleaning 1 item… ¦ Limpiando 1 elemento…
+  Limpar 1 item (%@)? ¦ Clean 1 item (%@)? ¦ ¿Limpiar 1 elemento (%@)?
+  1 pasta vai para a Lixeira (recuperável até esvaziá-la). ¦ 1 folder goes to the Trash (recoverable until you empty it). ¦ 1 carpeta va a la Papelera (recuperable hasta vaciarla).
+  1 item do Docker será removido pelo Docker, sem volta. ¦ 1 Docker item will be removed by Docker, permanently. ¦ 1 elemento de Docker será eliminado por Docker, sin vuelta atrás.
+  recuperáveis em 1 item ¦ reclaimable in 1 item ¦ recuperables en 1 elemento
+  %@ liberados em 1 item. ¦ %@ freed from 1 item. ¦ %@ liberados en 1 elemento.
+  Não foi possível limpar %@ ¦ Could not clean %@ ¦ No se pudo limpiar %@
+  %@ parece travado ¦ %@ looks stuck ¦ %@ parece atascado
+  Rodando %@ há %@ min, sem novas mensagens ¦ Running %@ for %@ min, no new messages ¦ Ejecutando %@ desde hace %@ min, sin mensajes nuevos
+  Esperando %@ há %@ min: pode estar pedindo uma entrada ¦ Waiting on %@ for %@ min: it may be asking for input ¦ Esperando a %@ desde hace %@ min: puede estar pidiendo una entrada
+  Sem atividade há %@ min ¦ No activity for %@ min ¦ Sin actividad desde hace %@ min
+  Parece travada · %@ min ¦ Looks stuck · %@ min ¦ Parece atascada · %@ min
+  Comando longo · %@ min ¦ Long command · %@ min ¦ Comando largo · %@ min
+  Agente parece travado ¦ Agent looks stuck ¦ El agente parece atascado
+  Travado após ¦ Stuck after ¦ Atascado tras
+  %@ min sem atividade ¦ %@ min without activity ¦ %@ min sin actividad
+  Uma sessão ocupada (Claude Code, Codex) que não escreve na própria transcrição por esse tempo. Se um comando iniciado nesta vez está usando CPU, é só um comando longo; se está parado, pode estar esperando uma entrada. Vale também para o selo na página Agentes. Lê apenas datas de modificação, nunca o conteúdo. ¦ A busy session (Claude Code, Codex) that has not written to its transcript for this long. If a command started in this turn is using CPU, it is just a long command; if it sits idle, it may be waiting for input. Also drives the badge on the Agents page. Reads modification dates only, never content. ¦ Una sesión ocupada (Claude Code, Codex) que no escribe en su transcripción durante ese tiempo. Si un comando iniciado en este turno usa CPU, solo es un comando largo; si está parado, puede estar esperando una entrada. También controla la insignia de la página Agentes. Solo lee fechas de modificación, nunca el contenido.
+  Destino inválido ¦ Invalid target ¦ Destino no válido
+  porta aberta ¦ port open ¦ puerto abierto
+  %@ fora do ar ¦ %@ is down ¦ %@ está caído
+  %@ voltou ¦ %@ is back ¦ %@ volvió
+  sem resposta ¦ no answer ¦ sin respuesta
+  sem resposta em 5 s ¦ no answer in 5 s ¦ sin respuesta en 5 s
+  sem resposta em 3 s ¦ no answer in 3 s ¦ sin respuesta en 3 s
+  conexão recusada ¦ connection refused ¦ conexión rechazada
+  host não encontrado ¦ host not found ¦ host no encontrado
+  sem rede ¦ no network ¦ sin red
+  certificado TLS inválido ¦ invalid TLS certificate ¦ certificado TLS no válido
+  porta inválida ¦ invalid port ¦ puerto no válido
+  No ar ¦ Up ¦ Activo
+  Respondeu com erro ¦ Answered with an error ¦ Respondió con error
+  Fora do ar ¦ Down ¦ Caído
+  Adicionar serviço ¦ Add service ¦ Añadir servicio
+  Nome ¦ Name ¦ Nombre
+  URL ou porta: 3000, localhost:5432, https://…/health ¦ URL or port: 3000, localhost:5432, https://…/health ¦ URL o puerto: 3000, localhost:5432, https://…/health
+  Salvar ¦ Save ¦ Guardar
+  Destino fora deste Mac: o CoreScope vai acessar %@ a cada 30 s. ¦ Target outside this Mac: CoreScope will contact %@ every 30 s. ¦ Destino fuera de este Mac: CoreScope accederá a %@ cada 30 s.
+  Portas abertas agora: ¦ Open ports now: ¦ Puertos abiertos ahora:
+  Nenhum serviço monitorado. Adicione uma URL de health check ou uma porta (API local, banco, staging). ¦ No services watched. Add a health check URL or a port (local API, database, staging). ¦ Ningún servicio vigilado. Añade una URL de health check o un puerto (API local, base de datos, staging).
+  Serviços ¦ Services ¦ Servicios
+  Verificar agora ¦ Check now ¦ Comprobar ahora
+  Notificar quando um serviço cair ou voltar ¦ Notify when a service goes down or comes back ¦ Notificar cuando un servicio caiga o vuelva
+  Verifica a cada 30 s enquanto o CoreScope está aberto: HTTP GET (2xx/3xx no ar, 4xx respondeu com erro, 5xx ou sem resposta fora do ar) ou conexão TCP na porta. Sem cookies nem cache; só os destinos que você adicionou são acessados. Alerta depois de duas falhas seguidas. ¦ Checked every 30 s while CoreScope is open: HTTP GET (2xx/3xx up, 4xx answered with an error, 5xx or no answer down) or a TCP connection to the port. No cookies or cache; only the targets you added are contacted. Alerts after two failures in a row. ¦ Se comprueba cada 30 s mientras CoreScope está abierto: HTTP GET (2xx/3xx activo, 4xx respondió con error, 5xx o sin respuesta caído) o una conexión TCP al puerto. Sin cookies ni caché; solo se contactan los destinos que añadiste. Avisa tras dos fallos seguidos.
+  Verificando… ¦ Checking… ¦ Comprobando…
+  Abrir no navegador ¦ Open in browser ¦ Abrir en el navegador
+  Editar ¦ Edit ¦ Editar
+  Perfis ¦ Profiles ¦ Perfiles
+  %@ de %@ rodando ¦ %@ of %@ running ¦ %@ de %@ en ejecución
+  %@ iniciado. ¦ %@ started. ¦ %@ iniciado.
+  %@: %@ ¦ %@: %@ ¦ %@: %@
+  Abrir log ¦ Open log ¦ Abrir log
+  Adicionar comando ¦ Add command ¦ Añadir comando
+  Apagar ¦ Delete ¦ Eliminar
+  Apagar o perfil %@? ¦ Delete the %@ profile? ¦ ¿Eliminar el perfil %@?
+  Apagar perfil ¦ Delete profile ¦ Eliminar perfil
+  Comando, ex.: npm run dev ¦ Command, e.g. npm run dev ¦ Comando, p. ej. npm run dev
+  Comandos ¦ Commands ¦ Comandos
+  Contêiner %@ não encontrado ¦ Container %@ not found ¦ Contenedor %@ no encontrado
+  Envia SIGTERM aos processos que o CoreScope iniciou para este perfil (e aos filhos deles) e para os contêineres do perfil. ¦ Sends SIGTERM to the processes CoreScope started for this profile (and their children) and stops the profile's containers. ¦ Envía SIGTERM a los procesos que CoreScope inició para este perfil (y a sus hijos) y detiene los contenedores del perfil.
+  Escolher… ¦ Choose… ¦ Elegir…
+  Iniciando %@… ¦ Starting %@… ¦ Iniciando %@…
+  Iniciar ¦ Start ¦ Iniciar
+  Mostrar logs no Finder ¦ Show logs in Finder ¦ Mostrar logs en el Finder
+  Nenhum contêiner encontrado. ¦ No containers found. ¦ No se encontraron contenedores.
+  Nenhum perfil ainda. Crie um com os comandos que você roda todo dia (npm run dev, php artisan serve…) e os contêineres do projeto. ¦ No profiles yet. Create one with the commands you run every day (npm run dev, php artisan serve…) and the project's containers. ¦ Aún no hay perfiles. Crea uno con los comandos que ejecutas a diario (npm run dev, php artisan serve…) y los contenedores del proyecto.
+  Novo perfil ¦ New profile ¦ Nuevo perfil
+  Não foi possível criar o log ¦ Could not create the log ¦ No se pudo crear el log
+  O comando terminou logo ao iniciar; veja o log ¦ The command exited right away; see the log ¦ El comando terminó al iniciar; mira el log
+  Os comandos rodam no seu shell de login, na pasta do perfil, com a saída em ~/Library/Application Support/CoreScope/logs. Parar encerra só os processos que o CoreScope iniciou (com a mesma verificação de identidade do resto do app) e para os contêineres do perfil. ¦ Commands run in your login shell, in the profile's folder, with output in ~/Library/Application Support/CoreScope/logs. Stop ends only the processes CoreScope started (with the same identity checks as the rest of the app) and stops the profile's containers. ¦ Los comandos se ejecutan en tu shell de inicio de sesión, en la carpeta del perfil, con la salida en ~/Library/Application Support/CoreScope/logs. Detener finaliza solo los procesos que CoreScope inició (con la misma verificación de identidad que el resto de la app) y detiene los contenedores del perfil.
+  Parar %@? ¦ Stop %@? ¦ ¿Detener %@?
+  Pasta ¦ Folder ¦ Carpeta
+  Pasta não encontrada ¦ Folder not found ¦ Carpeta no encontrada
+  Só a configuração é apagada; nada que esteja rodando é encerrado. ¦ Only the settings are deleted; nothing running is stopped. ¦ Solo se elimina la configuración; no se detiene nada en ejecución.
+  Um clique para subir (ou derrubar) o ambiente de um projeto: comandos na pasta dele e os contêineres de que ele precisa. ¦ One click to bring a project's environment up (or down): commands in its folder and the containers it needs. ¦ Un clic para levantar (o bajar) el entorno de un proyecto: comandos en su carpeta y los contenedores que necesita.
+  não encontrado ¦ not found ¦ no encontrado
+  Comando ¦ Command ¦ Comando
+  Parar tudo, inclusive compartilhados ¦ Stop everything, including shared ¦ Detener todo, incluso compartidos
+  Envia SIGTERM aos processos que o CoreScope iniciou para este perfil (e aos filhos deles). ¦ Sends SIGTERM to the processes CoreScope started for this profile (and their children). ¦ Envía SIGTERM a los procesos que CoreScope inició para este perfil (y a sus hijos).
+  Para: %@ ¦ Stops: %@ ¦ Detiene: %@
+  Mantém %@: em uso pelo perfil %@ ¦ Keeps %@: in use by the %@ profile ¦ Mantiene %@: en uso por el perfil %@
+  Mantém %@: já estava rodando quando o perfil foi iniciado ¦ Keeps %@: it was already running when the profile started ¦ Mantiene %@: ya estaba en ejecución cuando se inició el perfil
+  As pastas mudaram desde a última análise. ¦ The folders changed since the last scan. ¦ Las carpetas cambiaron desde el último análisis.
+  Resultado de %@: pode estar desatualizado. Analise de novo para ver o estado atual. ¦ Result from %@: it may be out of date. Scan again to see the current state. ¦ Resultado de %@: puede estar desactualizado. Analiza de nuevo para ver el estado actual.
+  A análise percorre as pastas de projeto e pode levar alguns segundos; nada é lido até você clicar em Analisar. ¦ Scanning walks your project folders and can take a few seconds; nothing is read until you click Scan. ¦ El análisis recorre las carpetas de proyecto y puede tardar unos segundos; no se lee nada hasta que pulses Analizar.
+  %@ chaves ¦ %@ keys ¦ %@ claves
+  + %@ bancos ¦ + %@ databases ¦ + %@ bases de datos
+  Bancos ¦ Databases ¦ Bases de datos
+  Conexão recusada ¦ Connection refused ¦ Conexión rechazada
+  Conexões ¦ Connections ¦ Conexiones
+  Consultas acima do long_query_time desde que o servidor subiu ¦ Queries over long_query_time since the server started ¦ Consultas por encima de long_query_time desde que arrancó el servidor
+  Consultas rodando há mais de 5 s ¦ Queries running for more than 5 s ¦ Consultas en ejecución desde hace más de 5 s
+  Consultas só de leitura em 127.0.0.1, pelo protocolo de cada banco. O CoreScope nunca pede, guarda ou lê senhas: conecta apenas quando o servidor aceita acesso local sem senha (MySQL root sem senha, PostgreSQL com trust para o seu usuário, Redis sem AUTH) e, se não, mostra que pede senha. Cada consulta tem limite de tempo também no servidor. ¦ Read-only queries on 127.0.0.1, over each database's own protocol. CoreScope never asks for, stores or reads passwords: it connects only when the server allows passwordless local access (MySQL root without a password, PostgreSQL trust for your user, Redis without AUTH) and otherwise shows that a password is required. Every query also has a time limit on the server. ¦ Consultas de solo lectura en 127.0.0.1, con el protocolo de cada base de datos. CoreScope nunca pide, guarda ni lee contraseñas: solo se conecta cuando el servidor acepta acceso local sin contraseña (MySQL root sin contraseña, PostgreSQL con trust para tu usuario, Redis sin AUTH) y, si no, indica que pide contraseña. Cada consulta tiene también un límite de tiempo en el servidor.
+  Entradas no SLOWLOG do Redis ¦ Entries in Redis's SLOWLOG ¦ Entradas en el SLOWLOG de Redis
+  Erro ¦ Error ¦ Error
+  Lentas ¦ Slow ¦ Lentas
+  MySQL/MariaDB, PostgreSQL e Redis encontrados em processos e contêineres locais. ¦ MySQL/MariaDB, PostgreSQL and Redis found in local processes and containers. ¦ MySQL/MariaDB, PostgreSQL y Redis encontrados en procesos y contenedores locales.
+  Nenhum MySQL, PostgreSQL ou Redis local em execução. ¦ No local MySQL, PostgreSQL or Redis running. ¦ Ningún MySQL, PostgreSQL o Redis local en ejecución.
+  Não é MySQL ¦ Not a MySQL server ¦ No es un servidor MySQL
+  Não é PostgreSQL ¦ Not a PostgreSQL server ¦ No es un servidor PostgreSQL
+  Não é Redis ¦ Not a Redis server ¦ No es un servidor Redis
+  Pacote grande demais ¦ Packet too large ¦ Paquete demasiado grande
+  Pede senha ¦ Needs a password ¦ Pide contraseña
+  Pede senha: o CoreScope não usa senhas, então não lê este servidor. ¦ Needs a password: CoreScope does not use passwords, so it does not read this server. ¦ Pide contraseña: CoreScope no usa contraseñas, así que no lee este servidor.
+  Procurando bancos locais… ¦ Looking for local databases… ¦ Buscando bases de datos locales…
+  Resposta grande demais ¦ Reply too large ¦ Respuesta demasiado grande
+  Resposta inválida ¦ Invalid reply ¦ Respuesta no válida
+  Sem resposta ¦ No answer ¦ Sin respuesta
+  Slowlog ¦ Slowlog ¦ Slowlog
+  contêiner ¦ container ¦ contenedor
+  no ar há %@ ¦ up for %@ ¦ activo desde hace %@
+  Abrir no Terminal ¦ Open in Terminal ¦ Abrir en Terminal
+  Acesso negado: o ssh precisa de uma chave (o CoreScope não usa senhas) ¦ Access denied: ssh needs a key (CoreScope does not use passwords) ¦ Acceso denegado: ssh necesita una clave (CoreScope no usa contraseñas)
+  Adicionar máquina ¦ Add machine ¦ Añadir máquina
+  Alias do ~/.ssh/config ou usuario@host ¦ Alias from ~/.ssh/config or user@host ¦ Alias de ~/.ssh/config o usuario@host
+  Carga ¦ Load ¦ Carga
+  Carga / núcleos ¦ Load / cores ¦ Carga / núcleos
+  Chave do host desconhecida: conecte uma vez pelo Terminal para confirmá-la ¦ Unknown host key: connect once from Terminal to confirm it ¦ Clave de host desconocida: conéctate una vez desde Terminal para confirmarla
+  Disco / ¦ Disk / ¦ Disco /
+  Do seu ~/.ssh/config: ¦ From your ~/.ssh/config: ¦ De tu ~/.ssh/config:
+  Falhou (código %@) ¦ Failed (code %@) ¦ Falló (código %@)
+  Host não encontrado ¦ Host not found ¦ Host no encontrado
+  Máquinas ¦ Machines ¦ Máquinas
+  Média de 1 min; %@ núcleos ¦ 1-minute average; %@ cores ¦ Media de 1 min; %@ núcleos
+  Nenhuma máquina. Adicione servidores que você acessa por ssh com chave para ver carga, memória, disco e processos. ¦ No machines. Add servers you reach over ssh with a key to see load, memory, disk and processes. ¦ Ninguna máquina. Añade servidores a los que accedes por ssh con clave para ver carga, memoria, disco y procesos.
+  Sem resposta em 15 s ¦ No answer in 15 s ¦ Sin respuesta en 15 s
+  Usa o seu próprio ssh em BatchMode: chaves e agente ficam com o ssh, nada pede senha e um host com chave desconhecida falha em vez de ser aceito. O comando remoto só lê (uname, carga, memória, df, ps, docker ps). Atualiza a cada 60 s enquanto esta página está aberta. ¦ Uses your own ssh in BatchMode: keys and agent stay with ssh, nothing prompts for a password, and a host with an unknown key fails instead of being accepted. The remote command only reads (uname, load, memory, df, ps, docker ps). Refreshes every 60 s while this page is open. ¦ Usa tu propio ssh en BatchMode: las claves y el agente se quedan en ssh, nada pide contraseña y un host con clave desconocida falla en vez de aceptarse. El comando remoto solo lee (uname, carga, memoria, df, ps, docker ps). Se actualiza cada 60 s mientras esta página está abierta.
+  lido %@ (%@ s) ¦ read %@ (%@ s) ¦ leído %@ (%@ s)
+  %@ está gastando bateria ¦ %@ is draining the battery ¦ %@ está gastando batería
+  %@ por 5 min na bateria (%@%%) ¦ %@ for 5 min on battery (%@%%) ¦ %@ durante 5 min con batería (%@%%)
+  Acima de ¦ Above ¦ Por encima de
+  Carregando ¦ Charging ¦ Cargando
+  Carregando · cheia em %@ ¦ Charging · full in %@ ¦ Cargando · llena en %@
+  Energia ¦ Energy ¦ Energía
+  Este Mac usa só energia da tomada. ¦ This Mac runs on wall power only. ¦ Este Mac solo usa corriente.
+  Na bateria ¦ On battery ¦ Con batería
+  Na bateria · %@ restantes ¦ On battery · %@ left ¦ Con batería · quedan %@
+  Na tomada, sem carregar ¦ On AC power, not charging ¦ Enchufado, sin cargar
+  Nenhuma sessão de agente rodando. ¦ No agent sessions running. ¦ Ninguna sesión de agente en ejecución.
+  Notificar quando um agente gastar bateria ¦ Notify when an agent drains the battery ¦ Notificar cuando un agente gaste batería
+  Processos que mais gastam ¦ Processes drawing the most ¦ Procesos que más consumen
+  Sem bateria ¦ No battery ¦ Sin batería
+  Sem leitura de energia por processo neste macOS. ¦ No per-process energy on this macOS. ¦ Sin lectura de energía por proceso en este macOS.
+  Sessões de agente ¦ Agent sessions ¦ Sesiones de agente
+  Soma da sessão e de tudo que ela iniciou ¦ The session plus everything it started ¦ La sesión más todo lo que inició
+  Só na bateria: avisa quando uma sessão de agente, somando os processos que ela iniciou, passa do limite por 5 minutos (no máximo uma vez por hora por sessão). ¦ On battery only: alerts when an agent session, counting the processes it started, stays above the limit for 5 minutes (at most once an hour per session). ¦ Solo con batería: avisa cuando una sesión de agente, sumando los procesos que inició, supera el límite durante 5 minutos (como máximo una vez por hora por sesión).
+  Watts estimados pelo macOS para cada processo (energia de CPU e GPU atribuída a ele, rusage v6). Não inclui tela, rádios e outros componentes, então a soma fica abaixo do consumo total do Mac. ¦ Watts macOS estimates for each process (CPU and GPU energy billed to it, rusage v6). Display, radios and other components are not included, so the sum stays below the Mac's total draw. ¦ Vatios que macOS estima para cada proceso (energía de CPU y GPU atribuida, rusage v6). No incluye pantalla, radios ni otros componentes, así que la suma queda por debajo del consumo total del Mac.
+  processos agora ¦ processes now ¦ procesos ahora
+  Agentes podem usar o app pelo MCP ¦ Agents can use the app through MCP ¦ Los agentes pueden usar la app por MCP
+  Perfis (criar, iniciar, parar, logs), Serviços, Máquinas, limpeza (analisar e mover para a Lixeira o que a análise encontrou) e ajustes de notificação. Pelo socket local do app, só para o seu usuário. O agente pede a sua aprovação antes de cada ação. ¦ Profiles (create, start, stop, logs), Services, Machines, cleanup (scan, and move to the Trash what the scan found) and notification settings. Through the app's local socket, for your user only. The agent asks for your approval before each action. ¦ Perfiles (crear, iniciar, detener, logs), Servicios, Máquinas, limpieza (analizar y mover a la Papelera lo que encontró el análisis) y ajustes de notificación. Por el socket local de la app, solo para tu usuario. El agente pide tu aprobación antes de cada acción.
+  Uma análise ou limpeza já está em andamento ¦ A scan or cleanup is already running ¦ Ya hay un análisis o limpieza en curso
+  O perfil já está iniciando ou parando ¦ The profile is already starting or stopping ¦ El perfil ya se está iniciando o deteniendo
+  ao parar ¦ on stop ¦ al detener
+  Ao parar ¦ On stop ¦ Al detener
+  ao parar: %@ ¦ on stop: %@ ¦ al detener: %@
+  Opcional, ex.: make env-down ¦ Optional, e.g. make env-down ¦ Opcional, p. ej. make env-down
+  concluído %@ ¦ completed %@ ¦ completado %@
+  falhou · saída %@ ¦ failed · exit %@ ¦ falló · salida %@
+  Comando de preparação: terminou com sucesso (saída 0) e conta como ativo enquanto o perfil está iniciado. ¦ Setup command: it finished successfully (exit 0) and counts as up while the profile is started. ¦ Comando de preparación: terminó con éxito (salida 0) y cuenta como activo mientras el perfil está iniciado.
+  %@: o comando ao parar passou de 2 min ¦ %@: the stop command took more than 2 min ¦ %@: el comando al detener tardó más de 2 min
+  %@: o comando ao parar saiu com %@ ¦ %@: the stop command exited with %@ ¦ %@: el comando al detener salió con %@
+  concluído ¦ completed ¦ completado
+  %@ processos ¦ %@ processes ¦ %@ procesos
   """

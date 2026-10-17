@@ -524,3 +524,187 @@ func shortcutLabel(modifiers: Int, key: String) -> String {
   if modifiers & HotkeyModifier.command != 0 { out += "⌘" }
   return out + key.uppercased()
 }
+
+/// A process an agent session started, as far as stall detection cares.
+struct TurnChild {
+  let name: String
+  let cpu: Double
+  /// Start time, seconds since 1970.
+  let start: Double
+  let listening: Bool
+}
+/// What a busy agent session seems to be doing when nothing new has reached its transcript for
+/// a while. `since` is when the transcript last changed (or the turn began).
+enum AgentStall: Equatable {
+  /// A command it started in this turn is still computing: probably just long.
+  case longCommand(String, since: Double)
+  /// A command it started in this turn sits idle: waiting for input, a lock or the network.
+  case waiting(String, since: Double)
+  /// No transcript writes and nothing running: the agent itself looks stuck.
+  case silent(since: Double)
+  var since: Double {
+    switch self {
+    case .longCommand(_, let since), .waiting(_, let since), .silent(let since): since
+    }
+  }
+  /// Worth an alert: a long build or test run is not.
+  var suspicious: Bool { if case .longCommand = self { false } else { true } }
+}
+/// Nil while the session is idle or wrote to its transcript within `threshold` seconds. Servers
+/// it left listening and processes from earlier turns (MCP servers, dev servers) are ignored.
+func agentStall(
+  busySince: Double?, lastWrite: Double?, children: [TurnChild], now: Double, threshold: Double
+) -> AgentStall? {
+  guard let busySince else { return nil }
+  let quietSince = max(busySince, lastWrite ?? busySince)
+  guard now - quietSince >= threshold else { return nil }
+  let turn = children.filter { $0.start >= busySince - 1 && !$0.listening }
+  if let hot = turn.max(by: { $0.cpu < $1.cpu }), hot.cpu >= 20 {
+    return .longCommand(hot.name, since: quietSince)
+  }
+  if let newest = turn.max(by: { $0.start < $1.start }) { return .waiting(newest.name, since: quietSince) }
+  return .silent(since: quietSince)
+}
+/// Claude Code's folder under ~/.claude/projects for a working directory.
+func claudeProjectFolder(_ cwd: String) -> String {
+  String(cwd.map { $0.isASCII && ($0.isLetter || $0.isNumber) ? $0 : "-" })
+}
+
+/// What a health check probes: an HTTP(S) endpoint, or a TCP port that must accept connections.
+enum HealthTarget: Equatable {
+  case http(URL)
+  case tcp(host: String, port: UInt16)
+  /// "3000", ":3000", "db.local:5432", "localhost:3000/health", "https://staging.app/up".
+  init?(_ text: String) {
+    let t = text.trimmingCharacters(in: .whitespaces)
+    if t.lowercased().hasPrefix("http://") || t.lowercased().hasPrefix("https://") {
+      guard let url = URL(string: t), url.host?.isEmpty == false else { return nil }
+      self = .http(url)
+      return
+    }
+    if t.contains("/") {
+      guard let url = URL(string: "http://" + t), url.host?.isEmpty == false else { return nil }
+      self = .http(url)
+      return
+    }
+    if let port = parsePort(t) {
+      self = .tcp(host: "localhost", port: port)
+      return
+    }
+    guard let colon = t.lastIndex(of: ":"), let port = parsePort(String(t[t.index(after: colon)...])) else {
+      return nil
+    }
+    let host = String(t[..<colon]).trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+    guard !host.isEmpty, !host.contains(" ") else { return nil }
+    self = .tcp(host: host, port: port)
+  }
+  var label: String {
+    switch self {
+    case .http(let url): url.absoluteString
+    case .tcp(let host, let port): "\(host):\(port)"
+    }
+  }
+  /// Only loopback targets keep CoreScope's "no network" promise; others are the user's choice.
+  var isLocal: Bool {
+    let host: String
+    switch self {
+    case .http(let url): host = url.host ?? ""
+    case .tcp(let h, _): host = h
+    }
+    return ["localhost", "127.0.0.1", "::1"].contains(host.lowercased()) || host.hasSuffix(".localhost")
+  }
+}
+/// 2xx/3xx is healthy; 4xx answers but is probably the wrong path; anything else is down.
+enum HealthLevel: Int, Comparable {
+  case up = 0, warn = 1, down = 2
+  static func < (a: Self, b: Self) -> Bool { a.rawValue < b.rawValue }
+  init(httpStatus: Int) { self = httpStatus < 400 ? .up : httpStatus < 500 ? .warn : .down }
+}
+
+/// What stopping one profile does to its containers. A container keeps running while another
+/// started profile still uses it, or when no profile started it (it was already up: the user's or
+/// another tool's). The last profile using a container a profile started stops it.
+struct ContainerStopPlan: Equatable {
+  var stop: [String] = []
+  /// Container → the active profile that still uses it.
+  var shared: [String: String] = [:]
+  /// Running before any profile started it.
+  var external: [String] = []
+}
+func planContainerStop(
+  _ containers: [String], running: Set<String>, startedByProfiles: Set<String>,
+  otherActive: [(name: String, containers: [String])]
+) -> ContainerStopPlan {
+  var plan = ContainerStopPlan()
+  for name in containers where running.contains(name) {
+    if let other = otherActive.first(where: { $0.containers.contains(name) }) {
+      plan.shared[name] = other.name
+    } else if startedByProfiles.contains(name) {
+      plan.stop.append(name)
+    } else {
+      plan.external.append(name)
+    }
+  }
+  return plan
+}
+
+/// What `machineScript` prints on a remote host, one `key=value` per line.
+struct RemoteStats: Equatable {
+  var os = "", kernel = "", host = ""
+  var load: [Double] = []
+  var cpus = 0
+  var uptime: Double?
+  var memoryTotal: Double?, memoryAvailable: Double?
+  var diskTotal: Double?, diskUsed: Double?
+  var containers: Int?
+  var processes: [(cpu: Double, memory: Double, name: String)] = []
+  static func == (a: Self, b: Self) -> Bool {
+    a.os == b.os && a.host == b.host && a.load == b.load && a.cpus == b.cpus && a.uptime == b.uptime
+      && a.memoryTotal == b.memoryTotal && a.memoryAvailable == b.memoryAvailable && a.diskTotal == b.diskTotal
+      && a.diskUsed == b.diskUsed && a.containers == b.containers && a.processes.map(\.name) == b.processes.map(\.name)
+  }
+  init() {}
+  init(parsing text: String) {
+    for line in text.split(whereSeparator: \.isNewline) {
+      guard let eq = line.firstIndex(of: "=") else { continue }
+      let key = line[..<eq], value = String(line[line.index(after: eq)...]).trimmingCharacters(in: .whitespaces)
+      switch key {
+      case "os": os = value
+      case "kernel": kernel = value
+      case "host": host = value
+      case "load": load = value.split(separator: " ").compactMap { Double($0) }
+      case "cpus": cpus = Int(value) ?? 0
+      case "uptime": uptime = Double(value)
+      case "memtotal": memoryTotal = Double(value)
+      case "memavail": memoryAvailable = Double(value)
+      case "disktotal": diskTotal = Double(value)
+      case "diskused": diskUsed = Double(value)
+      case "containers": containers = Int(value)
+      case "proc":
+        let parts = value.split(separator: "|", maxSplits: 2).map(String.init)
+        if parts.count == 3, let cpu = Double(parts[0]), let mem = Double(parts[1]) {
+          processes.append((cpu, mem, (parts[2] as NSString).lastPathComponent))
+        }
+      default: break
+      }
+    }
+  }
+  var valid: Bool { !os.isEmpty }
+}
+/// An ssh destination CoreScope will pass on: alias, host or user@host[:port-less], never an option.
+func validSSHDestination(_ s: String) -> Bool {
+  !s.isEmpty && !s.hasPrefix("-") && s.count <= 255
+    && s.unicodeScalars.allSatisfy { CharacterSet.alphanumerics.contains($0) || "._-@[]:".unicodeScalars.contains($0) }
+}
+/// `Host` aliases from an ssh config, without patterns.
+func sshConfigHosts(_ config: String) -> [String] {
+  var out: [String] = []
+  for line in config.split(whereSeparator: \.isNewline) {
+    let words = line.split(whereSeparator: { $0 == " " || $0 == "\t" })
+    guard let first = words.first, first.lowercased() == "host" else { continue }
+    for w in words.dropFirst() where !w.contains("*") && !w.contains("?") && !w.hasPrefix("!") {
+      if !out.contains(String(w)) { out.append(String(w)) }
+    }
+  }
+  return out
+}

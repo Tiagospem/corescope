@@ -133,8 +133,47 @@ import Foundation
     precondition(parsePort("0") == nil && parsePort("70000") == nil && parsePort("abc") == nil)
     precondition(
       shortcutLabel(modifiers: HotkeyModifier.command | HotkeyModifier.option, key: "k") == "⌥⌘K")
+    // Stalls: quiet transcript + what the turn's own commands are doing.
+    let busy = 1000.0
+    precondition(agentStall(busySince: nil, lastWrite: nil, children: [], now: 9999, threshold: 600) == nil)
+    precondition(agentStall(busySince: busy, lastWrite: 1500, children: [], now: 2000, threshold: 600) == nil)
+    precondition(agentStall(busySince: busy, lastWrite: 1100, children: [], now: 2000, threshold: 600) == .silent(since: 1100))
+    let server = TurnChild(name: "vite", cpu: 0, start: 1050, listening: true)
+    let mcp = TurnChild(name: "node", cpu: 90, start: 10, listening: false)
+    precondition(
+      agentStall(busySince: busy, lastWrite: nil, children: [server, mcp], now: 2000, threshold: 600) == .silent(since: busy))
+    let tests = TurnChild(name: "cargo", cpu: 180, start: 1200, listening: false)
+    let prompt = TurnChild(name: "npm", cpu: 0, start: 1300, listening: false)
+    precondition(
+      agentStall(busySince: busy, lastWrite: 1100, children: [tests, prompt], now: 2000, threshold: 600)
+        == .longCommand("cargo", since: 1100))
+    let stuck = agentStall(busySince: busy, lastWrite: 1100, children: [prompt], now: 2000, threshold: 600)
+    precondition(stuck == .waiting("npm", since: 1100) && stuck?.suspicious == true)
+    precondition(claudeProjectFolder("/Volumes/HD Externo/a_b/.claude") == "-Volumes-HD-Externo-a-b--claude")
+    precondition(HealthTarget("3000") == .tcp(host: "localhost", port: 3000))
+    precondition(HealthTarget(":5432") == .tcp(host: "localhost", port: 5432))
+    precondition(HealthTarget("db.local:6379") == .tcp(host: "db.local", port: 6379))
+    precondition(HealthTarget("localhost:3000/health") == .http(URL(string: "http://localhost:3000/health")!))
+    precondition(HealthTarget("https://staging.app/up")?.isLocal == false)
+    precondition(HealthTarget("http://api.localhost:8080")?.isLocal == true)
+    precondition(HealthTarget("nonsense") == nil && HealthTarget("host:99999") == nil && HealthTarget("http://") == nil)
+    precondition(HealthLevel(httpStatus: 204) == .up && HealthLevel(httpStatus: 404) == .warn && HealthLevel(httpStatus: 503) == .down)
+    // Shared containers survive until the last active profile using them stops.
+    let plan = planContainerStop(
+      ["mysql", "redis", "mailpit", "stopped"], running: ["mysql", "redis", "mailpit"],
+      startedByProfiles: ["mysql", "redis"], otherActive: [(name: "Shop", containers: ["mysql"])])
+    precondition(plan == ContainerStopPlan(stop: ["redis"], shared: ["mysql": "Shop"], external: ["mailpit"]))
+    precondition(
+      planContainerStop(["mysql"], running: ["mysql"], startedByProfiles: ["mysql"], otherActive: []).stop == ["mysql"])
+    let remote = RemoteStats(parsing: "os=Linux\nhost=web-1\nload=0.50 0.40 0.30\ncpus=4\nuptime=3600\nmemtotal=8000\nmemavail=2000\ndisktotal=100\ndiskused=40\ncontainers=3\nproc=12.5|3.1|/usr/sbin/mysqld\nnoise\n")
+    precondition(remote.valid && remote.load == [0.5, 0.4, 0.3] && remote.cpus == 4 && remote.containers == 3)
+    precondition(remote.processes.first?.name == "mysqld" && remote.memoryAvailable == 2000)
+    precondition(!RemoteStats(parsing: "garbage").valid)
+    precondition(validSSHDestination("deploy@web-1.example.com") && validSSHDestination("forge-redis"))
+    precondition(!validSSHDestination("-oProxyCommand=x") && !validSSHDestination("a b") && !validSSHDestination("a;rm"))
+    precondition(sshConfigHosts("Host *\n  User x\nHost web db-1 !bad\nhost web\n") == ["web", "db-1"])
     print(
-      "25 native assertions passed: descendants, cycle, ordering, off-screen recovery, negative-origin monitor, forest roots, flatten, collapse, totals, ancestors, filter, formatting, container ports, shared ports, demo paths, debounce, sustained thresholds, new arrivals, port parsing, shortcut label; plus settings JSON, Unicode escapes, status line install/chain, Claude limits"
+      "25 native assertions passed: descendants, cycle, ordering, off-screen recovery, negative-origin monitor, forest roots, flatten, collapse, totals, ancestors, filter, formatting, container ports, shared ports, demo paths, debounce, sustained thresholds, new arrivals, port parsing, shortcut label, agent stalls, health targets, shared containers, ssh stats; plus settings JSON, Unicode escapes, status line install/chain, Claude limits"
     )
     print(
       "token usage assertions passed: timestamps, formatting, Claude block dedupe, embedded entries, partial lines, long-line skip, fast/full parity, Codex repeats and forks"

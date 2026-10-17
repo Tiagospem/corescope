@@ -107,6 +107,51 @@ final class Notifier: NSObject, ObservableObject, UNUserNotificationCenterDelega
       body: body, process: nil, at: Date().timeIntervalSince1970)
   }
 
+  private var drain = SustainTracker()
+  /// On battery, an agent session (with everything it started) above `drainWatts` for 5 minutes.
+  func evaluateDrain(_ s: Snapshot) {
+    let p = Preferences.shared
+    guard p.notifyAgentDrain, let battery = s.battery, !battery.on_ac else {
+      drain = SustainTracker()
+      return
+    }
+    var watts: [String: (ProcessItem, Double)] = [:]
+    for root in s.agentSessions {
+      let total = s.subtree(of: root).compactMap { $0.energy?.value }.reduce(0, +)
+      if total >= p.drainWatts { watts[root.id] = (root, total) }
+    }
+    for id in drain.update(above: Array(watts.keys), at: s.at, duration: 300) {
+      guard let (root, total) = watts[id] else { continue }
+      post(
+        key: "drain.\(id)", title: L("%@ está gastando bateria", root.host ?? root.name),
+        body: L("%@ por 5 min na bateria (%@%%)", String(format: "%.1f W", total), "\(battery.percent)")
+          + "\n" + describe(root), process: nil, at: s.at)
+    }
+  }
+
+  /// A watched service went down or came back; clicking opens the Services page.
+  func serviceChanged(key: String, title: String, body: String) {
+    if center == nil { activate() }
+    guard let center, !denied else { return }
+    let content = UNMutableNotificationContent()
+    content.title = title
+    content.body = body
+    content.threadIdentifier = "services"
+    center.add(UNNotificationRequest(identifier: "service.\(key).\(Date().timeIntervalSince1970)", content: content, trigger: nil))
+  }
+
+  /// A busy agent session stopped making progress; clicking opens it (Claude Desktop or Codex).
+  func agentStalled(key: String, title: String, body: String, url: URL?) {
+    if center == nil { activate() }
+    guard let center, !denied else { return }
+    let content = UNMutableNotificationContent()
+    content.title = title
+    content.body = body
+    content.threadIdentifier = "agents"
+    if let url { content.userInfo = ["open": url.absoluteString] }
+    center.add(UNNotificationRequest(identifier: "stall.\(key)", content: content, trigger: nil))
+  }
+
   private func describe(_ p: ProcessItem) -> String {
     let ports = p.ports.prefix(3).map { ":\($0.port)" }.joined(separator: " ")
     return [
@@ -148,7 +193,16 @@ final class Notifier: NSObject, ObservableObject, UNUserNotificationCenterDelega
       if action == Self.terminate, let id {
         self.terminate(id)
       } else if action == UNNotificationDefaultActionIdentifier {
-        WindowOpener.shared.showMain(page: .processes)
+        let info = response.notification.request.content.userInfo
+        if let link = info["open"] as? String, let url = URL(string: link),
+          ["claude", "codex"].contains(url.scheme ?? "")
+        {
+          NSWorkspace.shared.open(url)
+        } else {
+          let id = response.notification.request.identifier
+          WindowOpener.shared.showMain(
+            page: id.hasPrefix("stall.") ? .agents : id.hasPrefix("service.") ? .health : id.hasPrefix("drain.") ? .energy : .processes)
+        }
       }
       completionHandler()
     }

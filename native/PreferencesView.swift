@@ -108,6 +108,15 @@ struct PreferencesView: View {
           }
         }
         Toggle(L("Pressão de memória do macOS (atenção/crítica)"), isOn: notify($p.notifyPressure))
+        Toggle(L("Agente parece travado"), isOn: notify($p.notifyStalls))
+        LabeledContent(L("Travado após")) {
+          Picker("", selection: $p.stallMinutes) {
+            ForEach([5.0, 10, 15, 30, 60], id: \.self) { Text(L("%@ min sem atividade", "\(Int($0))")).tag($0) }
+          }.labelsHidden().frame(width: 200)
+        }
+        Text(
+          L("Uma sessão ocupada (Claude Code, Codex) que não escreve na própria transcrição por esse tempo. Se um comando iniciado nesta vez está usando CPU, é só um comando longo; se está parado, pode estar esperando uma entrada. Vale também para o selo na página Agentes. Lê apenas datas de modificação, nunca o conteúdo.")
+        ).font(.caption).foregroundStyle(.secondary)
         if notifier.denied && p.notificationsEnabled {
           HStack {
             Text(L("O macOS está bloqueando as notificações do CoreScope."))
@@ -137,6 +146,8 @@ struct PreferencesView: View {
           L("Abre o menu do CoreScope com o campo Porta em foco. Registrado com RegisterEventHotKey: não pede permissão de Acessibilidade e o app recebe só esta combinação.")
         ).font(.caption).foregroundStyle(.secondary)
       }
+      CommandLineSettings()
+      MCPSettings()
       Section(L("Agentes")) {
         Toggle(L("Ler o limite atual pelo Codex"), isOn: $p.codexLiveLimits)
           .onChange(of: p.codexLiveLimits) { _, on in if on { AgentStore.shared.refreshCodexLive() } }

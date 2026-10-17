@@ -49,6 +49,12 @@ enum Page: String, CaseIterable, Identifiable {
   case containers = "Contêineres"
   case history = "Histórico"
   case storage = "Armazenamento"
+  case cleanup = "Limpeza"
+  case health = "Serviços"
+  case profiles = "Perfis"
+  case databases = "Bancos"
+  case machines = "Máquinas"
+  case energy = "Energia"
   case sensors = "Sensores"
   case settings = "Ajustes"
   var id: String { rawValue }
@@ -61,6 +67,12 @@ enum Page: String, CaseIterable, Identifiable {
     case .containers: "shippingbox"
     case .history: "clock.arrow.circlepath"
     case .storage: "internaldrive"
+    case .cleanup: "trash"
+    case .health: "heart.text.square"
+    case .profiles: "play.square.stack"
+    case .databases: "cylinder.split.1x2"
+    case .machines: "server.rack"
+    case .energy: "bolt.batteryblock"
     case .sensors: "thermometer.medium"
     case .settings: "gearshape"
     }
@@ -120,6 +132,12 @@ struct MainView: View {
           case .containers: ContainersView()
           case .history: HistoryView()
           case .storage: StorageView()
+          case .cleanup: CleanupView()
+          case .health: HealthView()
+          case .profiles: ProfilesView()
+          case .databases: DatabasesView()
+          case .machines: MachinesView()
+          case .energy: EnergyView()
           case .sensors: SensorsView()
           case .settings: PreferencesView()
           }

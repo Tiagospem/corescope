@@ -63,6 +63,30 @@ If you work with Claude Code, Codex, editors and terminals all day, your Mac fil
 - **Token usage**, counted from the agents' own local transcripts: input, output and prompt-cache tokens plus the model on each session card, and totals for today and the last 7 days per agent and per project. Tokens only — no dollar estimates.
 - **Possible orphans:** dev runtimes still running after their terminal, editor or agent went away.
 
+### ⏳ Stuck agents
+
+A busy Claude Code session or Codex thread that has not written to its transcript for a while (10 min by default) gets a badge on the Agents page, and optionally a notification that opens it in Claude or Codex. CoreScope tells the cases apart by what the commands started in the current turn are doing: one using CPU is a **long command** (a build, a test run); one sitting idle is **waiting** — often a prompt asking for input; nothing running at all means the agent itself looks **stuck**. Servers it left listening and processes from earlier turns (MCP servers) are ignored. Only modification times are read, never transcript content.
+
+### 💚 Services
+
+Watch the things your work depends on: a local API's `/health`, a database port, a staging URL. Each check runs every 30 s while CoreScope is open — an HTTP GET (2xx/3xx up, 4xx answered with an error, 5xx or no answer down) or a TCP connect — with latency, a strip of the last 40 results, an Overview summary and optional notifications when a service goes down (two failures in a row) or comes back. Ports you have open right now are offered as one-click suggestions.
+
+### ▶️ Profiles
+
+One click to bring a project's environment up or down. A profile is a folder, the commands you run there every day (`npm run dev`, `php artisan serve`, `cargo watch -x run`…) and the containers it needs. *Start* runs each command in your login shell inside the folder, in a session of its own, with output in `~/Library/Application Support/CoreScope/logs`, and starts the containers. Everything a command starts keeps that session, so servers it leaves running in the background still belong to the profile — after the shell exits and after CoreScope restarts — with their PIDs and ports on the card. Setup commands that exit (`make env-up`, `docker compose up -d`) count as done when they exit 0 (failed otherwise), and can have an *on stop* command (`make env-down`) that Stop runs. *Stop* (after confirmation) sends SIGTERM only to the processes in the sessions CoreScope started for that profile — identity-checked like every other termination — and stops its containers — only the ones a profile started, and never one another started profile still uses: shared containers (one database for several projects) stay up until the last profile using them stops, and the confirmation lists what stops and what stays. *Stop everything* is there when you want it all down.
+
+### 🗄️ Databases
+
+The MySQL/MariaDB, PostgreSQL and Redis servers running on this Mac — as processes or containers — with version, uptime, size per database (keys per db for Redis), connections, slow-query counters and the queries running for more than 5 seconds. CoreScope speaks each database's own protocol on 127.0.0.1 with read-only queries, each capped on the server too. **It never asks for, stores or reads passwords**: it connects only where the server allows passwordless local access (MySQL `root` without a password, PostgreSQL trust for your user, Redis without AUTH) and otherwise just shows that a password is required. Also `corescope db` and the MCP tool `list_databases`.
+
+### 🖥️ Machines
+
+Servers you reach over ssh — add an alias from `~/.ssh/config` (offered as suggestions) or `user@host` — with OS, uptime, load against cores, memory, root disk, the top processes and running containers, refreshed every 60 s while the page is open. CoreScope runs **your own `ssh` in BatchMode** with a fixed, read-only script (`uname`, load, memory, `df`, `ps`, `docker ps`) piped to `sh -s`: keys and agent stay with ssh, nothing prompts for a password, and a host whose key is unknown fails instead of being accepted. Only `Host` names are read from your ssh config.
+
+### 🔋 Energy
+
+Battery level, charging state and time left, the watts each process draws right now (macOS's own per-process CPU/GPU energy, `rusage` v6 `ri_energy_nj`), and each agent session's power including everything it started. Optional alert when, on battery, an agent session stays above a limit (3 W by default) for 5 minutes. Also `corescope power`, `corescope top --energy` and the MCP tool `power_usage`.
+
 ### 🕒 History (opt-in)
 
 <img src="docs/screenshots/history.jpg" alt="History page: CPU, memory, disk and network over the last hour, thermal and memory pressure, and the processes that dominated" width="900">
@@ -78,6 +102,17 @@ If you work with Claude Code, Codex, editors and terminals all day, your Mac fil
 - **Listening servers name the container**: ports that OrbStack Helper or `com.docker.backend` hold for a container show up as *container &lt;name&gt;* instead of the VM helper.
 - **Stop / Restart** in place with the same click-to-arm, click-to-confirm button used for processes.
 - Read from the engine's **local Unix socket** only (`~/.orbstack/run/docker.sock`, `~/.docker/run/docker.sock`, Colima, `/var/run/docker.sock` or a `unix://` `DOCKER_HOST`), at most every 5 s and only while a container view is on screen.
+
+### 🧹 Cleanup
+
+Finds reclaimable developer space and shows what each item is, where it is, its size and when it last changed:
+
+- **Projects:** `node_modules` (next to a `package.json`) and Rust `target/` (with Cargo's `CACHEDIR.TAG`), in the folders you add and in the folders holding the projects your agents, editors and terminals are working in.
+- **Xcode:** DerivedData per project, device support files, Simulator caches.
+- **Package caches:** Homebrew, npm, Yarn, pnpm, Bun, Cargo, pip, uv, Go, Gradle, Composer, CocoaPods.
+- **Docker:** dangling images, images no container uses, unused build cache (through the engine's own API).
+
+Nothing is scanned until you press *Scan*: the last result is kept in `~/Library/Application Support/CoreScope/cleanup-cache.json` (paths, sizes and dates) and the page says when it may be out of date (older than 6 hours, or the folder list changed). Select items (or *Unused 30+ days*) and confirm: folders go to the **Trash**, so they can be recovered until you empty it. Anything a process is using — a dev server in the project, `cargo`, Xcode, an agent working there — is locked, and every folder is re-checked by the core right before it moves: still a real folder (no symlinks), still one of the kinds above, still unused. Docker data is removed by Docker and pulled again when needed.
 
 ### 📊 Menu bar and floating panel
 
@@ -104,6 +139,55 @@ If you work with Claude Code, Codex, editors and terminals all day, your Mac fil
   At most one notification per process identity (PID + start time) per hour. Protected processes and other users' processes never notify. Rules run on the snapshots CoreScope already collects — no extra timer or sampling.
 - **Port lookup in the menu bar:** type a port (e.g. `3000`) to see which of your processes listens on it — name, project, origin — with *open `localhost:port`* and ✕. An empty result reads *Free*.
 - **Global shortcut ⌥⌘K** (configurable in Settings → Port shortcut) opens the menu bar popover with the port field focused. It is registered with Carbon's `RegisterEventHotKey`, so it needs **no Accessibility or Input Monitoring permission**: the app receives only that one key combination, never other keystrokes. (macOS 27 no longer exposes a public way to open a `MenuBarExtra` window, so there the shortcut shows the same menu in a standard popover anchored to the status item.)
+
+### ⌨️ Command line
+
+Install it from *Settings → Command line* (a link in `~/.local/bin`). Every command accepts `--json`, so agents can use it too:
+
+```bash
+corescope ports                    # listening ports with process, project and origin
+corescope free-port 3000           # first free localhost port from 3000
+corescope kill-port 3000           # stop what listens on :3000 (asks first; --yes, --force)
+corescope agents                   # agent sessions, what they started, their ports
+corescope orphans                  # dev runtimes left running without their parent
+corescope top --mem -n 10          # top processes by memory (or CPU)
+corescope kill 4242 --tree         # stop a process and everything it started
+corescope space                    # reclaimable node_modules, target/, Xcode, caches, Docker
+corescope db                       # local MySQL/PostgreSQL/Redis: sizes, connections, slow queries
+corescope power                    # battery, watts per process and per agent session
+```
+
+Termination follows the app's rules: only your own processes, never system services or the command's own ancestors (an agent cannot stop its own session), identity revalidated right before each signal, and no signal without `--yes` when there is no terminal to confirm in.
+
+### 🤖 MCP server for agents (opt-in)
+
+Off by default. *Settings → MCP server for agents → Enable* registers `corescope mcp` (a stdio MCP server inside the app) with **Claude Code** (`claude mcp add --scope user`) and/or **Codex** (`codex mcp add`); *Disable* removes it. Agents then get these tools:
+
+| Tool | What it does |
+| --- | --- |
+| `list_ports` / `find_free_port` | Listening ports with process and project; first free localhost port |
+| `top_processes` / `system_summary` | Heaviest processes by CPU or memory; CPU, memory, swap and disk at a glance |
+| `list_agent_sessions` / `list_orphans` | Agent sessions and what they started; dev runtimes left without a parent |
+| `list_my_processes` | What the calling agent session started, including servers it detached |
+| `power_usage` | Battery, total watts, top processes and agent sessions by power |
+| `list_databases` | Local MySQL/PostgreSQL/Redis status (read-only, no passwords) |
+| `list_dev_space` | Reclaimable space (read-only; cleaning stays in the app, with your confirmation) |
+| `stop_port` / `stop_process` | Stop a process (or a port's owner), **only if this agent session started it** |
+
+With *Agents can use the app through MCP* (on by default once the server is registered), the server also reaches the running app over a private Unix socket (`~/Library/Application Support/CoreScope/control.sock`, mode 0600, same-user peers only) for everything the app owns:
+
+| Tool | What it does |
+| --- | --- |
+| `list_profiles` / `create_profile` / `start_profile` / `stop_profile` / `delete_profile` / `profile_logs` | Environment profiles — an agent can read the project and propose, say, a lighter QA profile that builds instead of running watchers |
+| `list_services` / `add_service` / `remove_service` / `check_services` | Services health checks |
+| `list_machines` / `add_machine` / `remove_machine` / `refresh_machines` | SSH machines |
+| `cleanup_status` / `scan_dev_space` / `clean_dev_space` | Cleanup: cached result, a new scan, and moving items from the latest scan to the Trash |
+| `get_settings` / `set_setting` | Notification toggles, thresholds and cleanup folders (nothing that reaches outside the Mac) |
+| `list_stuck_agents` | Busy sessions and whether they look stuck |
+
+Tools that stop, delete or clean are marked destructive, so Claude Code and Codex ask before running them; the app applies the same rules as its own buttons (Trash only, re-verification, shared containers, identity checks).
+
+The server finds its agent session from its own parent chain. A process counts as the session's when it descends from it, or when it was detached (reparented to `launchd`) after the session started, inside the session's folder, and no other running session could claim it. Anything else — other sessions, other users, system services, apps, Docker — is refused with a message telling the agent to ask you. It runs locally, makes no network requests and reads no credentials. Before Codex rewrites `~/.codex/config.toml`, CoreScope keeps a one-time copy at `config.toml.corescope.bak`.
 
 ### And also
 
@@ -144,7 +228,7 @@ The build produces `build/CoreScope.app`, signed **ad hoc** for your machine. To
 
 ## Privacy
 
-CoreScope is **local-only**: no network access, no telemetry, no accounts.
+CoreScope is **local-only**: no network access, no telemetry, no accounts. The one exception is yours to make: a *Services* check pointing outside this Mac contacts only that URL or host (the app warns when you add one).
 
 - Process names, executables, users, start times, working directories and listening ports are read locally through public macOS APIs (`libproc`, `sysctl`, IOKit). Working directories and ports are read only for **your own** processes.
 - **Arguments and environment variables are never collected.**
@@ -159,6 +243,8 @@ CoreScope is **local-only**: no network access, no telemetry, no accounts.
 - Notifications are optional and local (UserNotifications); nothing is sent anywhere. The global shortcut uses `RegisterEventHotKey` and sees only its own key combination.
 - Live charts (up to 10 minutes) live in memory only. Preferences and watched processes stay in `UserDefaults`.
 - **Persistent history is opt-in** (off by default; Settings › History, retention 1, 7 or 30 days). When on, CoreScope writes one-minute rollups — system CPU, memory, swap, disk/network rates, thermal state, memory pressure and, per minute, the top 10 processes by CPU and by memory (name, executable, working directory and agent/editor origin; never arguments or environment) — to `~/Library/Application Support/CoreScope/history.sqlite`, in one SQLite transaction per minute. Older rows are purged automatically and *Delete history* removes the file.
+- Cleanup reads folder sizes and modification times only (never file contents) and only when you open the page or press *Scan*. Docker sizes come from the engine's `/system/df`.
+- The MCP server (opt-in) answers only on stdio to the agent that launched it; registering it runs the agents' own `mcp add`/`mcp remove` commands, nothing else is changed.
 - Nothing is ever killed automatically. Termination only targets your own, eligible processes, revalidates each process identity (PID + start time + executable) right before signaling, and never touches system services or CoreScope's own ancestors.
 
 ## Resource usage
@@ -199,6 +285,14 @@ The screenshots and GIF in this README were generated by `scripts/readme-media.s
 
 ## Roadmap
 
+### Shipped in 0.4.0
+
+The `corescope` command line, the MCP server (now able to drive the whole app), Cleanup, stuck-agent detection, Services, Profiles, Databases, Machines and Energy. See the [changelog](CHANGELOG.md).
+
+### Backlog
+
+- **More agents with titles and status:** Cursor, Gemini CLI and Aider sessions with the same title, working/idle state, project and actions that Claude Code and Codex already have.
+- **Windows and Linux versions:** the Rust core is portable in spirit, but process, port and disk readers are macOS-specific (libproc, IOKit) and the app is SwiftUI. A multi-platform build needs per-OS readers (e.g. `/proc` on Linux, Toolhelp/IP Helper on Windows) and a cross-platform UI.
 - Notarized releases and a universal (Intel) build.
 - Validation on Intel Macs and macOS 14.
 

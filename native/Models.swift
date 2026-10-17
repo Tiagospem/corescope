@@ -67,10 +67,14 @@ struct ProcessItem: Decodable, Identifiable {
   let threads: Metric
   let read: Metric
   let write: Metric
+  /// Average watts since the previous sample (rusage v6); nil on older macOS.
+  let energy: Metric?
   let eligible: Bool
   let blocked: String
   let orphan: String?
   var orphan_parent: String?
+  /// Session id; nil from older cores.
+  let sid: Int32?
   var cwd: String
   let ports: [PortInfo]
   let tags: [String]
@@ -145,6 +149,12 @@ struct Diagnostic: Decodable, Identifiable {
   var localizedTitle: String { L(title) }
   var localizedDetail: String { L(detail) }
 }
+struct BatteryInfo: Decodable, Equatable {
+  let percent: Int
+  let charging: Bool
+  let on_ac: Bool
+  let minutes: Int?
+}
 struct Snapshot: Decodable {
   let at: Double
   let cores: Int
@@ -177,6 +187,8 @@ struct Snapshot: Decodable {
   let volume_state: String
   let disk_state: String
   let current_uid: UInt32
+  let battery: BatteryInfo?
+  let power: Metric?
   var thermalLabel: String {
     guard let v = thermal.value else { return L("Indisponível") }
     return L(["Nominal", "Moderado", "Sério", "Crítico"][min(3, max(0, Int(v)))])
@@ -397,6 +409,10 @@ final class Preferences: ObservableObject {
   { didSet { save("diskWarning", diskWarning) } }
   @Published var diskCritical = UserDefaults.standard.object(forKey: "diskCritical") as? Double ?? 5
   { didSet { save("diskCritical", diskCritical) } }
+  /// Extra folders the cleaner scans for node_modules and target/.
+  @Published var cleanupRoots = UserDefaults.standard.stringArray(forKey: "cleanupRoots") ?? [] {
+    didSet { save("cleanupRoots", cleanupRoots) }
+  }
   @Published var watched = UserDefaults.standard.stringArray(forKey: "watched") ?? [] {
     didSet { save("watched", Array(watched.prefix(12))) }
   }
@@ -440,7 +456,34 @@ final class Preferences: ObservableObject {
   @Published var notifySustain =
     UserDefaults.standard.object(forKey: "notifySustain") as? Double ?? 60
   { didSet { save("notifySustain", notifySustain) } }
-  var notificationsEnabled: Bool { notifyOrphans || notifyHeavy || notifyPressure }
+  /// Notify when a busy agent session stops making progress.
+  @Published var notifyStalls = UserDefaults.standard.bool(forKey: "notifyStalls") {
+    didSet { save("notifyStalls", notifyStalls) }
+  }
+  /// Minutes without transcript writes before a busy session counts as stalled.
+  @Published var stallMinutes = UserDefaults.standard.object(forKey: "stallMinutes") as? Double ?? 10 {
+    didSet { save("stallMinutes", stallMinutes) }
+  }
+  @Published var notifyServiceDown = UserDefaults.standard.bool(forKey: "notifyServiceDown") {
+    didSet { save("notifyServiceDown", notifyServiceDown) }
+  }
+  /// Lets `corescope mcp` reach the app (profiles, Services, machines, cleanup, settings).
+  @Published var mcpAppAccess = UserDefaults.standard.object(forKey: "mcpAppAccess") as? Bool ?? true {
+    didSet {
+      save("mcpAppAccess", mcpAppAccess)
+      ControlServer.shared.apply()
+    }
+  }
+  /// Notify when an agent session draws more than `drainWatts` on battery for 5 minutes.
+  @Published var notifyAgentDrain = UserDefaults.standard.bool(forKey: "notifyAgentDrain") {
+    didSet { save("notifyAgentDrain", notifyAgentDrain) }
+  }
+  @Published var drainWatts = UserDefaults.standard.object(forKey: "drainWatts") as? Double ?? 3 {
+    didSet { save("drainWatts", drainWatts) }
+  }
+  var notificationsEnabled: Bool {
+    notifyOrphans || notifyHeavy || notifyPressure || notifyStalls || notifyServiceDown || notifyAgentDrain
+  }
   // Global port lookup shortcut (Carbon key code + modifier mask); default ⌥⌘K.
   @Published var hotkeyEnabled = UserDefaults.standard.object(forKey: "hotkeyEnabled") as? Bool ?? true
   {
@@ -635,6 +678,7 @@ final class Monitor: ObservableObject {
             self.snapshot = shown
             self.error = nil
             Notifier.shared.evaluate(shown)
+            Notifier.shared.evaluateDrain(shown)
           case .failure(let e): self.error = e.localizedDescription
           }
         }

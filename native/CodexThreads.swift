@@ -11,6 +11,8 @@ struct CodexThread: Identifiable, Equatable {
   let updated: Date
   /// A turn is in progress right now.
   let running: Bool
+  /// When the running turn began (seconds since 1970).
+  var turnStarted: Double? = nil
   var project: String? { cwd.flatMap { projectName($0) } }
   /// Opens the thread in the Codex app.
   var url: URL? { URL(string: "codex://threads/\(id)") }
@@ -33,27 +35,28 @@ enum CodexThreads {
     ) { row in
       let id = text(row, 0) ?? ""
       let updated = sqlite3_column_double(row, 3)
-      guard !id.isEmpty, running.contains(id) || now - updated <= activeWithin else { return }
+      guard !id.isEmpty, running[id] != nil || now - updated <= activeWithin else { return }
       var cwd = text(row, 2)
       if Demo.enabled { cwd = cwd.map { Demo.path($0) } }
       let title = Demo.enabled ? Demo.sessionTitle(Int32(truncatingIfNeeded: id.utf8.reduce(0) { $0 &+ Int($1) })) : (text(row, 1) ?? "Codex")
       out.append(
         CodexThread(
           id: id, title: title, cwd: cwd, updated: Date(timeIntervalSince1970: updated),
-          running: running.contains(id)))
+          running: running[id] != nil, turnStarted: running[id]))
     }
     // Running first, then most recent; stable between refreshes.
     return out.sorted { ($0.running ? 1 : 0, $0.updated) > ($1.running ? 1 : 0, $1.updated) }
   }
   /// Threads with a turn in progress, started in the last 6 hours (older ones are stale).
-  private static func runningThreadIDs() -> Set<String> {
-    var ids = Set<String>()
+  /// Thread id → start of its running turn.
+  private static func runningThreadIDs() -> [String: Double] {
+    var ids: [String: Double] = [:]
     query(
       "\(home)/.codex/thread_history_1.sqlite",
-      "SELECT DISTINCT thread_id FROM thread_turns WHERE status = 'inProgress' AND started_at > ?1",
+      "SELECT thread_id, MAX(started_at) FROM thread_turns WHERE status = 'inProgress' AND started_at > ?1 GROUP BY thread_id",
       bind: Date().timeIntervalSince1970 - 6 * 3600
     ) { row in
-      if let id = text(row, 0) { ids.insert(id) }
+      if let id = text(row, 0) { ids[id] = sqlite3_column_double(row, 1) }
     }
     return ids
   }
@@ -91,10 +94,14 @@ struct CodexThreadCard: View {
         VStack(alignment: .leading, spacing: 3) {
           HStack(spacing: 6) {
             Text(thread.title).font(.system(size: 14, weight: .semibold)).lineLimit(1)
-            Badge(
-              text: thread.running ? L("Trabalhando") : L("Ociosa"),
-              color: thread.running ? Tint.brand : .secondary,
-              symbol: thread.running ? "bolt.fill" : "moon.fill")
+            if let stall = StallWatch.shared.stall(thread: thread) {
+              StallBadge(stall: stall)
+            } else {
+              Badge(
+                text: thread.running ? L("Trabalhando") : L("Ociosa"),
+                color: thread.running ? Tint.brand : .secondary,
+                symbol: thread.running ? "bolt.fill" : "moon.fill")
+            }
             Badge(text: "Desktop", color: Tint.netIn)
           }
           Text(
