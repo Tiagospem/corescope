@@ -27,6 +27,10 @@ pub struct Item {
     pub busy: Option<String>,
     /// Engine socket for Docker data, which the engine removes (not recoverable from the Trash).
     pub engine: Option<String>,
+    /// Extra facts shown with the item (a worktree's branch, agent, merged state).
+    pub detail: Option<String>,
+    /// For a worktree, its main repository (pruned after the folder goes to the Trash).
+    pub repo: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -113,6 +117,8 @@ enum Guard {
     Project(PathBuf),
     /// Processes with one of these names.
     Names(&'static [&'static str]),
+    /// Any process working inside (shells too: a terminal open in a worktree is in use).
+    Inside(PathBuf),
 }
 
 fn last(path: &Path) -> &str {
@@ -148,6 +154,17 @@ fn project_name(folder: &Path) -> String {
 }
 /// The single rule for what may be cleaned: used by the scan and again right before deletion.
 pub fn classify(path: &Path, home: &Path) -> Option<Class> {
+    // A linked git worktree (its `.git` is a file pointing into the main repository).
+    if let Some(repo) = crate::worktrees::main_repo(path)
+        && repo != path
+    {
+        return Some(Class {
+            kind: "worktree",
+            group: "worktrees",
+            name: format!("{} · {}", last(&repo), last(path)),
+            guard: Guard::Inside(path.to_path_buf()),
+        });
+    }
     let parent = path.parent()?;
     let project = |kind, label: &str| Class {
         kind,
@@ -211,6 +228,7 @@ fn busy(class: &Class, item: &Path, processes: &[Process]) -> Option<String> {
         .filter(|p| p.pid != me)
         .find(|p| match &class.guard {
             Guard::Names(names) => names.contains(&p.name.as_str()),
+            Guard::Inside(folder) => inside(&p.cwd, folder) || inside(&p.path, folder),
             Guard::Project(folder) => {
                 (inside(&p.cwd, folder) && !SHELLS.contains(&p.name.as_str()))
                     || inside(&p.path, item)
@@ -228,10 +246,92 @@ pub fn verify(path: &str, home: &Path, processes: &[Process]) -> Result<(), Stri
         return Err("Caminho não é uma pasta real".into());
     }
     let class = classify(p, home).ok_or("Caminho não reconhecido para limpeza")?;
+    if class.kind == "worktree"
+        && let Some(reason) = worktree_block(p)
+    {
+        return Err(reason);
+    }
     match busy(&class, p, processes) {
         Some(user) => Err(format!("Em uso por {user}")),
         None => Ok(()),
     }
+}
+
+/// Why a worktree must stay: uncommitted work, a git lock, or git unable to tell.
+fn worktree_block(path: &Path) -> Option<String> {
+    let repo = crate::worktrees::main_repo(path)?;
+    let listed = crate::worktrees::list(&repo);
+    if listed
+        .iter()
+        .any(|w| Path::new(&w.path) == path && w.locked)
+    {
+        return Some("Bloqueado no git (git worktree lock)".into());
+    }
+    match crate::worktrees::dirty(path) {
+        Some(0) => None,
+        Some(n) => Some(format!("{n} alterações não commitadas")),
+        None => Some("O git não conseguiu ler este worktree".into()),
+    }
+}
+/// Linked worktrees of the repositories under the roots and of the projects agents work in.
+pub fn worktree_paths(roots: &[PathBuf], processes: &[Process]) -> Vec<PathBuf> {
+    let mut repos = crate::worktrees::repos_under(roots);
+    for p in processes
+        .iter()
+        .filter(|p| !p.cwd.is_empty() && (p.host.is_some() || p.origin.is_some()))
+    {
+        if let Some(top) = crate::worktrees::toplevel(Path::new(&p.cwd)) {
+            let repo = crate::worktrees::main_repo(&top).unwrap_or(top);
+            if !repos.contains(&repo) {
+                repos.push(repo);
+            }
+        }
+    }
+    let mut out = vec![];
+    for repo in repos {
+        for wt in crate::worktrees::list(&repo) {
+            let path = PathBuf::from(&wt.path);
+            if !wt.prunable && path.is_dir() && !out.contains(&path) {
+                out.push(path);
+            }
+        }
+    }
+    out
+}
+/// Branch, agent, merged state and lock reason of a worktree item.
+fn worktree_facts(path: &Path) -> (Option<String>, Option<String>, Option<String>, i64) {
+    let Some(repo) = crate::worktrees::main_repo(path) else {
+        return (None, None, None, 0);
+    };
+    let info = crate::worktrees::list(&repo)
+        .into_iter()
+        .find(|w| Path::new(&w.path) == path);
+    let mut facts = vec![];
+    if let Some(agent) = info.as_ref().and_then(|w| w.agent) {
+        facts.push(agent.to_string());
+    }
+    match info.as_ref().and_then(|w| w.branch.clone()) {
+        Some(branch) => {
+            facts.push(branch.clone());
+            match crate::worktrees::merged(&repo, &branch) {
+                Some(true) => facts.push("merged".into()),
+                Some(false) => facts.push("not merged".into()),
+                None => {}
+            }
+        }
+        None => facts.push(format!(
+            "detached {}",
+            info.as_ref().map(|w| w.head.as_str()).unwrap_or("")
+        )),
+    }
+    let block = worktree_block(path);
+    let modified = crate::worktrees::last_commit(path).unwrap_or(0);
+    (
+        Some(facts.join(" · ")),
+        Some(repo.to_string_lossy().into()),
+        block,
+        modified,
+    )
 }
 
 /// Allocated bytes (hard links once) and the item's own modification time.
@@ -482,6 +582,8 @@ fn docker(home: &Path) -> (Vec<Item>, Option<String>) {
                 modified: 0,
                 busy: None,
                 engine: Some(path.clone()),
+                detail: None,
+                repo: None,
             });
         }
     }
@@ -522,6 +624,7 @@ pub fn scan(roots: &[PathBuf], home: &Path, processes: &[Process], with_docker: 
     let started = Instant::now();
     let mut paths = fixed(home);
     paths.extend(find_projects(roots, home));
+    paths.extend(worktree_paths(roots, processes));
     let next = AtomicUsize::new(0);
     let results = Mutex::new(Vec::with_capacity(paths.len()));
     let workers = std::thread::available_parallelism().map_or(4, |n| n.get().min(8));
@@ -535,13 +638,23 @@ pub fn scan(roots: &[PathBuf], home: &Path, processes: &[Process], with_docker: 
                     let Some(class) = classify(path, home) else {
                         continue;
                     };
-                    let (bytes, modified) = measure(path);
+                    let (bytes, mut modified) = measure(path);
                     if bytes < MIN_BYTES {
                         continue;
                     }
+                    let (mut detail, mut repo, mut block) = (None, None, None);
+                    if class.kind == "worktree" {
+                        let (d, r, b, m) = worktree_facts(path);
+                        (detail, repo, block) = (d, r, b);
+                        if m > 0 {
+                            modified = m;
+                        }
+                    }
                     let item = Item {
                         id: path.to_string_lossy().into(),
-                        busy: busy(&class, path, processes),
+                        busy: busy(&class, path, processes).or(block),
+                        detail,
+                        repo,
                         kind: class.kind,
                         group: class.group,
                         name: class.name,

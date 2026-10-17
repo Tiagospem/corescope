@@ -481,6 +481,7 @@ enum ControlAPI {
           "id": i.id, "kind": i.kind, "group": i.group, "name": i.name, "path": i.path, "bytes": i.bytes,
           "modified": i.modified > 0 ? ISO8601DateFormatter().string(from: Date(timeIntervalSince1970: i.modified)) : NSNull(),
           "in_use_by": i.busy ?? NSNull(), "removed_by": i.isDocker ? "docker (permanent)" : "trash (recoverable)",
+          "detail": i.detail ?? NSNull(),
         ]
       },
     ]

@@ -28,6 +28,11 @@ section as the GitHub release notes.
   and memory pressure settle, other agents get MCP `wait_for_capacity` / `system_capacity` and
   server instructions, the Agents page shows who is waiting, and `corescope wait` does it for
   scripts. **Economy mode**: on battery, busy agent-started processes run at background priority.
+- **Worktrees and agent conflicts**: Cleanup lists git worktrees agents left (Claude Code, Codex,
+  Conductor, Cursor or any) with agent, branch and merged state; clean, unused ones go to the Trash
+  and are pruned from git (branches stay), dirty or occupied ones are locked. The Agents page
+  flags sessions sharing one working tree. `corescope worktrees` and MCP `list_worktrees`;
+  conflicts in `corescope agents` / `list_agent_sessions`.
 
 ## [0.4.0] - 2026-10-17
 

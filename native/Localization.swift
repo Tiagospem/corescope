@@ -894,4 +894,10 @@ private let entries = """
   Modo economia para agentes ¦ Economy mode for agents ¦ Modo ahorro para agentes
   Na bateria, os processos que sessões de agente iniciam e que estão usando CPU (builds, testes) rodam com prioridade de segundo plano do macOS, cedendo CPU e disco ao que você está fazendo. Servidores com porta aberta ficam como estão. Volta ao normal na tomada ou ao desligar. ¦ On battery, processes that agent sessions start and that are using CPU (builds, tests) run at macOS background priority, yielding CPU and disk to what you are doing. Servers with an open port are left as they are. Back to normal on AC power or when turned off. ¦ Con batería, los procesos que inician las sesiones de agente y que usan CPU (compilaciones, pruebas) se ejecutan con prioridad de segundo plano de macOS, cediendo CPU y disco a lo que estás haciendo. Los servidores con puerto abierto se quedan como están. Vuelve a la normalidad enchufado o al desactivarlo.
   %@ processos de agentes em segundo plano agora ¦ %@ agent processes in the background now ¦ %@ procesos de agentes en segundo plano ahora
+  Worktrees ¦ Worktrees ¦ Worktrees
+  Bloqueado no git (git worktree lock) ¦ Locked in git (git worktree lock) ¦ Bloqueado en git (git worktree lock)
+  O git não conseguiu ler este worktree ¦ git could not read this worktree ¦ git no pudo leer este worktree
+  %@ alterações não commitadas ¦ %@ uncommitted changes ¦ %@ cambios sin confirmar
+  Sessões no mesmo diretório ¦ Sessions in the same folder ¦ Sesiones en la misma carpeta
+  Várias sessões de agente no mesmo diretório de trabalho podem sobrescrever os arquivos umas das outras e disputar portas e o servidor de dev. Dê a cada uma um git worktree próprio. ¦ Several agent sessions in one working tree can overwrite each other's files and fight over ports and the dev server. Give each its own git worktree. ¦ Varias sesiones de agente en el mismo árbol de trabajo pueden sobrescribir los archivos de las otras y disputarse puertos y el servidor de desarrollo. Da a cada una su propio git worktree.
   """

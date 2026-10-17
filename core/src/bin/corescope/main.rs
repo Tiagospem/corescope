@@ -24,6 +24,8 @@ USAGE:
                                         package caches, unused Docker data (read-only; delete
                                         from the CoreScope app, which moves folders to the Trash)
   corescope power                       battery, total power, top processes and agent sessions by watts
+  corescope worktrees [FOLDER...]       git worktrees agents left (Claude Code, Codex, …): branch,
+                                        merged, uncommitted changes, last commit, in use
   corescope containers                  containers (state, ports, compose project, health), volumes
   corescope logs [FOLDER] [--errors] [--search TEXT] [-n N]
                                         the project's log files: tail, errors with traces, or search
@@ -146,6 +148,10 @@ fn main() {
             )
         }
         Some("containers") => print(json_out, containers()),
+        Some("worktrees") => {
+            let folders: Vec<std::path::PathBuf> = positional[1..].iter().map(Into::into).collect();
+            print(json_out, worktrees(&folders))
+        }
         Some("gate") => gate(),
         Some("wait") => {
             let folder = positional
@@ -296,7 +302,25 @@ pub fn agents(snapshot: &Snapshot) -> Value {
             })
         })
         .collect();
-    json!({"agents": sessions})
+    // Sessions working in the same working tree can fight over files, ports and dev servers.
+    let mut trees: HashMap<String, Vec<i32>> = HashMap::new();
+    for s in &sessions {
+        if let (Some(cwd), Some(pid)) = (s["cwd"].as_str(), s["pid"].as_i64())
+            && let Some(top) = corescope::worktrees::toplevel(std::path::Path::new(cwd))
+        {
+            trees
+                .entry(top.to_string_lossy().into())
+                .or_default()
+                .push(pid as i32);
+        }
+    }
+    let conflicts: Vec<Value> = trees
+        .into_iter()
+        .filter(|(_, pids)| pids.len() > 1)
+        .map(|(tree, pids)| json!({"working_tree": tree, "session_pids": pids,
+            "note": "several agent sessions in one working tree: they can overwrite each other's files and fight over ports; give each its own git worktree"}))
+        .collect();
+    json!({"agents": sessions, "conflicts": conflicts})
 }
 
 pub fn orphans(snapshot: &Snapshot) -> Value {
@@ -353,6 +377,37 @@ pub fn top(snapshot: &Snapshot, by: &str, count: usize) -> Value {
     rows.sort_by(|a, b| key(b).total_cmp(&key(a)));
     json!({"by": by,
            "processes": rows.iter().take(count).map(|p| process_json(p)).collect::<Vec<_>>()})
+}
+
+/// Linked git worktrees under the folders (or the suggested project folders and the projects
+/// agents work in) with what decides whether they can go.
+pub fn worktrees(folders: &[std::path::PathBuf]) -> Value {
+    use corescope::worktrees as w;
+    let home: std::path::PathBuf = std::env::var_os("HOME").map(Into::into).unwrap_or_default();
+    let snapshot = sample(false);
+    let roots = devspace::normalize(if folders.is_empty() {
+        devspace::auto_roots(&home, &snapshot.processes)
+    } else {
+        folders.to_vec()
+    });
+    let rows: Vec<Value> = devspace::worktree_paths(&roots, &snapshot.processes)
+        .into_iter()
+        .map(|path| {
+            let repo = w::main_repo(&path).unwrap_or_default();
+            let info = w::list(&repo).into_iter().find(|x| std::path::Path::new(&x.path) == path);
+            let branch = info.as_ref().and_then(|i| i.branch.clone());
+            let user = snapshot
+                .processes
+                .iter()
+                .find(|p| !p.cwd.is_empty() && std::path::Path::new(&p.cwd).starts_with(&path))
+                .map(|p| format!("{} (PID {})", p.name, p.pid));
+            json!({"path": path, "repo": repo, "branch": branch, "agent": info.as_ref().and_then(|i| i.agent),
+                   "merged": branch.as_deref().and_then(|b| w::merged(&repo, b)),
+                   "uncommitted_changes": w::dirty(&path), "locked": info.as_ref().map(|i| i.locked),
+                   "last_commit": w::last_commit(&path), "in_use_by": user})
+        })
+        .collect();
+    json!({"worktrees": rows, "note": "Remove clean, unused ones from CoreScope › Cleanup (to the Trash) or with clean_dev_space."})
 }
 
 /// Containers of every local engine with their compose project, plus volumes and restart policies.
@@ -714,6 +769,34 @@ fn print(json_out: bool, value: Value) -> i32 {
                 )
             }
         );
+    } else if let Some(rows) = value["worktrees"].as_array() {
+        println!(
+            "{:<44} {:<34} {:<12} {:>7}  IN USE",
+            "WORKTREE", "BRANCH", "MERGED", "CHANGES"
+        );
+        for r in rows {
+            let path = r["path"].as_str().unwrap_or("");
+            let short = path
+                .rsplit('/')
+                .take(3)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect::<Vec<_>>()
+                .join("/");
+            println!(
+                "{:<44} {:<34} {:<12} {:>7}  {}",
+                short,
+                text(&r["branch"]),
+                match r["merged"].as_bool() {
+                    Some(true) => "merged",
+                    Some(false) => "not merged",
+                    None => "?",
+                },
+                num(&r["uncommitted_changes"]),
+                text(&r["in_use_by"])
+            );
+        }
     } else if let Some(rows) = value["containers"].as_array() {
         println!(
             "{:<34} {:<10} {:<18} {:<16} PORTS",

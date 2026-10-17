@@ -674,6 +674,7 @@ struct AgentsView: View {
       if let s = monitor.snapshot {
         VStack(alignment: .leading, spacing: 16) {
           GateWaitsCard(waits: AgentStore.shared.gates)
+          AgentConflictsCard(snapshot: s, threads: AgentStore.shared.codexThreads)
           LimitsCard()
           TokensCard()
           let sessions = s.agentSessions

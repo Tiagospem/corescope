@@ -140,3 +140,49 @@ final class EconomyWatch {
     }
   }
 }
+
+/// Agent sessions (and running Codex threads) sharing one git working tree: they can overwrite
+/// each other's files and fight over ports and dev servers.
+struct AgentConflictsCard: View {
+  let snapshot: Snapshot
+  let threads: [CodexThread]
+  private static func workingTree(_ path: String) -> String? {
+    var url = URL(fileURLWithPath: path)
+    for _ in 0..<12 {
+      if FileManager.default.fileExists(atPath: url.appendingPathComponent(".git").path) { return url.path }
+      let parent = url.deletingLastPathComponent()
+      if parent.path == url.path { return nil }
+      url = parent
+    }
+    return nil
+  }
+  private var groups: [(tree: String, members: [String])] {
+    var trees: [String: [String]] = [:]
+    for root in snapshot.agentSessions where !root.cwd.isEmpty {
+      if let tree = Self.workingTree(root.cwd) {
+        trees[tree, default: []].append("\(root.host ?? root.name) \(root.pid)")
+      }
+    }
+    for t in threads where t.running {
+      if let cwd = t.cwd, let tree = Self.workingTree(cwd) { trees[tree, default: []].append("Codex · \(t.title)") }
+    }
+    return trees.filter { $0.value.count > 1 }.map { ($0.key, $0.value) }.sorted { $0.tree < $1.tree }
+  }
+  var body: some View {
+    let groups = groups
+    if !groups.isEmpty {
+      Card {
+        CardHeader(title: L("Sessões no mesmo diretório"), symbol: "person.2.wave.2", tint: .orange, count: groups.count)
+        ForEach(groups, id: \.tree) { g in
+          VStack(alignment: .leading, spacing: 3) {
+            Text(abbreviateHome(g.tree)).font(.callout.weight(.medium)).lineLimit(1).truncationMode(.middle)
+            Text(g.members.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+          }
+        }
+        Text(
+          L("Várias sessões de agente no mesmo diretório de trabalho podem sobrescrever os arquivos umas das outras e disputar portas e o servidor de dev. Dê a cada uma um git worktree próprio.")
+        ).font(.caption).foregroundStyle(.secondary)
+      }
+    }
+  }
+}

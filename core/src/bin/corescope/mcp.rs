@@ -445,6 +445,15 @@ fn core_tools() -> Vec<Value> {
             &[],
         ),
         tool(
+            "list_worktrees",
+            "Git worktrees agents left behind (Claude Code .claude/worktrees, Codex, Conductor, \
+             Cursor or any `git worktree add`) in the known project folders: branch, merged or not, \
+             uncommitted changes, last commit and whether a process uses it. Clean ones can be \
+             removed with scan_dev_space + clean_dev_space (to the Trash).",
+            json!({"folders": {"type": "array", "items": {"type": "string"}}}),
+            &[],
+        ),
+        tool(
             "list_containers",
             "Docker containers on this Mac (OrbStack, Docker Desktop, Colima): state, health, \
              compose project and service, published ports, restart policy; plus named volumes with \
@@ -546,6 +555,16 @@ fn call(params: &Value) -> Value {
         "list_orphans" => text(orphans(&sample(false)), false),
         "list_databases" => text(databases(&sample(false)), false),
         "list_containers" => text(containers(), false),
+        "list_worktrees" => {
+            let folders: Vec<std::path::PathBuf> = args["folders"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .map(Into::into)
+                .collect();
+            text(crate::worktrees(&folders), false)
+        }
         "system_capacity" | "wait_for_capacity" => {
             let folder = args["folder"]
                 .as_str()

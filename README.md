@@ -136,6 +136,10 @@ Watch the things your work depends on: a local API's `/health`, a database port,
 
 One click to bring a project's environment up or down. A profile is a folder, the commands you run there every day (`npm run dev`, `php artisan serve`, `cargo watch -x run`…) and the containers it needs. *Start* runs each command in your login shell inside the folder, in a session of its own, with output in `~/Library/Application Support/CoreScope/logs`, and starts the containers. Everything a command starts keeps that session, so servers it leaves running in the background still belong to the profile — after the shell exits and after CoreScope restarts — with their PIDs and ports on the card. Setup commands that exit (`make env-up`, `docker compose up -d`) count as done when they exit 0 (failed otherwise), and can have an *on stop* command (`make env-down`) that Stop runs. *Stop* (after confirmation) sends SIGTERM only to the processes in the sessions CoreScope started for that profile — identity-checked like every other termination — and stops its containers — only the ones a profile started, and never one another started profile still uses: shared containers (one database for several projects) stay up until the last profile using them stops, and the confirmation lists what stops and what stays. *Stop everything* is there when you want it all down.
 
+### 👥 Agents side by side
+
+The Agents page flags **sessions sharing one working tree** (Claude Code sessions and running Codex threads in the same folder): they can overwrite each other's files and fight over ports and dev servers, so each should get its own git worktree. `corescope agents` and MCP `list_agent_sessions` report the same, and `corescope worktrees` / MCP `list_worktrees` list the worktrees agents left, with branch, merged state, uncommitted changes and whether something is using them.
+
 ### 🗄️ Databases
 
 The MySQL/MariaDB, PostgreSQL and Redis servers running on this Mac — as processes or containers — with version, uptime, size per database (keys per db for Redis), connections, slow-query counters and the queries running for more than 5 seconds. CoreScope speaks each database's own protocol on 127.0.0.1 with read-only queries, each capped on the server too. **It never asks for, stores or reads passwords**: it connects only where the server allows passwordless local access (MySQL `root` without a password, PostgreSQL trust for your user, Redis without AUTH) and otherwise just shows that a password is required. Also `corescope db` and the MCP tool `list_databases`.
@@ -174,6 +178,7 @@ Finds reclaimable developer space and shows what each item is, where it is, its 
 - **Projects:** `node_modules` (next to a `package.json`) and Rust `target/` (with Cargo's `CACHEDIR.TAG`), in the folders you add and in the folders holding the projects your agents, editors and terminals are working in.
 - **Xcode:** DerivedData per project, device support files, Simulator caches.
 - **Package caches:** Homebrew, npm, Yarn, pnpm, Bun, Cargo, pip, uv, Go, Gradle, Composer, CocoaPods.
+- **Git worktrees** that agents leave behind (Claude Code's `.claude/worktrees`, Codex, Conductor, Cursor, or any `git worktree add`), with agent, branch and whether it is merged. One with uncommitted changes, a git lock or any process inside (a terminal included) is locked; a clean one goes to the Trash and `git worktree prune` drops git's record of it — the branch stays.
 - **Docker:** dangling images, images no container uses, unused build cache (through the engine's own API).
 
 Nothing is scanned until you press *Scan*: the last result is kept in `~/Library/Application Support/CoreScope/cleanup-cache.json` (paths, sizes and dates) and the page says when it may be out of date (older than 6 hours, or the folder list changed). Select items (or *Unused 30+ days*) and confirm: folders go to the **Trash**, so they can be recovered until you empty it. Anything a process is using — a dev server in the project, `cargo`, Xcode, an agent working there — is locked, and every folder is re-checked by the core right before it moves: still a real folder (no symlinks), still one of the kinds above, still unused. Docker data is removed by Docker and pulled again when needed.
@@ -238,6 +243,7 @@ Off by default. *Settings → MCP server for agents → Enable* registers `cores
 | `list_my_processes` | What the calling agent session started, including servers it detached |
 | `power_usage` | Battery, total watts, top processes and agent sessions by power |
 | `list_databases` | Local MySQL/PostgreSQL/Redis status (read-only, no passwords) |
+| `list_worktrees` | Git worktrees agents left: branch, merged, uncommitted changes, in use |
 | `system_capacity` / `wait_for_capacity` | Whether the Mac has room for heavy work under the project's rule; wait until it does |
 | `list_containers` / `container_logs` / `container_action` | Containers with project, ports, restart policy and volumes; logs; start/stop/restart under the profiles' sharing rules |
 | `recent_errors` / `search_logs` / `tail_log` / `list_log_sources` | A profile's or project's logs: errors with traces and counts, search, tail |

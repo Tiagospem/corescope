@@ -8,6 +8,7 @@ pub mod logs;
 mod os;
 pub mod projectconfig;
 mod sqlite;
+pub mod worktrees;
 use os::*;
 use serde::{Deserialize, Serialize};
 use std::{
