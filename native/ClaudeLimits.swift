@@ -49,13 +49,15 @@ enum ClaudeLimitsBridge {
     dir="$HOME/Library/Application Support/CoreScope"
     input=$(cat; printf '.')
     input=${input%.}
-    limits=$(printf '%s' "$input" | /usr/bin/plutil -extract rate_limits json -o - - 2>/dev/null)
-    if [ -e "$dir/claude-statusline-enabled" ] && [ -n "$limits" ]; then
-      file="$dir/claude-limits.json"
-      if [ "$(cat "$file" 2>/dev/null)" = "$limits" ]; then
-        touch "$file"
-      else
-        mkdir -p "$dir" && printf '%s' "$limits" > "$file.$$" && mv -f "$file.$$" "$file"
+    if [ -f "$dir/claude-statusline-enabled" ]; then
+      limits=$(printf '%s' "$input" | /usr/bin/plutil -extract rate_limits json -o - - 2>/dev/null)
+      if [ -n "$limits" ]; then
+        file="$dir/claude-limits.json"
+        if [ "$(cat "$file" 2>/dev/null)" = "$limits" ]; then
+          touch "$file"
+        else
+          mkdir -p "$dir" && printf '%s' "$limits" > "$file.$$" && mv -f "$file.$$" "$file"
+        fi
       fi
     fi
     if [ "$1" = "--record" ]; then
@@ -128,10 +130,18 @@ enum ClaudeLimitsBridge {
         removeScriptIfUnused()
         return .success(currentLink() ?? .absent)
       }
-      let text = try String(contentsOf: file, encoding: .utf8)
+      guard let text = try? String(contentsOf: file, encoding: .utf8) else {
+        if !FileManager.default.fileExists(atPath: file.path), state["fileExisted"] == .bool(false) {
+          try FileManager.default.removeItem(at: stateFile)
+          removeScriptIfUnused()
+          return .success(.absent)
+        }
+        return .failure(.io("Could not read ~/.claude/settings.json"))
+      }
       guard let settings = try? OrderedJSON.parse(text) else { return .failure(.unreadable) }
       guard case .object = settings else { return .failure(.notObject) }
       guard settings["statusLine"] == installed else {
+        try? FileManager.default.removeItem(at: stateFile)
         removeScriptIfUnused()
         return .failure(.changedSince)
       }
@@ -163,10 +173,17 @@ enum ClaudeLimitsBridge {
   /// Keeps the script while any status line (for example a hand-made chain) still calls it.
   private static func removeScriptIfUnused() {
     guard let text = try? String(contentsOf: settingsFile, encoding: .utf8),
-      let settings = try? OrderedJSON.parse(text)
+      let settings = try? OrderedJSON.parse(text), case .object = settings
     else { return }
-    let command = settings["statusLine"]?["command"]?.stringValue ?? ""
-    if !command.contains(script.lastPathComponent) { try? FileManager.default.removeItem(at: script) }
+    if !referencesScript(settings) { try? FileManager.default.removeItem(at: script) }
+  }
+  private static func referencesScript(_ value: OrderedJSON) -> Bool {
+    switch value {
+    case .object(let members): members.contains { referencesScript($0.value) }
+    case .array(let values): values.contains { referencesScript($0) }
+    case .string(let string): string.contains(script.lastPathComponent)
+    case .number, .bool, .null: false
+    }
   }
   /// settings-<timestamp>.json next to the other CoreScope files; the newest 10 are kept.
   private static func backup(_ text: String) throws {

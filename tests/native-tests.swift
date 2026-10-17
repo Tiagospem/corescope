@@ -54,7 +54,7 @@ import Foundation
     precondition(settings.serialized() == settingsText.replacingOccurrences(of: "\\u00e9", with: "é"))
     precondition((try? OrderedJSON.parse("{\"a\":1,}")) == nil && (try? OrderedJSON.parse("[01]")) == nil)
     precondition(try! OrderedJSON.parse(#""\uD83D\uDE00""#).stringValue == "😀")
-    for malformed in [#""\uD800\u0041""#, #""\uD800x""#, #""\uDC00""#] {
+    for malformed in [#""\uD800\u0041""#, #""\uD800x""#, #""\uD800""#, #""\uDC00""#] {
       precondition((try? OrderedJSON.parse(malformed)) == nil)
     }
     let script = "/Users/me/Library/Application Support/CoreScope/claude-statusline.sh"
