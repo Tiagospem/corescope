@@ -47,16 +47,15 @@ enum ClaudeLimitsBridge {
     export LC_ALL=C
     umask 077
     dir="$HOME/Library/Application Support/CoreScope"
-    input=$(cat)
-    if [ -f "$dir/claude-statusline-enabled" ]; then
-      limits=$(printf '%s' "$input" | /usr/bin/plutil -extract rate_limits json -o - - 2>/dev/null)
-      if [ -n "$limits" ]; then
-        file="$dir/claude-limits.json"
-        if [ "$(cat "$file" 2>/dev/null)" = "$limits" ]; then
-          touch "$file"
-        else
-          mkdir -p "$dir" && printf '%s' "$limits" > "$file.$$" && mv -f "$file.$$" "$file"
-        fi
+    input=$(cat; printf '.')
+    input=${input%.}
+    limits=$(printf '%s' "$input" | /usr/bin/plutil -extract rate_limits json -o - - 2>/dev/null)
+    if [ -e "$dir/claude-statusline-enabled" ] && [ -n "$limits" ]; then
+      file="$dir/claude-limits.json"
+      if [ "$(cat "$file" 2>/dev/null)" = "$limits" ]; then
+        touch "$file"
+      else
+        mkdir -p "$dir" && printf '%s' "$limits" > "$file.$$" && mv -f "$file.$$" "$file"
       fi
     fi
     if [ "$1" = "--record" ]; then
@@ -119,10 +118,8 @@ enum ClaudeLimitsBridge {
   /// Puts back the statusLine CoreScope replaced (or removes the one it added) and deletes the
   /// saved limits. A statusLine the user edited since is left alone.
   static func disable() -> Result<ClaudeStatusLine.Link, Failure> {
-    defer {
-      try? FileManager.default.removeItem(at: enabledFile)
-      try? FileManager.default.removeItem(at: limitsFile)
-    }
+    defer { try? FileManager.default.removeItem(at: enabledFile) }
+    defer { try? FileManager.default.removeItem(at: limitsFile) }
     do {
       let file = settingsFile
       guard let stateText = try? String(contentsOf: stateFile, encoding: .utf8),
@@ -131,9 +128,9 @@ enum ClaudeLimitsBridge {
         removeScriptIfUnused()
         return .success(currentLink() ?? .absent)
       }
-      try? FileManager.default.removeItem(at: stateFile)
-      guard let text = try? String(contentsOf: file, encoding: .utf8) else { return .success(.absent) }
+      let text = try String(contentsOf: file, encoding: .utf8)
       guard let settings = try? OrderedJSON.parse(text) else { return .failure(.unreadable) }
+      guard case .object = settings else { return .failure(.notObject) }
       guard settings["statusLine"] == installed else {
         removeScriptIfUnused()
         return .failure(.changedSince)
@@ -145,6 +142,7 @@ enum ClaudeLimitsBridge {
       } else {
         try write(restored.serialized() + trailing(text), to: file)
       }
+      try? FileManager.default.removeItem(at: stateFile)
       removeScriptIfUnused()
       return .success(ClaudeStatusLine.link(of: restored, script: script.path))
     } catch let failure as Failure {
@@ -164,8 +162,11 @@ enum ClaudeLimitsBridge {
   }
   /// Keeps the script while any status line (for example a hand-made chain) still calls it.
   private static func removeScriptIfUnused() {
-    let text = (try? String(contentsOf: settingsFile, encoding: .utf8)) ?? ""
-    if !text.contains(script.path) { try? FileManager.default.removeItem(at: script) }
+    guard let text = try? String(contentsOf: settingsFile, encoding: .utf8),
+      let settings = try? OrderedJSON.parse(text)
+    else { return }
+    let command = settings["statusLine"]?["command"]?.stringValue ?? ""
+    if !command.contains(script.lastPathComponent) { try? FileManager.default.removeItem(at: script) }
   }
   /// settings-<timestamp>.json next to the other CoreScope files; the newest 10 are kept.
   private static func backup(_ text: String) throws {

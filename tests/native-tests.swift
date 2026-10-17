@@ -53,6 +53,10 @@ import Foundation
     let settings = try! OrderedJSON.parse(settingsText)
     precondition(settings.serialized() == settingsText.replacingOccurrences(of: "\\u00e9", with: "é"))
     precondition((try? OrderedJSON.parse("{\"a\":1,}")) == nil && (try? OrderedJSON.parse("[01]")) == nil)
+    precondition(try! OrderedJSON.parse(#""\uD83D\uDE00""#).stringValue == "😀")
+    for malformed in [#""\uD800\u0041""#, #""\uD800x""#, #""\uDC00""#] {
+      precondition((try? OrderedJSON.parse(malformed)) == nil)
+    }
     let script = "/Users/me/Library/Application Support/CoreScope/claude-statusline.sh"
     precondition(ClaudeStatusLine.link(of: settings, script: script) == .absent)
     let fresh = ClaudeStatusLine.installing(over: nil, script: script, chain: false)!
@@ -82,7 +86,7 @@ import Foundation
     precondition(parseClaudeLimits(limits, now: .distantPast).count == 2)
     precondition(parseClaudeLimits(Data("nope".utf8)).isEmpty)
     print(
-      "30 native assertions passed: descendants, cycle, ordering, off-screen recovery, negative-origin monitor, forest roots, flatten, collapse, totals, ancestors, filter, formatting, settings JSON, status line install/chain, Claude limits"
+      "Native assertions passed: descendants, cycle, ordering, off-screen recovery, negative-origin monitor, forest roots, flatten, collapse, totals, ancestors, filter, formatting, settings JSON, Unicode escapes, status line install/chain, Claude limits"
     )
   }
 }
