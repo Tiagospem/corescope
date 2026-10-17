@@ -44,6 +44,9 @@ section as the GitHub release notes.
 - **Machines page**: remote servers over the user's own ssh (BatchMode, no prompts, unknown host
   keys fail): OS, uptime, load per core, memory, disk, top processes and containers, from a fixed
   read-only script; aliases suggested from ~/.ssh/config.
+- **Energy page**: battery state, watts per process (rusage v6 energy) and per agent session
+  with what it started; optional alert when an agent drains the battery. Also `corescope power`,
+  `top --energy` and the MCP tool `power_usage`.
 
 ## [0.3.2] - 2026-10-17
 

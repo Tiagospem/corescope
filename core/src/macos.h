@@ -10,7 +10,9 @@ typedef struct {
 typedef struct {
  int32_t pid, ppid; uint32_t uid, flags;
  uint64_t start, cpu_ns, resident, footprint, read_bytes, write_bytes, wakeups;
- int32_t threads, task_ok, usage_ok, task_error, usage_error; char name[64], path[4096], user[64];
+ // Energy used by the process (nanojoules, rusage_info_v6.ri_energy_nj); energy_ok when read.
+ uint64_t energy_nj;
+ int32_t threads, task_ok, usage_ok, task_error, usage_error, energy_ok; char name[64], path[4096], user[64];
 } CSProcess;
 typedef struct { uint64_t total, available; char device[1024], mount[1024], kind[32]; } CSVolume;
 typedef struct { uint64_t id, read_bytes, write_bytes; int32_t ok; char name[128]; } CSDisk;
@@ -27,6 +29,8 @@ int os_nvme_temperature(uint64_t driver_id, uint32_t *kelvin);
 // Listening TCP sockets owned by pid: up to cap entries; exposed=1 when bound beyond loopback.
 typedef struct { uint16_t port; uint8_t exposed; } CSPort;
 int os_ports(int32_t pid, CSPort *out, int cap);
+// Internal battery: percent, charging, on AC power, minutes to empty/full (-1 unknown). 0 when present.
+int os_battery(int32_t *percent, int32_t *charging, int32_t *on_ac, int32_t *minutes);
 // Current working directory of a process (same user only). 0 success.
 int os_cwd(int32_t pid, char *out, int cap);
 // Cumulative bytes on non-loopback interfaces (64-bit counters). 0 success.

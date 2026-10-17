@@ -5,7 +5,7 @@
 //! it (its nearest ancestor that is a Claude Code / Codex / … session) and only signals that
 //! session's descendants — never other sessions, other users, system services, the agent itself
 //! or the server's own ancestors. Identity is revalidated by the core right before each signal.
-use crate::{agents, databases, free_port, orphans, ports, sample, space, subtree, top};
+use crate::{agents, databases, free_port, orphans, ports, power, sample, space, subtree, top};
 use corescope::{Process, Snapshot, cs_is_same, signal_process};
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
@@ -99,7 +99,7 @@ fn tools() -> Vec<Value> {
         tool(
             "top_processes",
             "Processes using the most CPU (percent of one core) or memory (bytes).",
-            json!({"by": {"type": "string", "enum": ["cpu", "memory"]}, "limit": {"type": "integer", "minimum": 1, "maximum": 50}}),
+            json!({"by": {"type": "string", "enum": ["cpu", "memory", "energy"]}, "limit": {"type": "integer", "minimum": 1, "maximum": 50}}),
             &[],
         ),
         tool(
@@ -130,6 +130,13 @@ fn tools() -> Vec<Value> {
              uses each one. Read-only and takes a few seconds; deleting is done by the user in \
              the CoreScope app. Optional folders to scan (default: detected project folders).",
             json!({"folders": {"type": "array", "items": {"type": "string"}}}),
+            &[],
+        ),
+        tool(
+            "power_usage",
+            "Battery (percent, charging, time left), total power drawn by processes, the top \
+             processes by watts and each agent session's power including what it started.",
+            json!({}),
             &[],
         ),
         tool(
@@ -178,14 +185,19 @@ fn call(params: &Value) -> Value {
             text(free_port(from, &sample(false)), false)
         }
         "top_processes" => {
-            let memory = args["by"].as_str() == Some("memory");
+            let by = match args["by"].as_str() {
+                Some("memory") => "memory",
+                Some("energy") => "energy",
+                _ => "cpu",
+            };
             let limit = args["limit"].as_u64().unwrap_or(10).clamp(1, 50) as usize;
-            text(top(&sample(true), memory, limit), false)
+            text(top(&sample(true), by, limit), false)
         }
         "system_summary" => text(summary(&sample(true)), false),
         "list_agent_sessions" => text(agents(&sample(true)), false),
         "list_orphans" => text(orphans(&sample(false)), false),
         "list_databases" => text(databases(&sample(false)), false),
+        "power_usage" => text(power(&sample(true)), false),
         "list_dev_space" => {
             let folders: Vec<std::path::PathBuf> = args["folders"]
                 .as_array()

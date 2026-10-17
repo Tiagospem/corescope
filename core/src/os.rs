@@ -30,11 +30,13 @@ pub struct RawProcess {
     pub read_bytes: u64,
     pub write_bytes: u64,
     pub wakeups: u64,
+    pub energy_nj: u64,
     pub threads: i32,
     pub task_ok: i32,
     pub usage_ok: i32,
     pub task_error: i32,
     pub usage_error: i32,
+    pub energy_ok: i32,
     pub name: [c_char; 64],
     pub path: [c_char; 4096],
     pub user: [c_char; 64],
@@ -90,6 +92,25 @@ unsafe extern "C" {
     pub fn os_ports(pid: i32, out: *mut RawPort, capacity: i32) -> i32;
     pub fn os_cwd(pid: i32, out: *mut c_char, capacity: i32) -> i32;
     pub fn os_network(in_bytes: *mut u64, out_bytes: *mut u64) -> i32;
+    pub fn os_battery(
+        percent: *mut i32,
+        charging: *mut i32,
+        on_ac: *mut i32,
+        minutes: *mut i32,
+    ) -> i32;
+}
+/// (percent, charging, on AC power, minutes to empty or full) for an internal battery.
+pub fn battery() -> Option<(i32, bool, bool, Option<i32>)> {
+    let (mut percent, mut charging, mut ac, mut minutes) = (0, 0, 0, -1);
+    // SAFETY: all four pointers reference live i32 values.
+    (unsafe { os_battery(&mut percent, &mut charging, &mut ac, &mut minutes) } == 0).then(|| {
+        (
+            percent,
+            charging != 0,
+            ac != 0,
+            (minutes >= 0).then_some(minutes),
+        )
+    })
 }
 /// Listening TCP ports of a same-user process; empty when inaccessible.
 pub fn ports(pid: i32) -> Vec<RawPort> {

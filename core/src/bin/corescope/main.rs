@@ -18,11 +18,12 @@ USAGE:
   corescope kill-port PORT [--force]    stop the processes listening on PORT
   corescope agents                      AI agent sessions and what they started
   corescope orphans                     dev runtimes left running without their parent
-  corescope top [--mem] [-n N]          top processes by CPU (or memory)
+  corescope top [--mem|--energy] [-n N] top processes by CPU (or memory, or power)
   corescope kill PID [--tree] [--force] stop a process (and its descendants with --tree)
   corescope space [FOLDER...]           reclaimable dev space: node_modules, Rust target/, Xcode,
                                         package caches, unused Docker data (read-only; delete
                                         from the CoreScope app, which moves folders to the Trash)
+  corescope power                       battery, total power, top processes and agent sessions by watts
   corescope db                          local MySQL/PostgreSQL/Redis: size, connections, slow
                                         and long-running queries (no passwords used or read)
   corescope mcp                         run the local MCP server on stdio
@@ -67,7 +68,17 @@ fn main() {
         Some("orphans") => print(json_out, orphans(&sample(false))),
         Some("top") => print(
             json_out,
-            top(&sample(true), flag("--mem"), number("-n").unwrap_or(10)),
+            top(
+                &sample(true),
+                if flag("--mem") {
+                    "memory"
+                } else if flag("--energy") {
+                    "energy"
+                } else {
+                    "cpu"
+                },
+                number("-n").unwrap_or(10),
+            ),
         ),
         Some("kill-port") => match positional.get(1).and_then(|v| v.parse::<u16>().ok()) {
             Some(port) => {
@@ -104,6 +115,7 @@ fn main() {
             print(json_out, space(&folders, !flag("--no-docker")))
         }
         Some("db") => print(json_out, databases(&sample(false))),
+        Some("power") => print(json_out, power(&sample(true))),
         Some("mcp") => mcp::serve(),
         Some(other) => fail(
             json_out,
@@ -158,7 +170,7 @@ fn process_json(p: &Process) -> Value {
         "project": project(p),
         "origin": p.origin.as_ref().map(|o| json!({"label": o.label, "kind": o.kind, "pid": o.pid})),
         "ports": p.ports.iter().map(|x| json!({"port": x.port, "exposed": x.exposed})).collect::<Vec<_>>(),
-        "cpu_percent": p.cpu.value, "memory_bytes": p.memory.value,
+        "cpu_percent": p.cpu.value, "memory_bytes": p.memory.value, "power_watts": p.energy.value,
         "eligible": p.eligible, "orphan": p.orphan.is_some(),
     })
 }
@@ -208,6 +220,7 @@ pub fn agents(snapshot: &Snapshot) -> Value {
                 "processes": tree.len(),
                 "cpu_percent": tree.iter().filter_map(|p| p.cpu.value).sum::<f64>(),
                 "memory_bytes": tree.iter().filter_map(|p| p.memory.value).sum::<f64>(),
+                "power_watts": tree.iter().filter_map(|p| p.energy.value).sum::<f64>(),
                 "ports": tree.iter().flat_map(|p| p.ports.iter().map(|x| x.port)).collect::<Vec<_>>(),
                 "children": tree.iter().skip(1).map(|p| process_json(p)).collect::<Vec<_>>(),
             })
@@ -230,11 +243,45 @@ pub fn orphans(snapshot: &Snapshot) -> Value {
     json!({"orphans": rows})
 }
 
-pub fn top(snapshot: &Snapshot, memory: bool, count: usize) -> Value {
+/// Battery, total power and who uses it: processes and agent sessions (with what they started).
+pub fn power(snapshot: &Snapshot) -> Value {
+    let mut sessions = agents(snapshot)["agents"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    for s in &mut sessions {
+        if let Some(o) = s.as_object_mut() {
+            o.remove("children");
+        }
+    }
+    sessions.sort_by(|a, b| {
+        b["power_watts"]
+            .as_f64()
+            .unwrap_or(0.)
+            .total_cmp(&a["power_watts"].as_f64().unwrap_or(0.))
+    });
+    json!({
+        "battery": snapshot.battery.as_ref().map(|b| json!({
+            "percent": b.percent, "charging": b.charging, "on_ac_power": b.on_ac, "minutes": b.minutes})),
+        "total_watts": snapshot.power.value,
+        "top": top(snapshot, "energy", 10)["processes"],
+        "agent_sessions": sessions,
+    })
+}
+
+/// Heaviest processes by "cpu", "memory" or "energy" (average watts billed since the last sample).
+pub fn top(snapshot: &Snapshot, by: &str, count: usize) -> Value {
     let mut rows: Vec<&Process> = snapshot.processes.iter().collect();
-    let key = |p: &&Process| if memory { p.memory.value } else { p.cpu.value }.unwrap_or(-1.);
+    let key = |p: &&Process| {
+        match by {
+            "memory" => p.memory.value,
+            "energy" => p.energy.value,
+            _ => p.cpu.value,
+        }
+        .unwrap_or(-1.)
+    };
     rows.sort_by(|a, b| key(b).total_cmp(&key(a)));
-    json!({"by": if memory {"memory"} else {"cpu"},
+    json!({"by": by,
            "processes": rows.iter().take(count).map(|p| process_json(p)).collect::<Vec<_>>()})
 }
 
@@ -422,6 +469,57 @@ fn print(json_out: bool, value: Value) -> i32 {
                 }
             );
         }
+    } else if value.get("total_watts").is_some() {
+        if let Some(b) = value["battery"].as_object() {
+            println!(
+                "Battery {}%{}{}",
+                num(&b["percent"]),
+                if b["charging"] == true {
+                    " · charging"
+                } else if b["on_ac_power"] == true {
+                    " · on AC power"
+                } else {
+                    " · on battery"
+                },
+                b["minutes"]
+                    .as_i64()
+                    .map(|m| format!(" · {}h{:02} left", m / 60, m % 60))
+                    .unwrap_or_default()
+            );
+        } else {
+            println!("No battery");
+        }
+        println!(
+            "Processes now: {}",
+            value["total_watts"]
+                .as_f64()
+                .map(|w| format!("{w:.2} W"))
+                .unwrap_or("—".into())
+        );
+        println!("\nAGENT SESSIONS");
+        for s in value["agent_sessions"].as_array().into_iter().flatten() {
+            println!(
+                "  {:<14} {:<22} {:>8}",
+                text(&s["agent"]),
+                text(&s["project"]),
+                s["power_watts"]
+                    .as_f64()
+                    .map(|w| format!("{w:.2} W"))
+                    .unwrap_or("—".into())
+            );
+        }
+        println!("\nTOP PROCESSES");
+        for p in value["top"].as_array().into_iter().flatten() {
+            println!(
+                "  {:<8} {:<28} {:>8}",
+                num(&p["pid"]),
+                text(&p["name"]),
+                p["power_watts"]
+                    .as_f64()
+                    .map(|w| format!("{w:.2} W"))
+                    .unwrap_or("—".into())
+            );
+        }
     } else if let Some(rows) = value["databases"].as_array() {
         if rows.is_empty() {
             println!("no local MySQL, PostgreSQL or Redis found");
@@ -549,17 +647,21 @@ fn print(json_out: bool, value: Value) -> i32 {
         }
     } else if let Some(rows) = value["processes"].as_array() {
         println!(
-            "{:<8} {:<28} {:<22} {:>7} {:>9}",
-            "PID", "PROCESS", "PROJECT", "CPU", "MEMORY"
+            "{:<8} {:<28} {:<22} {:>7} {:>9} {:>8}",
+            "PID", "PROCESS", "PROJECT", "CPU", "MEMORY", "POWER"
         );
         for r in rows {
             println!(
-                "{:<8} {:<28} {:<22} {:>7} {:>9}",
+                "{:<8} {:<28} {:<22} {:>7} {:>9} {:>8}",
                 num(&r["pid"]),
                 text(&r["name"]),
                 text(&r["project"]),
                 pct(&r["cpu_percent"]),
-                mb(&r["memory_bytes"])
+                mb(&r["memory_bytes"]),
+                r["power_watts"]
+                    .as_f64()
+                    .map(|w| format!("{w:.2} W"))
+                    .unwrap_or("—".into())
             );
         }
     } else if let Some(rows) = value["results"].as_array() {

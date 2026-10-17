@@ -480,6 +480,9 @@ pub struct Process {
     pub read: Metric,
     #[serde(serialize_with = "lean")]
     pub write: Metric,
+    /// Average power billed to the process since the previous sample.
+    #[serde(serialize_with = "lean")]
+    pub energy: Metric,
     pub eligible: bool,
     pub blocked: String,
     pub orphan: Option<String>,
@@ -552,6 +555,18 @@ pub struct Snapshot {
     pub volume_state: String,
     pub disk_state: String,
     pub current_uid: u32,
+    /// Internal battery, when the Mac has one.
+    pub battery: Option<Battery>,
+    /// Sum of the processes' power: what the CPU work of all processes costs right now.
+    pub power: Metric,
+}
+#[derive(Clone, Serialize)]
+pub struct Battery {
+    pub percent: i32,
+    pub charging: bool,
+    pub on_ac: bool,
+    /// Minutes to empty (on battery) or to full (charging), when macOS estimates it.
+    pub minutes: Option<i32>,
 }
 struct Previous {
     raw: RawProcess,
@@ -857,6 +872,14 @@ impl Collector {
                     "proc_pid_rusage · diskio_byteswritten",
                     at,
                 ),
+                energy: Metric::new(
+                    io(raw.energy_nj, old.map(|p| p.raw.energy_nj))
+                        .filter(|_| raw.energy_ok != 0)
+                        .map(|nj| nj / 1e9),
+                    "W",
+                    "proc_pid_rusage · ri_energy_nj",
+                    at,
+                ),
                 eligible: reason.is_empty(),
                 blocked: reason.into(),
                 high_cpu_seconds: high.map(|t| elapsed - t).unwrap_or(0.),
@@ -1015,6 +1038,8 @@ impl Collector {
                 .update(desired, elapsed, config.sustain);
         diagnostics.push(Diagnostic{id:"storage",level,title:if level>0{"Pouco espaço em um volume"}else{"Armazenamento: confira capacidade e atividade"}.into(),detail:"Volumes APFS podem compartilhar espaço: não some suas capacidades. Taxa alta de I/O não mede saturação ou latência; esta versão não diagnostica pressão de I/O.".into()});
         diagnostics.sort_by_key(|d| std::cmp::Reverse(d.level));
+        let watts: Vec<f64> = processes.iter().filter_map(|p| p.energy.value).collect();
+        let power_watts = (!watts.is_empty()).then(|| watts.iter().sum());
         Snapshot {
             at,
             cores: h.cores,
@@ -1094,6 +1119,18 @@ impl Collector {
                 net_out,
                 "B/s",
                 "sysctl NET_RT_IFLIST2 · interfaces sem loopback",
+                at,
+            ),
+            battery: os::battery().map(|(percent, charging, on_ac, minutes)| Battery {
+                percent,
+                charging,
+                on_ac,
+                minutes,
+            }),
+            power: Metric::new(
+                power_watts,
+                "W",
+                "soma de proc_pid_rusage · ri_energy_nj",
                 at,
             ),
             collector_ms: begin.elapsed().as_secs_f64() * 1000.,
@@ -1547,6 +1584,7 @@ pub(crate) fn process_fixture() -> Process {
         threads: metric(),
         read: metric(),
         write: metric(),
+        energy: metric(),
         eligible: true,
         blocked: String::new(),
         orphan: None,

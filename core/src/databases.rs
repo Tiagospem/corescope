@@ -337,7 +337,7 @@ pub mod redis {
         if d.version.is_none() {
             return Err(other("Não é Redis"));
         }
-        d.databases.sort_by(|a, b| b.keys.cmp(&a.keys));
+        d.databases.sort_by_key(|s| std::cmp::Reverse(s.keys));
         stream.write_all(b"SLOWLOG LEN\r\n")?;
         d.slow_queries = reply(&mut stream).ok().and_then(|n| n.parse().ok());
         Ok(d)

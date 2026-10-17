@@ -820,4 +820,24 @@ private let entries = """
   Sem resposta em 15 s ¦ No answer in 15 s ¦ Sin respuesta en 15 s
   Usa o seu próprio ssh em BatchMode: chaves e agente ficam com o ssh, nada pede senha e um host com chave desconhecida falha em vez de ser aceito. O comando remoto só lê (uname, carga, memória, df, ps, docker ps). Atualiza a cada 60 s enquanto esta página está aberta. ¦ Uses your own ssh in BatchMode: keys and agent stay with ssh, nothing prompts for a password, and a host with an unknown key fails instead of being accepted. The remote command only reads (uname, load, memory, df, ps, docker ps). Refreshes every 60 s while this page is open. ¦ Usa tu propio ssh en BatchMode: las claves y el agente se quedan en ssh, nada pide contraseña y un host con clave desconocida falla en vez de aceptarse. El comando remoto solo lee (uname, carga, memoria, df, ps, docker ps). Se actualiza cada 60 s mientras esta página está abierta.
   lido %@ (%@ s) ¦ read %@ (%@ s) ¦ leído %@ (%@ s)
+  %@ está gastando bateria ¦ %@ is draining the battery ¦ %@ está gastando batería
+  %@ por 5 min na bateria (%@%%) ¦ %@ for 5 min on battery (%@%%) ¦ %@ durante 5 min con batería (%@%%)
+  Acima de ¦ Above ¦ Por encima de
+  Carregando ¦ Charging ¦ Cargando
+  Carregando · cheia em %@ ¦ Charging · full in %@ ¦ Cargando · llena en %@
+  Energia ¦ Energy ¦ Energía
+  Este Mac usa só energia da tomada. ¦ This Mac runs on wall power only. ¦ Este Mac solo usa corriente.
+  Na bateria ¦ On battery ¦ Con batería
+  Na bateria · %@ restantes ¦ On battery · %@ left ¦ Con batería · quedan %@
+  Na tomada, sem carregar ¦ On AC power, not charging ¦ Enchufado, sin cargar
+  Nenhuma sessão de agente rodando. ¦ No agent sessions running. ¦ Ninguna sesión de agente en ejecución.
+  Notificar quando um agente gastar bateria ¦ Notify when an agent drains the battery ¦ Notificar cuando un agente gaste batería
+  Processos que mais gastam ¦ Processes drawing the most ¦ Procesos que más consumen
+  Sem bateria ¦ No battery ¦ Sin batería
+  Sem leitura de energia por processo neste macOS. ¦ No per-process energy on this macOS. ¦ Sin lectura de energía por proceso en este macOS.
+  Sessões de agente ¦ Agent sessions ¦ Sesiones de agente
+  Soma da sessão e de tudo que ela iniciou ¦ The session plus everything it started ¦ La sesión más todo lo que inició
+  Só na bateria: avisa quando uma sessão de agente, somando os processos que ela iniciou, passa do limite por 5 minutos (no máximo uma vez por hora por sessão). ¦ On battery only: alerts when an agent session, counting the processes it started, stays above the limit for 5 minutes (at most once an hour per session). ¦ Solo con batería: avisa cuando una sesión de agente, sumando los procesos que inició, supera el límite durante 5 minutos (como máximo una vez por hora por sesión).
+  Watts estimados pelo macOS para cada processo (energia de CPU e GPU atribuída a ele, rusage v6). Não inclui tela, rádios e outros componentes, então a soma fica abaixo do consumo total do Mac. ¦ Watts macOS estimates for each process (CPU and GPU energy billed to it, rusage v6). Display, radios and other components are not included, so the sum stays below the Mac's total draw. ¦ Vatios que macOS estima para cada proceso (energía de CPU y GPU atribuida, rusage v6). No incluye pantalla, radios ni otros componentes, así que la suma queda por debajo del consumo total del Mac.
+  processos agora ¦ processes now ¦ procesos ahora
   """

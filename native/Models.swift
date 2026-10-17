@@ -67,6 +67,8 @@ struct ProcessItem: Decodable, Identifiable {
   let threads: Metric
   let read: Metric
   let write: Metric
+  /// Average watts since the previous sample (rusage v6); nil on older macOS.
+  let energy: Metric?
   let eligible: Bool
   let blocked: String
   let orphan: String?
@@ -145,6 +147,12 @@ struct Diagnostic: Decodable, Identifiable {
   var localizedTitle: String { L(title) }
   var localizedDetail: String { L(detail) }
 }
+struct BatteryInfo: Decodable, Equatable {
+  let percent: Int
+  let charging: Bool
+  let on_ac: Bool
+  let minutes: Int?
+}
 struct Snapshot: Decodable {
   let at: Double
   let cores: Int
@@ -177,6 +185,8 @@ struct Snapshot: Decodable {
   let volume_state: String
   let disk_state: String
   let current_uid: UInt32
+  let battery: BatteryInfo?
+  let power: Metric?
   var thermalLabel: String {
     guard let v = thermal.value else { return L("Indisponível") }
     return L(["Nominal", "Moderado", "Sério", "Crítico"][min(3, max(0, Int(v)))])
@@ -455,7 +465,16 @@ final class Preferences: ObservableObject {
   @Published var notifyServiceDown = UserDefaults.standard.bool(forKey: "notifyServiceDown") {
     didSet { save("notifyServiceDown", notifyServiceDown) }
   }
-  var notificationsEnabled: Bool { notifyOrphans || notifyHeavy || notifyPressure || notifyStalls || notifyServiceDown }
+  /// Notify when an agent session draws more than `drainWatts` on battery for 5 minutes.
+  @Published var notifyAgentDrain = UserDefaults.standard.bool(forKey: "notifyAgentDrain") {
+    didSet { save("notifyAgentDrain", notifyAgentDrain) }
+  }
+  @Published var drainWatts = UserDefaults.standard.object(forKey: "drainWatts") as? Double ?? 3 {
+    didSet { save("drainWatts", drainWatts) }
+  }
+  var notificationsEnabled: Bool {
+    notifyOrphans || notifyHeavy || notifyPressure || notifyStalls || notifyServiceDown || notifyAgentDrain
+  }
   // Global port lookup shortcut (Carbon key code + modifier mask); default ⌥⌘K.
   @Published var hotkeyEnabled = UserDefaults.standard.object(forKey: "hotkeyEnabled") as? Bool ?? true
   {
@@ -650,6 +669,7 @@ final class Monitor: ObservableObject {
             self.snapshot = shown
             self.error = nil
             Notifier.shared.evaluate(shown)
+            Notifier.shared.evaluateDrain(shown)
           case .failure(let e): self.error = e.localizedDescription
           }
         }

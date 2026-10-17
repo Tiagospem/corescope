@@ -1,4 +1,6 @@
 #include "macos.h"
+#include <IOKit/ps/IOPowerSources.h>
+#include <IOKit/ps/IOPSKeys.h>
 #include <mach/mach.h>
 #include <mach/mach_host.h>
 #include <mach/mach_time.h>
@@ -86,9 +88,11 @@ int os_process(int32_t pid,CSProcess *o){
  struct proc_taskinfo t={0};errno=0;o->task_ok=proc_pidinfo(pid,PROC_PIDTASKINFO,0,&t,sizeof(t))==sizeof(t);
  o->task_error=o->task_ok?0:errno;
  if(o->task_ok){o->cpu_ns=t.pti_total_user+t.pti_total_system;o->resident=t.pti_resident_size;o->threads=t.pti_threadnum;}
- struct rusage_info_v4 r={0};errno=0;o->usage_ok=proc_pid_rusage(pid,RUSAGE_INFO_V4,(rusage_info_t*)&r)==0;
+ // v6 adds per-process energy (ri_energy_nj); its first fields are v4's, so v4 is the fallback.
+ struct rusage_info_v6 r={0};errno=0;o->energy_ok=proc_pid_rusage(pid,RUSAGE_INFO_V6,(rusage_info_t*)&r)==0;
+ o->usage_ok=o->energy_ok||proc_pid_rusage(pid,RUSAGE_INFO_V4,(rusage_info_t*)&r)==0;
  o->usage_error=o->usage_ok?0:errno;
- if(o->usage_ok){o->cpu_ns=to_ns(r.ri_user_time+r.ri_system_time);o->footprint=r.ri_phys_footprint;o->read_bytes=r.ri_diskio_bytesread;o->write_bytes=r.ri_diskio_byteswritten;o->wakeups=r.ri_pkg_idle_wkups;}
+ if(o->usage_ok){o->cpu_ns=to_ns(r.ri_user_time+r.ri_system_time);o->footprint=r.ri_phys_footprint;o->read_bytes=r.ri_diskio_bytesread;o->write_bytes=r.ri_diskio_byteswritten;o->wakeups=r.ri_pkg_idle_wkups;o->energy_nj=o->energy_ok?r.ri_energy_nj:0;}
  return 0;
 }
 int os_volumes(CSVolume *o,int cap){
@@ -199,3 +203,21 @@ int os_network(uint64_t *in_bytes,uint64_t *out_bytes){
  }
  free(buf);return 0;
 }
+
+static int cf_int(CFDictionaryRef d,CFStringRef key,int fallback){
+ CFNumberRef n=CFDictionaryGetValue(d,key);int v=fallback;if(n&&CFGetTypeID(n)==CFNumberGetTypeID())CFNumberGetValue(n,kCFNumberIntType,&v);return v;}
+int os_battery(int32_t *percent,int32_t *charging,int32_t *on_ac,int32_t *minutes){
+ CFTypeRef info=IOPSCopyPowerSourcesInfo();if(!info)return 1;
+ CFArrayRef list=IOPSCopyPowerSourcesList(info);int missing=1;
+ for(CFIndex i=0;list&&missing&&i<CFArrayGetCount(list);i++){
+  CFDictionaryRef d=IOPSGetPowerSourceDescription(info,CFArrayGetValueAtIndex(list,i));if(!d)continue;
+  CFStringRef type=CFDictionaryGetValue(d,CFSTR(kIOPSTypeKey));
+  if(!type||CFStringCompare(type,CFSTR(kIOPSInternalBatteryType),0)!=kCFCompareEqualTo)continue;
+  int cur=cf_int(d,CFSTR(kIOPSCurrentCapacityKey),0),max=cf_int(d,CFSTR(kIOPSMaxCapacityKey),100);
+  CFBooleanRef ch=CFDictionaryGetValue(d,CFSTR(kIOPSIsChargingKey));
+  CFStringRef state=CFDictionaryGetValue(d,CFSTR(kIOPSPowerSourceStateKey));
+  *percent=max>0?cur*100/max:cur;*charging=ch&&CFBooleanGetValue(ch);
+  *on_ac=state&&CFStringCompare(state,CFSTR(kIOPSACPowerValue),0)==kCFCompareEqualTo;
+  *minutes=*charging?cf_int(d,CFSTR(kIOPSTimeToFullChargeKey),-1):*on_ac?-1:cf_int(d,CFSTR(kIOPSTimeToEmptyKey),-1);
+  missing=0;}
+ if(list)CFRelease(list);CFRelease(info);return missing;}
