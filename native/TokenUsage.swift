@@ -26,6 +26,20 @@ struct TokenCounts: Equatable {
   }
 }
 
+struct CodexTokenEvent {
+  let fingerprint: String?
+  let counts: TokenCounts
+  let day: Int?
+}
+
+struct CodexEventDeduper {
+  private var seen: [String: Set<String>] = [:]
+  mutating func insert(_ event: CodexTokenEvent, session: String?) -> Bool {
+    guard let session, let fingerprint = event.fingerprint else { return true }
+    return seen[session, default: []].insert(fingerprint).inserted
+  }
+}
+
 enum AgentKind: String {
   case claude = "Claude Code"
   case codex = "Codex"
@@ -51,6 +65,7 @@ struct TranscriptTally {
   private var lastUsage = TokenCounts()
   /// Codex repeats token_count events with an unchanged running total; those add nothing.
   private var lastTotal: TokenCounts?
+  var codexEvents: [CodexTokenEvent] = []
 
   init(kind: AgentKind, path: String) {
     self.kind = kind
@@ -198,7 +213,17 @@ struct TranscriptTally {
       let running = Self.codexCounts(totalUsage)
       if running == lastTotal { return }
       lastTotal = running
-      add(Self.codexCounts(last), at: object["timestamp"] as? String)
+      let counts = Self.codexCounts(last)
+      let timestamp = object["timestamp"] as? String
+      add(counts, at: timestamp)
+      if counts.total > 0 {
+        let fingerprint =
+          timestamp.map {
+            "\($0)|\(running.input),\(running.output),\(running.cacheWrite),\(running.cacheRead)|\(counts.input),\(counts.output),\(counts.cacheWrite),\(counts.cacheRead)"
+          }
+        let day = timestamp.flatMap(parseTimestamp).map { localDay($0) }
+        codexEvents.append(CodexTokenEvent(fingerprint: fingerprint, counts: counts, day: day))
+      }
     default: break
     }
   }

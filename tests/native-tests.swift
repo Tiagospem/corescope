@@ -126,4 +126,27 @@ func tokenTests() {
   precondition(c.session == "root" && c.cwd == "/tmp/demo" && c.model == "gpt-6.1-sol")
   precondition(c.total == TokenCounts(input: 90, output: 16, cacheWrite: 0, cacheRead: 160))
   precondition(c.offset == codexSize)
+
+  let shared = [count(100, 100, 60, 7), count(250, 150, 100, 9)]
+  let parentLog = [
+    #"{"type":"session_meta","payload":{"id":"root","cwd":"/tmp/demo"}}"#,
+  ] + shared
+  let forkLog = [
+    #"{"type":"session_meta","payload":{"id":"fork","session_id":"root","cwd":"/tmp/demo"}}"#,
+  ] + shared + [count(300, 50, 20, 4)]
+  let (parentURL, parentSize) = write("parent.jsonl", parentLog.joined(separator: "\n") + "\n")
+  let (forkURL, forkSize) = write("fork.jsonl", forkLog.joined(separator: "\n") + "\n")
+  var parent = TranscriptTally(kind: .codex, path: parentURL.path)
+  var fork = TranscriptTally(kind: .codex, path: forkURL.path)
+  parent.read(parentURL, size: parentSize)
+  fork.read(forkURL, size: forkSize)
+  precondition(parent.session == fork.session)
+  var deduper = CodexEventDeduper()
+  var combined = TokenCounts()
+  for (tally, session) in [(parent, parent.session), (fork, fork.session)] {
+    for event in tally.codexEvents where deduper.insert(event, session: session) {
+      combined += event.counts
+    }
+  }
+  precondition(combined == TokenCounts(input: 120, output: 20, cacheWrite: 0, cacheRead: 180))
 }

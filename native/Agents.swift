@@ -236,11 +236,25 @@ final class TokenUsageStore: ObservableObject {
     var report = TokenReport(ready: true)
     var agents: [String: TokenRow] = [:]
     var projects: [String: TokenRow] = [:]
+    var codexEventDeduper = CodexEventDeduper()
     for (tally, modified) in files.values {
       let cwd = Demo.enabled ? tally.cwd.map(Demo.path) : tally.cwd
       let project = usageProject(cwd) ?? L("Sem projeto")
       let agent = tally.kind.rawValue
-      for (day, counts) in tally.days where day >= weekStart {
+      let session = tally.session.map { (tally.kind == .claude ? "claude:" : "codex:") + $0 }
+      var codexCounts = TokenCounts()
+      let dailyCounts: [(Int, TokenCounts)]
+      if tally.kind == .codex {
+        var daily: [Int: TokenCounts] = [:]
+        for event in tally.codexEvents where codexEventDeduper.insert(event, session: session) {
+          codexCounts += event.counts
+          if let day = event.day { daily[day, default: TokenCounts()] += event.counts }
+        }
+        dailyCounts = daily.map { ($0.key, $0.value) }
+      } else {
+        dailyCounts = Array(tally.days)
+      }
+      for (day, counts) in dailyCounts where day >= weekStart {
         func add(_ row: inout TokenRow) {
           row.week += counts
           if day == today { row.today += counts }
@@ -249,10 +263,10 @@ final class TokenUsageStore: ObservableObject {
         add(&agents[agent, default: TokenRow(id: agent)])
         add(&projects[project, default: TokenRow(id: project)])
       }
-      guard let session = tally.session else { continue }
-      let key = (tally.kind == .claude ? "claude:" : "codex:") + session
+      guard let session else { continue }
+      let key = session
       var s = report.sessions[key] ?? SessionTokens()
-      s.counts += tally.total
+      s.counts += tally.kind == .codex ? codexCounts : tally.total
       if tally.isSubagent {
         s.subagents += 1
         if s.model == nil { s.model = tally.model }
