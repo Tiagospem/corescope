@@ -72,13 +72,24 @@ If you work with Claude Code, Codex, editors and terminals all day, your Mac fil
 </tr>
 </table>
 
+### 🔔 Notifications and port lookup
+
+- **Opt-in notifications** (Settings → Notifications, all off by default, delivered locally through macOS UserNotifications):
+  - a **new possible orphan** appeared, with its project and port — and a **Terminate** button that sends SIGTERM through the same path as the app (identity revalidated right before the signal);
+  - a process **stays above** a memory size (default 2 GB) or CPU (default 150 % of one core) for a while (default 60 s);
+  - macOS **memory pressure** reaches *warning* or *critical*, naming the biggest consumer.
+
+  At most one notification per process identity (PID + start time) per hour. Protected processes and other users' processes never notify. Rules run on the snapshots CoreScope already collects — no extra timer or sampling.
+- **Port lookup in the menu bar:** type a port (e.g. `3000`) to see which of your processes listens on it — name, project, origin — with *open `localhost:port`* and ✕. An empty result reads *Free*.
+- **Global shortcut ⌥⌘K** (configurable in Settings → Port shortcut) opens the menu bar popover with the port field focused. It is registered with Carbon's `RegisterEventHotKey`, so it needs **no Accessibility or Input Monitoring permission**: the app receives only that one key combination, never other keystrokes. (macOS 27 no longer exposes a public way to open a `MenuBarExtra` window, so there the shortcut shows the same menu in a standard popover anchored to the status item.)
+
 ### And also
 
 - **Storage & I/O:** per-device read/write, volume capacity (without double-counting APFS containers), NVMe temperature via public SMART APIs.
 - **Honest metrics:** every value carries its source and timestamp; missing data is labeled, never faked. Memory is *active + wired + compressed*, and is never presented as "pressure".
 - **Languages:** English, Portuguese and Spanish — follows your system language or a choice in Settings.
 - **Dock behavior:** always, only while the window is open (default — close it and CoreScope lives in the menu bar), or never.
-- **Shortcuts:** ⌘1…⌘6 pages · ⌘R refresh · ⇧⌘P floating panel · ⇧⌘Space pause / resume.
+- **Shortcuts:** ⌘1…⌘6 pages · ⌘R refresh · ⇧⌘P floating panel · ⇧⌘Space pause / resume · ⌥⌘K port lookup (global).
 
 ## Install
 
@@ -116,6 +127,7 @@ CoreScope is **local-only**: no network access, no telemetry, no accounts.
 - Process names, executables, users, start times, working directories and listening ports are read locally through public macOS APIs (`libproc`, `sysctl`, IOKit). Working directories and ports are read only for **your own** processes.
 - **Arguments and environment variables are never collected.**
 - Agent data comes from local files only: the newest `rate_limits` event in `~/.codex/sessions` and the session metadata in `~/.claude/sessions`. Claude Code does not store its weekly limit on disk, so CoreScope does not show it — and does not read credentials to fetch it.
+- Notifications are optional and local (UserNotifications); nothing is sent anywhere. The global shortcut uses `RegisterEventHotKey` and sees only its own key combination.
 - History (up to 10 minutes) lives in memory only. Preferences and watched processes stay in `UserDefaults`.
 - Nothing is ever killed automatically. Termination only targets your own, eligible processes, revalidates each process identity (PID + start time + executable) right before signaling, and never touches system services or CoreScope's own ancestors.
 

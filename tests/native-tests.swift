@@ -34,8 +34,24 @@ import Foundation
     precondition(filtered.map(\.pid) == [10, 11, 12])
     precondition(formatDuration(3725) == "1 h 2 min")
     precondition(projectName("/") == nil && projectName("/tmp/app") == "app")
+    // Notifications: one per identity per hour, sustained thresholds, no replay at launch.
+    var debounce = NotificationDebounce()
+    precondition(debounce.allow("42:1", at: 0) && !debounce.allow("42:1", at: 3599))
+    precondition(debounce.allow("42:2", at: 10) && debounce.allow("42:1", at: 3600))
+    var sustain = SustainTracker()
+    precondition(sustain.update(above: ["a"], at: 0, duration: 60).isEmpty)
+    precondition(sustain.update(above: ["a", "b"], at: 60, duration: 60) == ["a"])
+    precondition(sustain.update(above: ["b"], at: 90, duration: 60).isEmpty)
+    precondition(sustain.update(above: ["a", "b"], at: 120, duration: 60) == ["b"])
+    var arrivals = NewArrivals()
+    precondition(arrivals.update(["x"]).isEmpty && arrivals.update(["x", "y"]) == ["y"])
+    precondition(arrivals.update(["y"]).isEmpty)
+    precondition(parsePort("3000") == 3000 && parsePort(":8080") == 8080)
+    precondition(parsePort("0") == nil && parsePort("70000") == nil && parsePort("abc") == nil)
+    precondition(
+      shortcutLabel(modifiers: HotkeyModifier.command | HotkeyModifier.option, key: "k") == "⌥⌘K")
     print(
-      "15 native assertions passed: descendants, cycle, ordering, off-screen recovery, negative-origin monitor, forest roots, flatten, collapse, totals, ancestors, filter, formatting"
+      "20 native assertions passed: descendants, cycle, ordering, off-screen recovery, negative-origin monitor, forest roots, flatten, collapse, totals, ancestors, filter, formatting, debounce, sustained thresholds, new arrivals, port parsing, shortcut label"
     )
   }
 }

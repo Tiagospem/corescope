@@ -407,4 +407,35 @@ private let entries = """
   Mostrar no %@ ¦ Show in %@ ¦ Mostrar en %@
   Abre esta sessão no Claude Desktop ¦ Opens this session in Claude Desktop ¦ Abre esta sesión en Claude Desktop
   Traz %@, onde a sessão está rodando, para a frente ¦ Brings %@, where the session runs, to the front ¦ Trae al frente %@, donde se ejecuta la sesión
+  Possível órfão: %@ ¦ Possible orphan: %@ ¦ Posible huérfano: %@
+  %@ usa %@ de memória ¦ %@ is using %@ of memory ¦ %@ usa %@ de memoria
+  %@ usa %@ de CPU ¦ %@ is using %@ CPU ¦ %@ usa %@ de CPU
+  Acima de %@ há mais de %@. ¦ Above %@ for more than %@. ¦ Por encima de %@ durante más de %@.
+  O macOS está sem memória livre e pode encerrar apps. Feche o que não estiver usando. ¦ macOS is out of free memory and may terminate apps. Quit what you are not using. ¦ macOS se quedó sin memoria libre y puede cerrar apps. Cierra lo que no estés usando.
+  O macOS começou a comprimir memória e pode usar swap. ¦ macOS started compressing memory and may use swap. ¦ macOS empezó a comprimir memoria y puede usar swap.
+  Maior consumo: %@ (%@) ¦ Largest user: %@ (%@) ¦ Mayor consumo: %@ (%@)
+  Pressão de memória crítica ¦ Critical memory pressure ¦ Presión de memoria crítica
+  Pressão de memória em atenção ¦ Memory pressure warning ¦ Aviso de presión de memoria
+  O processo já não está em execução. ¦ The process is no longer running. ¦ El proceso ya no está en ejecución.
+  Pressione o atalho… ¦ Press the shortcut… ¦ Pulsa el atajo…
+  rodando há %@ ¦ running for %@ ¦ en ejecución hace %@
+  Porta ¦ Port ¦ Puerto
+  Livre ¦ Free ¦ Libre
+  Nenhum processo seu escuta em :%@ ¦ None of your processes listens on :%@ ¦ Ninguno de tus procesos escucha en :%@
+  Porta inválida ¦ Invalid port ¦ Puerto no válido
+  Atalho global para buscar porta ¦ Global shortcut for port lookup ¦ Atajo global para buscar puerto
+  Notificações ¦ Notifications ¦ Notificaciones
+  Novo possível órfão ¦ New possible orphan ¦ Nuevo posible huérfano
+  Processo pesado por muito tempo ¦ Process heavy for a long time ¦ Proceso pesado durante mucho tiempo
+  Memória acima de ¦ Memory above ¦ Memoria por encima de
+  CPU acima de ¦ CPU above ¦ CPU por encima de
+  Por pelo menos ¦ For at least ¦ Durante al menos
+  Pressão de memória do macOS (atenção/crítica) ¦ macOS memory pressure (warning/critical) ¦ Presión de memoria de macOS (aviso/crítica)
+  O macOS está bloqueando as notificações do CoreScope. ¦ macOS is blocking CoreScope notifications. ¦ macOS está bloqueando las notificaciones de CoreScope.
+  Abrir Ajustes do Sistema ¦ Open System Settings ¦ Abrir Ajustes del Sistema
+  Desligadas por padrão e locais. No máximo uma notificação por processo (PID + início) por hora; processos protegidos ou de outros usuários nunca notificam. “Encerrar” envia SIGTERM pelo mesmo caminho do app, que revalida a identidade antes do sinal; nada é encerrado sem o seu clique. ¦ Off by default and local. At most one notification per process (PID + start) per hour; protected processes and other users' processes never notify. “Terminate” sends SIGTERM through the app's usual path, which revalidates the identity before signaling; nothing is terminated without your click. ¦ Desactivadas por defecto y locales. Como máximo una notificación por proceso (PID + inicio) por hora; los procesos protegidos o de otros usuarios nunca notifican. “Finalizar” envía SIGTERM por la misma vía de la app, que revalida la identidad antes de la señal; nada se finaliza sin tu clic.
+  Atalho de porta ¦ Port shortcut ¦ Atajo de puerto
+  Combinação ¦ Combination ¦ Combinación
+  Outro app já usa esta combinação. Escolha outra. ¦ Another app already uses this combination. Pick another one. ¦ Otra app ya usa esta combinación. Elige otra.
+  Abre o menu do CoreScope com o campo Porta em foco. Registrado com RegisterEventHotKey: não pede permissão de Acessibilidade e o app recebe só esta combinação. ¦ Opens the CoreScope menu with the Port field focused. Registered with RegisterEventHotKey: no Accessibility permission, and the app receives only this combination. ¦ Abre el menú de CoreScope con el campo Puerto enfocado. Registrado con RegisterEventHotKey: no pide permiso de Accesibilidad y la app recibe solo esta combinación.
   """
