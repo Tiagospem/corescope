@@ -1760,6 +1760,70 @@ mod tests {
         assert_eq!(history::info(&path).unwrap().minutes, 0);
     }
     #[test]
+    fn history_merges_repeated_partial_minute_writes() {
+        let path = temp_db("repeated-minute");
+        let base = 1_800_000_000.;
+        let (first_name, first_path) = proc_sample(0);
+        let (second_name, second_path) = proc_sample(1);
+        let mut first = history::Recorder::new(&path);
+        first.add(
+            base,
+            7,
+            history::System {
+                cpu: Some(10.),
+                ..Default::default()
+            },
+            std::iter::once(history::Proc {
+                key: (100, 1),
+                name: &first_name,
+                path: &first_path,
+                cwd: "/tmp",
+                origin: "",
+                cpu: Some(80.),
+                memory: Some(500.),
+            }),
+        );
+        first.flush(7);
+        first.disable();
+
+        let mut second = history::Recorder::new(&path);
+        second.add(
+            base + 10.,
+            7,
+            history::System {
+                cpu: Some(30.),
+                ..Default::default()
+            },
+            std::iter::once(history::Proc {
+                key: (200, 1),
+                name: &second_name,
+                path: &second_path,
+                cwd: "/tmp",
+                origin: "",
+                cpu: Some(100.),
+                memory: Some(1_000.),
+            }),
+        );
+        second.add(
+            base + 60.,
+            7,
+            history::System::default(),
+            std::iter::empty(),
+        );
+
+        let series = history::series(&path, base as i64, base as i64 + 60, 60).unwrap();
+        assert_eq!(series.points[0].samples, 2);
+        assert_eq!(series.points[0].cpu, Some(20.));
+        assert_eq!(series.points[0].cpu_max, Some(30.));
+        let top = history::top(&path, base as i64, base as i64 + 60).unwrap();
+        assert_eq!(top.cpu.len(), 2);
+        assert_eq!(top.cpu[0].name, second_name);
+        assert_eq!(top.cpu[0].cpu, 50.);
+        assert_eq!(top.cpu[1].name, first_name);
+        assert_eq!(top.cpu[1].cpu, 40.);
+        second.delete().unwrap();
+    }
+    #[test]
     fn history_retention_purges_old_minutes() {
         let path = temp_db("retention");
         let mut r = history::Recorder::new(&path);
