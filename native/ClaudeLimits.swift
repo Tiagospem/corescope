@@ -162,10 +162,18 @@ enum ClaudeLimitsBridge {
     let fm = FileManager.default
     try fm.createDirectory(at: backups, withIntermediateDirectories: true)
     let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
-    try write(text, to: backups.appendingPathComponent("settings-\(stamp).json"))
-    let old = ((try? fm.contentsOfDirectory(atPath: backups.path)) ?? [])
-      .filter { $0.hasPrefix("settings-") }.sorted().dropLast(10)
-    for name in old { try? fm.removeItem(at: backups.appendingPathComponent(name)) }
+    try write(text, to: backups.appendingPathComponent("settings-\(stamp)-\(UUID().uuidString).json"))
+    let old = ((try? fm.contentsOfDirectory(
+      at: backups, includingPropertiesForKeys: [.contentModificationDateKey])) ?? [])
+      .filter { $0.lastPathComponent.hasPrefix("settings-") }
+      .sorted {
+        let left = (try? $0.resourceValues(forKeys: [.contentModificationDateKey]))?
+          .contentModificationDate ?? .distantPast
+        let right = (try? $1.resourceValues(forKeys: [.contentModificationDateKey]))?
+          .contentModificationDate ?? .distantPast
+        return left < right
+      }.dropLast(10)
+    for file in old { try? fm.removeItem(at: file) }
   }
   /// Atomic replace that keeps the original file's permissions (settings.json is often 0600).
   private static func write(_ text: String, to url: URL) throws {
