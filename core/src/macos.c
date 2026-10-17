@@ -222,3 +222,11 @@ int os_battery(int32_t *percent,int32_t *charging,int32_t *on_ac,int32_t *minute
   *minutes=*charging?cf_int(d,CFSTR(kIOPSTimeToFullChargeKey),-1):*on_ac?-1:cf_int(d,CFSTR(kIOPSTimeToEmptyKey),-1);
   missing=0;}
  if(list)CFRelease(list);CFRelease(info);return missing;}
+
+int32_t os_pressure_level(void){
+ int level=0;size_t size=sizeof(level);
+ return sysctlbyname("kern.memorystatus_vm_pressure_level",&level,&size,NULL,0)==0?level:-1;}
+
+// Darwin background QoS for a same-user process: lower CPU and I/O priority, reversible.
+int os_background(int32_t pid,int on){
+ errno=0;return setpriority(PRIO_DARWIN_PROCESS,pid,on?PRIO_DARWIN_BG:0)==0?0:errno;}

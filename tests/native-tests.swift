@@ -172,8 +172,18 @@ import Foundation
     precondition(validSSHDestination("deploy@web-1.example.com") && validSSHDestination("forge-redis"))
     precondition(!validSSHDestination("-oProxyCommand=x") && !validSSHDestination("a b") && !validSSHDestination("a;rm"))
     precondition(sshConfigHosts("Host *\n  User x\nHost web db-1 !bad\nhost web\n") == ["web", "db-1"])
+    // The gate hook sits next to the user's own hooks and leaves them as they were.
+    let userHooks = try! OrderedJSON.parse(#"{"model":"x","hooks":{"PreToolUse":[{"matcher":"Edit","hooks":[{"type":"command","command":"lint"}]}],"Stop":[]}}"#)
+    let withGate = ClaudeGateHook.installing(into: userHooks, binary: "/Apps/Core Scope.app/bin/corescope")
+    precondition(ClaudeGateHook.installed(in: withGate) && !ClaudeGateHook.installed(in: userHooks))
+    precondition(withGate.serialized().contains("'/Apps/Core Scope.app/bin/corescope' gate"))
+    let twice = ClaudeGateHook.installing(into: withGate, binary: "/new/corescope")
+    precondition(twice.serialized().components(separatedBy: " gate").count == 2, "one entry after reinstalling")
+    precondition(ClaudeGateHook.removing(from: twice) == userHooks)
+    let bare = try! OrderedJSON.parse(#"{"model":"x"}"#)
+    precondition(ClaudeGateHook.removing(from: ClaudeGateHook.installing(into: bare, binary: "/c/corescope")) == bare)
     print(
-      "25 native assertions passed: descendants, cycle, ordering, off-screen recovery, negative-origin monitor, forest roots, flatten, collapse, totals, ancestors, filter, formatting, container ports, shared ports, demo paths, debounce, sustained thresholds, new arrivals, port parsing, shortcut label, agent stalls, health targets, shared containers, ssh stats; plus settings JSON, Unicode escapes, status line install/chain, Claude limits"
+      "25 native assertions passed: descendants, cycle, ordering, off-screen recovery, negative-origin monitor, forest roots, flatten, collapse, totals, ancestors, filter, formatting, container ports, shared ports, demo paths, debounce, sustained thresholds, new arrivals, port parsing, shortcut label, agent stalls, health targets, shared containers, ssh stats, gate hook; plus settings JSON, Unicode escapes, status line install/chain, Claude limits"
     )
     print(
       "token usage assertions passed: timestamps, formatting, Claude block dedupe, embedded entries, partial lines, long-line skip, fast/full parity, Codex repeats and forks"

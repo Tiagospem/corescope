@@ -1,4 +1,5 @@
 //! CoreScope: bounded local telemetry and explicitly authorized process control.
+pub mod capacity;
 pub mod containers;
 pub mod databases;
 pub mod devspace;
@@ -1687,6 +1688,31 @@ pub extern "C" fn cs_docker_details() -> *mut c_char {
     })
 }
 
+/// Moves a process into (or out of) background priority after checking it is still the same
+/// process (PID + start time) and the caller's own. Returns an error message or nothing.
+pub fn set_background(pid: i32, start: u64, on: bool) -> Result<(), String> {
+    let p = process(pid).ok_or("Processo encerrou ou está sem permissão")?;
+    if p.start != start {
+        return Err("Identidade mudou".into());
+    }
+    if p.uid != unsafe { os_uid() } || pid <= 1 || pid == unsafe { os_self() } {
+        return Err("Pertence a outro usuário".into());
+    }
+    // SAFETY: plain syscall wrapper on a revalidated pid.
+    match unsafe { os::os_background(pid, i32::from(on)) } {
+        0 => Ok(()),
+        e => Err(format!("setpriority falhou ({e})")),
+    }
+}
+/// FFI form of `set_background`.
+#[unsafe(no_mangle)]
+pub extern "C" fn cs_background(pid: i32, start: u64, on: i32) -> *mut c_char {
+    response(|| {
+        set_background(pid, start, on != 0)?;
+        Ok("{\"ok\":true}".into())
+    })
+}
+
 /// A plain process for tests elsewhere in the crate.
 #[cfg(test)]
 pub(crate) fn process_fixture() -> Process {
@@ -1876,6 +1902,28 @@ mod tests {
         assert!(found.iter().any(|p| p.port == port && p.exposed == 0));
         assert_eq!(cwd(own), std::env::current_dir().unwrap().to_string_lossy());
         assert!(network().is_some());
+    }
+    #[test]
+    #[cfg_attr(not(target_os = "macos"), ignore = "uses Darwin process priorities")]
+    fn background_priority_round_trip() {
+        let mut child = std::process::Command::new("/bin/sleep")
+            .arg("5")
+            .spawn()
+            .unwrap();
+        let pid = child.id() as i32;
+        let p = process(pid).unwrap();
+        assert!(set_background(pid, p.start, true).is_ok());
+        assert!(
+            set_background(pid, p.start + 1, true).is_err(),
+            "identity is checked"
+        );
+        assert!(set_background(pid, p.start, false).is_ok());
+        assert!(
+            set_background(1, 0, true).is_err(),
+            "never launchd or other users"
+        );
+        let _ = child.kill();
+        let _ = child.wait();
     }
     #[test]
     #[cfg_attr(not(target_os = "macos"), ignore = "reads the macOS process table")]

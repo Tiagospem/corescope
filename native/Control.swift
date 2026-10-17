@@ -505,6 +505,7 @@ enum AgentSettings {
     "notify_orphans": \.notifyOrphans, "notify_heavy_processes": \.notifyHeavy,
     "notify_memory_pressure": \.notifyPressure, "notify_stuck_agents": \.notifyStalls,
     "notify_service_down": \.notifyServiceDown, "notify_agent_battery_drain": \.notifyAgentDrain,
+    "economy_mode_on_battery": \.economyMode,
   ]
   private static let numbers: [String: (ReferenceWritableKeyPath<Preferences, Double>, ClosedRange<Double>)] = [
     "stuck_agent_minutes": (\.stallMinutes, 1...240), "agent_drain_watts": (\.drainWatts, 0.5...50),

@@ -23,6 +23,11 @@ section as the GitHub release notes.
   containers, restart policy, image age and a Volumes card (size, use, unused flagged).
   `corescope containers` and MCP `list_containers`, `container_logs`, `container_action`
   (stopping one a started profile uses needs `force`).
+- **Agents wait for capacity**: projects opt in with `agents.wait_for_capacity` in
+  `.corescope.yml`; an optional Claude Code hook (`corescope gate`) holds heavy commands until CPU
+  and memory pressure settle, other agents get MCP `wait_for_capacity` / `system_capacity` and
+  server instructions, the Agents page shows who is waiting, and `corescope wait` does it for
+  scripts. **Economy mode**: on battery, busy agent-started processes run at background priority.
 
 ## [0.4.0] - 2026-10-17
 

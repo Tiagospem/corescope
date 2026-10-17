@@ -22,6 +22,8 @@ char *cs_project_configs(const char *request);
 char *cs_logs(const char *request);
 // Volumes, restart policies and image dates from the local Docker engines.
 char *cs_docker_details(void);
+// Darwin background priority on/off for a same-user process (identity revalidated).
+char *cs_background(int32_t pid, uint64_t start, int32_t on);
 void cs_free(char *pointer);
 
 int32_t cs_is_same(int32_t pid, uint64_t start);

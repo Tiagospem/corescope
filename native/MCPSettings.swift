@@ -101,6 +101,7 @@ struct MCPSettings: View {
   @ViewState private var states: [MCPRegistration.Agent: MCPRegistration.State] = [:]
   @ViewState private var busy = Set<MCPRegistration.Agent>()
   @ViewState private var error: String?
+  @ViewState private var gateHook = false
   @ObservedObject var prefs = Preferences.shared
   private let queue = DispatchQueue(label: "app.corescope.mcp", qos: .userInitiated)
   var body: some View {
@@ -125,6 +126,21 @@ struct MCPSettings: View {
         }
       }
       Toggle(L("Agentes podem usar o app pelo MCP"), isOn: $prefs.mcpAppAccess)
+      Toggle(L("Claude Code espera a máquina ter folga antes de comandos pesados"), isOn: Binding(
+        get: { gateHook },
+        set: { on in
+          queue.async {
+            let failure = ClaudeGateBridge.set(on)
+            let now = ClaudeGateBridge.installed()
+            DispatchQueue.main.async {
+              gateHook = now
+              error = failure
+            }
+          }
+        }))
+      Text(
+        L("Instala um hook em ~/.claude/settings.json (com backup) que roda corescope gate antes de cada comando: nos projetos cujo .corescope.yml define agents.wait_for_capacity, builds e testes esperam a CPU e a memória normalizarem. Nos outros não faz nada. Codex e outros agentes usam a ferramenta MCP wait_for_capacity.")
+      ).font(.caption).foregroundStyle(.secondary)
       Text(
         L("Perfis (criar, iniciar, parar, logs), Serviços, Máquinas, limpeza (analisar e mover para a Lixeira o que a análise encontrou) e ajustes de notificação. Pelo socket local do app, só para o seu usuário. O agente pede a sua aprovação antes de cada ação.")
       ).font(.caption).foregroundStyle(.secondary)
@@ -147,6 +163,8 @@ struct MCPSettings: View {
   }
   private func reload() {
     queue.async {
+      let hook = ClaudeGateBridge.installed()
+      DispatchQueue.main.async { gateHook = hook }
       var next: [MCPRegistration.Agent: MCPRegistration.State] = [:]
       for agent in MCPRegistration.Agent.allCases { next[agent] = MCPRegistration.state(agent) }
       DispatchQueue.main.async { states = next }

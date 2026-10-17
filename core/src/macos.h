@@ -32,6 +32,10 @@ typedef struct { uint16_t port; uint8_t exposed; } CSPort;
 int os_ports(int32_t pid, CSPort *out, int cap);
 // Internal battery: percent, charging, on AC power, minutes to empty/full (-1 unknown). 0 when present.
 int os_battery(int32_t *percent, int32_t *charging, int32_t *on_ac, int32_t *minutes);
+// Memory pressure as the kernel reports it: 1 normal, 2 warning, 4 critical; -1 unavailable.
+int32_t os_pressure_level(void);
+// Puts a process in (on=1) or out of (on=0) Darwin background priority. 0 or errno.
+int os_background(int32_t pid, int on);
 // Current working directory of a process (same user only). 0 success.
 int os_cwd(int32_t pid, char *out, int cap);
 // Cumulative bytes on non-loopback interfaces (64-bit counters). 0 success.

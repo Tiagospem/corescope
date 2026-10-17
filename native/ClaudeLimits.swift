@@ -162,7 +162,7 @@ enum ClaudeLimitsBridge {
     }
   }
 
-  private static func trailing(_ original: String) -> String { original.hasSuffix("\n") ? "\n" : "" }
+  static func trailing(_ original: String) -> String { original.hasSuffix("\n") ? "\n" : "" }
   private static func writeScript() throws {
     try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
     if (try? String(contentsOf: script, encoding: .utf8)) != scriptText {
@@ -186,7 +186,7 @@ enum ClaudeLimitsBridge {
     }
   }
   /// settings-<timestamp>.json next to the other CoreScope files; the newest 10 are kept.
-  private static func backup(_ text: String) throws {
+  static func backup(_ text: String) throws {
     let fm = FileManager.default
     try fm.createDirectory(at: backups, withIntermediateDirectories: true)
     let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
@@ -204,7 +204,7 @@ enum ClaudeLimitsBridge {
     for file in old { try? fm.removeItem(at: file) }
   }
   /// Atomic replace that keeps the original file's permissions (settings.json is often 0600).
-  private static func write(_ text: String, to url: URL) throws {
+  static func write(_ text: String, to url: URL) throws {
     let fm = FileManager.default
     let mode = (try? fm.attributesOfItem(atPath: url.path))?[.posixPermissions] as? NSNumber
     try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)

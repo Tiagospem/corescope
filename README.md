@@ -110,6 +110,24 @@ The format is plain YAML (maps, lists, quoted or plain values, comments); anythi
 
 Every log of every project in one place, for any stack: log files found in the usual folders (`storage/logs`, `log`, `logs`, `var/log`, `*.log` at the root) plus the `logs:` globs in `.corescope.yml`, the output of profile commands, and container logs. Tail one live, search a project, or see its recent errors — detected by the level each line declares, or by generic markers (`Exception`, `Traceback`, `panic`, `FATAL`…) — with their stack traces and repeats folded into a count. Agents get the same over MCP (`recent_errors` for a profile or project, `tail_log`, `search_logs`, `list_log_sources`), so they can debug without you pasting logs; and `corescope logs --errors` works in a terminal.
 
+### ⏸️ Agents wait for capacity
+
+When an agent starts a full test suite on a Mac that is already at 90% CPU, everything slows down and a ten-minute task takes hours. A project can opt in, in `.corescope.yml`:
+
+```yaml
+agents:
+  wait_for_capacity:
+    cpu_below: 70          # % of all cores
+    memory: normal         # or warning
+    max_wait_minutes: 30   # then run anyway
+    heavy_commands: [php artisan test, npm run build]   # empty = common builds and test suites
+```
+
+- **Claude Code** — *Settings › MCP server for agents › Claude Code waits…* installs a `PreToolUse` hook (`corescope gate`, with a backup of `~/.claude/settings.json`). Before a heavy command in such a project it waits until CPU and memory pressure are back under the limit (two good readings in a row), then lets it run. Other commands and other projects pass in a few milliseconds. It delays, it never blocks.
+- **Codex and other agents** — the MCP server tells them to call `wait_for_capacity` (and `system_capacity`) before heavy commands in those projects.
+- **You see it** — the Agents page lists who is waiting, for which command and why. `corescope wait` does the same for your own scripts.
+- **Economy mode** (Energy page): on battery, busy processes agent sessions start run at macOS background priority, so they yield CPU and disk to what you are doing; servers with open ports are left alone, and everything returns to normal on AC.
+
 ### 💚 Services
 
 Watch the things your work depends on: a local API's `/health`, a database port, a staging URL. Each check runs every 30 s while CoreScope is open — an HTTP GET (2xx/3xx up, 4xx answered with an error, 5xx or no answer down) or a TCP connect — with latency, a strip of the last 40 results, an Overview summary and optional notifications when a service goes down (two failures in a row) or comes back. Ports you have open right now are offered as one-click suggestions.
@@ -203,6 +221,7 @@ corescope db                       # local MySQL/PostgreSQL/Redis: sizes, connec
 corescope power                    # battery, watts per process and per agent session
 corescope config                   # validate this project's .corescope.yml
 corescope logs --errors            # this project's recent errors, with traces
+corescope wait                     # wait until the Mac has room (the project's rule or flags)
 ```
 
 Termination follows the app's rules: only your own processes, never system services or the command's own ancestors (an agent cannot stop its own session), identity revalidated right before each signal, and no signal without `--yes` when there is no terminal to confirm in.
@@ -219,6 +238,7 @@ Off by default. *Settings → MCP server for agents → Enable* registers `cores
 | `list_my_processes` | What the calling agent session started, including servers it detached |
 | `power_usage` | Battery, total watts, top processes and agent sessions by power |
 | `list_databases` | Local MySQL/PostgreSQL/Redis status (read-only, no passwords) |
+| `system_capacity` / `wait_for_capacity` | Whether the Mac has room for heavy work under the project's rule; wait until it does |
 | `list_containers` / `container_logs` / `container_action` | Containers with project, ports, restart policy and volumes; logs; start/stop/restart under the profiles' sharing rules |
 | `recent_errors` / `search_logs` / `tail_log` / `list_log_sources` | A profile's or project's logs: errors with traces and counts, search, tail |
 | `read_project_config` / `write_project_config` | The project's `.corescope.yml`, parsed and validated / written as commented YAML |

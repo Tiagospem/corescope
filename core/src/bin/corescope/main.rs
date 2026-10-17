@@ -27,6 +27,11 @@ USAGE:
   corescope containers                  containers (state, ports, compose project, health), volumes
   corescope logs [FOLDER] [--errors] [--search TEXT] [-n N]
                                         the project's log files: tail, errors with traces, or search
+  corescope wait [FOLDER] [--cpu-below N] [--memory normal|warning] [--max-wait MIN]
+                                        wait until the Mac has room (the project's .corescope.yml
+                                        agents.wait_for_capacity, or the flags), then exit 0
+  corescope gate                        Claude Code PreToolUse hook: holds heavy Bash commands until
+                                        there is room, in projects that enable it
   corescope config [FOLDER]             validate and show the project's .corescope.yml (default: here)
   corescope db                          local MySQL/PostgreSQL/Redis: size, connections, slow
                                         and long-running queries (no passwords used or read)
@@ -141,6 +146,31 @@ fn main() {
             )
         }
         Some("containers") => print(json_out, containers()),
+        Some("gate") => gate(),
+        Some("wait") => {
+            let folder = positional
+                .get(1)
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+            let value = |name: &str| {
+                args.iter()
+                    .position(|a| a == name)
+                    .and_then(|i| args.get(i + 1))
+                    .cloned()
+            };
+            let mut spec = capacity_spec(&folder).unwrap_or_default();
+            if let Some(v) = value("--cpu-below").and_then(|v| v.parse().ok()) {
+                spec.cpu_below = v;
+            }
+            if let Some(v) = value("--memory") {
+                spec.memory = v;
+            }
+            if let Some(v) = value("--max-wait").and_then(|v| v.parse().ok()) {
+                spec.max_wait_minutes = v;
+            }
+            let outcome = wait_for_room(&spec, None, |line| eprintln!("corescope: {line}"));
+            print(json_out, outcome)
+        }
         Some("config") => {
             let folder = positional
                 .get(1)
@@ -376,6 +406,101 @@ pub fn logs(folder: &std::path::Path, errors: bool, query: Option<&str>, count: 
     json!({"log_sources": sources.iter().map(|s| &s.name).collect::<Vec<_>>(), "tails": tails})
 }
 
+/// The capacity rule of the project around `folder`, if it has one.
+pub fn capacity_spec(folder: &std::path::Path) -> Option<corescope::projectconfig::CapacitySpec> {
+    let v = project_config(folder).ok()?;
+    serde_json::from_value(v["config"]["agents"]["wait_for_capacity"].clone()).ok()
+}
+
+/// Samples until the rule is met twice in a row (10 s apart), or `limit` passes. An immediate
+/// pass needs one reading. Returns what happened, never fails: on timeout the caller proceeds.
+pub fn wait_for_room(
+    spec: &corescope::projectconfig::CapacitySpec,
+    limit: Option<Duration>,
+    mut say: impl FnMut(&str),
+) -> Value {
+    let started = std::time::Instant::now();
+    let limit = limit.unwrap_or(Duration::from_secs_f64(spec.max_wait_minutes.max(0.) * 60.));
+    let mut good = 0;
+    let mut waited = false;
+    loop {
+        let reading = corescope::capacity::reading(&sample(true));
+        let blockers = corescope::capacity::blockers(spec, &reading);
+        if blockers.is_empty() {
+            good += 1;
+            if !waited || good >= 2 {
+                return json!({"ready": true, "waited_seconds": started.elapsed().as_secs(), "reading": reading});
+            }
+        } else {
+            good = 0;
+            if !waited {
+                say(&format!("waiting for room: {}", blockers.join(", ")));
+            }
+            waited = true;
+            if started.elapsed() + Duration::from_millis(900) >= limit {
+                return json!({"ready": false, "gave_up_after_seconds": started.elapsed().as_secs(),
+                              "blockers": blockers, "reading": reading});
+            }
+        }
+        // Never past the limit: the last check lands on it.
+        let left = limit.saturating_sub(started.elapsed());
+        std::thread::sleep(Duration::from_secs(10).min(left.max(Duration::from_millis(200))));
+    }
+}
+
+/// Claude Code PreToolUse hook. Reads the tool call on stdin; for a heavy Bash command in a project
+/// whose .corescope.yml enables `agents.wait_for_capacity`, waits for room (recording the wait so
+/// CoreScope can show it). Always exits 0: it delays, it never blocks a command.
+fn gate() -> i32 {
+    use std::io::Read;
+    let mut input = String::new();
+    let _ = std::io::stdin().take(1 << 20).read_to_string(&mut input);
+    let call: Value = serde_json::from_str(&input).unwrap_or_default();
+    if call["tool_name"].as_str() != Some("Bash") {
+        return 0;
+    }
+    let command = call["tool_input"]["command"].as_str().unwrap_or("");
+    let folder = call["cwd"]
+        .as_str()
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+    let Some(spec) = capacity_spec(&folder) else {
+        return 0;
+    };
+    let defaults: Vec<String> = corescope::capacity::DEFAULT_HEAVY
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let prefixes = if spec.heavy_commands.is_empty() {
+        &defaults
+    } else {
+        &spec.heavy_commands
+    };
+    let Some(heavy) = corescope::capacity::heavy(command, prefixes) else {
+        return 0;
+    };
+    // Visible to CoreScope while it lasts: who waits, for what, why.
+    let dir = std::path::PathBuf::from(std::env::var_os("HOME").unwrap_or_default())
+        .join("Library/Application Support/CoreScope/gates");
+    let _ = std::fs::create_dir_all(&dir);
+    let file = dir.join(format!("{}.json", std::process::id()));
+    let agent = std::os::unix::process::parent_id();
+    let limit = Duration::from_secs_f64((spec.max_wait_minutes.clamp(0., 55.)) * 60.);
+    let outcome = wait_for_room(&spec, Some(limit), |reason| {
+        let note = json!({"agent_pid": agent, "folder": folder, "command": heavy, "reason": reason,
+                          "since": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)});
+        let _ = std::fs::write(&file, note.to_string());
+        eprintln!("CoreScope: {reason}; `{heavy}` will start when the Mac has room");
+    });
+    let _ = std::fs::remove_file(&file);
+    if outcome["ready"] == false {
+        eprintln!(
+            "CoreScope: still busy after the project's maximum wait; running `{heavy}` anyway"
+        );
+    }
+    0
+}
+
 /// The project file in `folder` (or the nearest parent with one), parsed and validated.
 pub fn project_config(folder: &std::path::Path) -> Result<Value, String> {
     let dir = folder
@@ -573,6 +698,22 @@ fn print(json_out: bool, value: Value) -> i32 {
                 }
             );
         }
+    } else if let Some(ready) = value["ready"].as_bool() {
+        println!(
+            "{}",
+            if ready {
+                format!("ready (waited {}s)", num(&value["waited_seconds"]))
+            } else {
+                format!(
+                    "still busy after {}s: {}",
+                    num(&value["gave_up_after_seconds"]),
+                    value["blockers"]
+                        .as_array()
+                        .map(|b| b.iter().map(text).collect::<Vec<_>>().join(", "))
+                        .unwrap_or_default()
+                )
+            }
+        );
     } else if let Some(rows) = value["containers"].as_array() {
         println!(
             "{:<34} {:<10} {:<18} {:<16} PORTS",

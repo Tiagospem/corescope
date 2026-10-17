@@ -474,6 +474,10 @@ final class Preferences: ObservableObject {
       ControlServer.shared.apply()
     }
   }
+  /// On battery, run busy agent-started processes at background priority.
+  @Published var economyMode = UserDefaults.standard.bool(forKey: "economyMode") {
+    didSet { save("economyMode", economyMode) }
+  }
   /// Notify when an agent session draws more than `drainWatts` on battery for 5 minutes.
   @Published var notifyAgentDrain = UserDefaults.standard.bool(forKey: "notifyAgentDrain") {
     didSet { save("notifyAgentDrain", notifyAgentDrain) }
@@ -679,6 +683,7 @@ final class Monitor: ObservableObject {
             self.error = nil
             Notifier.shared.evaluate(shown)
             Notifier.shared.evaluateDrain(shown)
+            EconomyWatch.shared.evaluate(shown)
           case .failure(let e): self.error = e.localizedDescription
           }
         }

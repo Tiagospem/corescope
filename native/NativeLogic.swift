@@ -708,3 +708,58 @@ func sshConfigHosts(_ config: String) -> [String] {
   }
   return out
 }
+
+/// CoreScope's Claude Code PreToolUse hook (`corescope gate`) inside ~/.claude/settings.json:
+/// added as its own matcher group, recognized by its command, removed without touching other
+/// hooks.
+enum ClaudeGateHook {
+  static func command(binary: String) -> String { ClaudeStatusLine.shellQuote(binary) + " gate" }
+  private static func isOurs(_ hook: OrderedJSON) -> Bool {
+    hook["command"]?.stringValue?.hasSuffix(" gate") == true && hook["command"]?.stringValue?.contains("corescope") == true
+  }
+  static func installed(in settings: OrderedJSON?) -> Bool {
+    guard case .array(let groups)? = settings?["hooks"]?["PreToolUse"] else { return false }
+    return groups.contains { group in
+      guard case .array(let hooks)? = group["hooks"] else { return false }
+      return hooks.contains(where: isOurs)
+    }
+  }
+  /// Settings with the hook (replacing an older CoreScope entry, e.g. after the app moved).
+  static func installing(into settings: OrderedJSON, binary: String, timeout: Int = 3600) -> OrderedJSON {
+    let cleaned = removing(from: settings)
+    let group = OrderedJSON.object([
+      .init(key: "matcher", value: .string("Bash")),
+      .init(key: "hooks", value: .array([
+        .object([
+          .init(key: "type", value: .string("command")),
+          .init(key: "command", value: .string(command(binary: binary))),
+          .init(key: "timeout", value: .number(String(timeout))),
+        ])
+      ])),
+    ])
+    let hooks = cleaned["hooks"] ?? .object([])
+    var groups: [OrderedJSON] = []
+    if case .array(let existing)? = hooks["PreToolUse"] { groups = existing }
+    groups.append(group)
+    return cleaned.setting("hooks", hooks.setting("PreToolUse", .array(groups)))
+  }
+  /// Settings without CoreScope's hook; groups and sections left empty by it are dropped.
+  static func removing(from settings: OrderedJSON) -> OrderedJSON {
+    guard let hooks = settings["hooks"], case .array(let groups)? = hooks["PreToolUse"] else { return settings }
+    var kept: [OrderedJSON] = []
+    for group in groups {
+      guard case .array(let list)? = group["hooks"] else {
+        kept.append(group)
+        continue
+      }
+      let remaining = list.filter { !isOurs($0) }
+      if remaining.count == list.count {
+        kept.append(group)
+      } else if !remaining.isEmpty {
+        kept.append(group.setting("hooks", .array(remaining)))
+      }
+    }
+    let nextHooks = hooks.setting("PreToolUse", kept.isEmpty ? nil : .array(kept))
+    return settings.setting("hooks", nextHooks == .object([]) ? nil : nextHooks)
+  }
+}

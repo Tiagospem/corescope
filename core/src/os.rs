@@ -99,6 +99,18 @@ unsafe extern "C" {
         on_ac: *mut i32,
         minutes: *mut i32,
     ) -> i32;
+    pub fn os_pressure_level() -> i32;
+    pub fn os_background(pid: i32, on: i32) -> i32;
+}
+/// "normal", "warning" or "critical" (kern.memorystatus_vm_pressure_level), when readable.
+pub fn pressure_level() -> Option<&'static str> {
+    // SAFETY: no arguments; reads one sysctl.
+    match unsafe { os_pressure_level() } {
+        1 => Some("normal"),
+        2 => Some("warning"),
+        4 => Some("critical"),
+        _ => None,
+    }
 }
 /// (percent, charging, on AC power, minutes to empty or full) for an internal battery.
 pub fn battery() -> Option<(i32, bool, bool, Option<i32>)> {

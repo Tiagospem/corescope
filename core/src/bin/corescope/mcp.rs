@@ -72,10 +72,15 @@ fn initialize(params: &Value) -> Value {
         "protocolVersion": version,
         "capabilities": {"tools": {"listChanged": false}},
         "serverInfo": {"name": "corescope", "title": "CoreScope", "version": env!("CARGO_PKG_VERSION")},
-        "instructions": "Local view of this Mac's processes, listening ports and resources. Use \
-    find_free_port before starting a dev server, list_ports to see what is running where, and \
-    stop_port / stop_process to clean up servers you started in this session. Stopping is limited \
-    to processes this agent session started."
+        "instructions": "CoreScope: this Mac's processes, ports, resources, projects and services. \
+    Before starting a dev server use find_free_port (and the project's preferred ports from \
+    read_project_config); to debug a failing app use recent_errors instead of asking for logs; to \
+    run or stop an environment use the project's profiles (list_profiles, start_profile). \
+    IMPORTANT: when the project's .corescope.yml has agents.wait_for_capacity, call \
+    wait_for_capacity before heavy commands (builds, test suites, docker builds) and repeat until \
+    it answers ready: true or the project's max_wait passes — the Mac is shared and an \
+    overloaded machine turns a task into hours. Stopping processes is limited to what this agent \
+    session started; ask the user before destructive actions."
     })
 }
 
@@ -424,6 +429,22 @@ fn core_tools() -> Vec<Value> {
             &[],
         ),
         tool(
+            "system_capacity",
+            "Whether the Mac has room for heavy work now: CPU and memory pressure against the \
+             project's .corescope.yml agents.wait_for_capacity rule (or a default 70% CPU, normal \
+             memory), the reasons when not, and the project's heavy command list.",
+            json!({"folder": {"type": "string", "description": "project folder; default: this session's"}}),
+            &[],
+        ),
+        tool(
+            "wait_for_capacity",
+            "Waits (up to `seconds`, default 45) until the Mac has room under the project's rule, \
+             then answers ready: true. If it answers ready: false, call it again until ready or the \
+             project's max_wait_minutes (also returned) passes — then proceed and tell the user.",
+            json!({"folder": {"type": "string"}, "seconds": {"type": "integer", "minimum": 5, "maximum": 55}}),
+            &[],
+        ),
+        tool(
             "list_containers",
             "Docker containers on this Mac (OrbStack, Docker Desktop, Colima): state, health, \
              compose project and service, published ports, restart policy; plus named volumes with \
@@ -525,6 +546,28 @@ fn call(params: &Value) -> Value {
         "list_orphans" => text(orphans(&sample(false)), false),
         "list_databases" => text(databases(&sample(false)), false),
         "list_containers" => text(containers(), false),
+        "system_capacity" | "wait_for_capacity" => {
+            let folder = args["folder"]
+                .as_str()
+                .map(std::path::PathBuf::from)
+                .or_else(|| session(&sample(false)).map(|s| std::path::PathBuf::from(&s.cwd)))
+                .unwrap_or_default();
+            let rule = crate::capacity_spec(&folder);
+            let spec = rule.clone().unwrap_or_default();
+            if name == "system_capacity" {
+                let reading = corescope::capacity::reading(&sample(true));
+                let blockers = corescope::capacity::blockers(&spec, &reading);
+                return text(
+                    json!({"ready": blockers.is_empty(), "blockers": blockers, "reading": reading,
+                           "rule": rule, "rule_source": if rule.is_some() { "project .corescope.yml" } else { "default (no project rule)" }}),
+                    false,
+                );
+            }
+            let seconds = args["seconds"].as_u64().unwrap_or(45).clamp(5, 55);
+            let mut out = crate::wait_for_room(&spec, Some(Duration::from_secs(seconds)), |_| {});
+            out["max_wait_minutes"] = json!(spec.max_wait_minutes);
+            text(out, false)
+        }
         "container_logs" => {
             let name = args["name"].as_str().unwrap_or("");
             let source = corescope::logs::Source {
