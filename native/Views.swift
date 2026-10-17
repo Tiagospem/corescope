@@ -131,7 +131,11 @@ struct MainView: View {
         HStack(spacing: 10) {
           Image(nsImage: NSApp.applicationIconImage).resizable().frame(width: 30, height: 30)
           VStack(alignment: .leading, spacing: 1) {
-            Text(L("CoreScope")).font(.system(size: 13, weight: .semibold))
+            HStack(alignment: .firstTextBaseline, spacing: 5) {
+              Text(L("CoreScope")).font(.system(size: 13, weight: .semibold))
+              Text(verbatim: "v\(AppVersion.short)").font(.caption2).monospacedDigit().foregroundStyle(.tertiary)
+                .help(L("Versão %@ (build %@)", AppVersion.short, AppVersion.build))
+            }
             Text(L("Monitor para desenvolvedores")).font(.caption2).foregroundStyle(.secondary)
           }
         }.frame(maxWidth: .infinity, alignment: .leading).padding(14)

@@ -10,6 +10,18 @@ section as the GitHub release notes.
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-10-17
+
+### Added
+- The sidebar shows the version (build on hover); About reads it from the bundle too.
+
+### Fixed
+- macOS 27: ⌥⌘K and `corescope://palette` opened the menu bar popover only when CoreScope was
+  already active — activation closed it at once, and the field lost focus; a popover hidden
+  without closing was reused instead of replaced.
+- Running a quick action now closes the menu bar popover, and closing it keeps SwiftUI's
+  open/closed state in step, so the next click or link opens it instead of "closing" it.
+
 ## [0.5.0] - 2026-10-17
 
 ### Added
@@ -238,7 +250,8 @@ First public release.
   compact / standard / detailed layouts and in-panel controls.
 - English, Portuguese and Spanish; offline-only.
 
-[Unreleased]: https://github.com/Tiagospem/corescope/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/Tiagospem/corescope/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/Tiagospem/corescope/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/Tiagospem/corescope/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/Tiagospem/corescope/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/Tiagospem/corescope/compare/v0.3.1...v0.3.2
