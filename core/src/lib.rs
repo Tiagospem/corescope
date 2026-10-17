@@ -1747,6 +1747,7 @@ mod tests {
         );
     }
     #[test]
+    #[cfg_attr(not(target_os = "macos"), ignore = "reads the macOS process table")]
     fn listening_port_and_cwd_of_own_child() {
         use std::net::TcpListener;
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -1758,12 +1759,14 @@ mod tests {
         assert!(network().is_some());
     }
     #[test]
+    #[cfg_attr(not(target_os = "macos"), ignore = "reads the macOS process table")]
     fn invalid_and_self_signals_are_blocked() {
         assert!(signal_process(-1, 1, "/bin/sleep", false).is_err());
         let p = process(unsafe { os_self() }).unwrap();
         assert!(signal_process(p.pid, p.start, &string(&p.path), false).is_err());
     }
     #[test]
+    #[cfg_attr(not(target_os = "macos"), ignore = "reads the macOS process table")]
     fn volumes_are_safe_to_read_from_several_threads() {
         // getmntinfo() shares one buffer per process; concurrent samples crashed intermittently.
         let threads: Vec<_> = (0..8)
@@ -1782,6 +1785,7 @@ mod tests {
         }
     }
     #[test]
+    #[cfg_attr(not(target_os = "macos"), ignore = "reads the macOS process table")]
     fn termination_only_disposable_child() {
         use std::process::Command;
         let mut child = Command::new("/bin/sleep").arg("30").spawn().unwrap();
@@ -1794,6 +1798,7 @@ mod tests {
         child.wait().unwrap();
     }
     #[test]
+    #[cfg_attr(not(target_os = "macos"), ignore = "reads the macOS process table")]
     fn forced_termination_only_disposable_child() {
         let mut child = std::process::Command::new("/bin/sleep")
             .arg("30")
@@ -1804,6 +1809,7 @@ mod tests {
         child.wait().unwrap();
     }
     #[test]
+    #[cfg_attr(not(target_os = "macos"), ignore = "reads the macOS process table")]
     fn live_snapshot_and_wake_reset() {
         let mut c = Collector::default();
         let a = c.sample(Config::default());
@@ -1814,6 +1820,7 @@ mod tests {
         assert!(c.sample(Config::default()).cpu.value.is_none());
     }
     #[test]
+    #[cfg_attr(not(target_os = "macos"), ignore = "reads the macOS process table")]
     fn apple_silicon_cpu_time_has_correct_units() {
         use std::process::{Command, Stdio};
         let mut child = Command::new("/usr/bin/yes")
@@ -1867,6 +1874,7 @@ mod tests {
         assert_eq!(pressure_percent(101), None);
     }
     #[test]
+    #[cfg_attr(not(target_os = "macos"), ignore = "reads the macOS process table")]
     fn live_cores_have_types_and_load_on_second_sample() {
         let mut c = Collector::default();
         let first = c.sample(Config::default());
