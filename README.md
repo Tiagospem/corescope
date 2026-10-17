@@ -381,7 +381,8 @@ reads its own CPU and memory, and *Settings › CoreScope's own cost* breaks it 
 helpers (MCP servers, the gate hook, the status line), processes it started (ssh, codex
 app-server), and every background feature with whether it is on, how often it works and the CPU
 time it actually spent in CoreScope's threads over the last 5 minutes (startup excluded), with the
-switches that change it. Past 2 % of a core or 500 MB it says so. Agents read the same with
+switches that change it. Past 2 % of a core in the background (6 % with the window open, which
+draws on its own) or 500 MB it says so. Agents read the same with
 `corescope_cost`.
 
 ## How it works

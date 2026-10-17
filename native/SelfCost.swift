@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 import SwiftUI
 
 /// What CoreScope itself spends: CPU time measured in each feature's background work, the app's
@@ -109,10 +109,14 @@ struct SelfCost {
   /// The features worth a look: measured at medium or more.
   var heavy: [FeatureCost] { features.filter { $0.on && $0.weight >= .medium }.sorted { ($0.cpu ?? 0) > ($1.cpu ?? 0) } }
   /// Too much for a monitor: more than 2 % of a core on average or 500 MB.
-  /// CPU is judged on the 5-minute average only: one busy sample (a scan, a page opening) is not
-  /// a pattern.
+  /// Whether the main window was open: drawing it costs a few % of a core on its own.
+  var windowOpen = false
+  /// CPU is judged on the 5-minute average only (one busy sample, a scan or a page opening, is not
+  /// a pattern): over 2 % of a core in the background, 6 % with the window open, or 500 MB.
   var tooMuch: Bool {
-    (appAverage.map { $0 + (childrenAverage ?? 0) + helpers.cpu > 2 } ?? false) || totalMemory > 500 * 1_048_576
+    let limit: Double = windowOpen ? 6 : 2
+    return (appAverage.map { $0 + (childrenAverage ?? 0) + helpers.cpu > limit } ?? false)
+      || totalMemory > 500 * 1_048_576
   }
 
   static func current() -> SelfCost {
@@ -134,6 +138,9 @@ struct SelfCost {
           add(&cost.children, p)
         }
       }
+    }
+    cost.windowOpen = NSApp.windows.contains {
+      $0.isVisible && !$0.isMiniaturized && $0.identifier?.rawValue.contains("main") == true
     }
     cost.appAverage = CostMeter.shared.appAverage()
     cost.childrenAverage = CostMeter.shared.childrenAverage()
@@ -195,7 +202,7 @@ struct SelfCost {
         "cpu_percent": round(totalCPU * 10) / 10, "memory_bytes": Int(totalMemory),
         "energy_watts": totalEnergy.map { round($0 * 100) / 100 } ?? NSNull(),
       ],
-      "too_much": tooMuch,
+      "too_much": tooMuch, "window_open": windowOpen,
       "features": features.map {
         [
           "id": $0.id, "title": $0.title, "on": $0.on, "cadence": $0.cadence,
@@ -255,7 +262,6 @@ struct SelfCostView: View {
         L("CPU em % de um núcleo. Cada recurso é medido no tempo de CPU das próprias threads do CoreScope, sem o primeiro minuto (arranque); ajudantes e processos iniciados aparecem à parte. A interface (janela, painel, barra de menus) fica no total do app.")
       ).font(.caption).foregroundStyle(.secondary)
     }
-    .id(monitor.snapshot?.at)
   }
   private func sorted(_ list: [FeatureCost]) -> [FeatureCost] {
     list.sorted { a, b in a.on != b.on ? a.on : (a.cpu ?? 0) > (b.cpu ?? 0) }

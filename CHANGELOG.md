@@ -10,6 +10,8 @@ section as the GitHub release notes.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-17
+
 ### Added
 - **Profiles as code**: a committed `.corescope.yml` (profiles with commands, stop commands and
   containers; preferred ports; Services checks; log globs; agent capacity rules) is found
@@ -46,7 +48,8 @@ section as the GitHub release notes.
 - **CoreScope's own cost**: footer readout of the app's CPU and memory with a breakdown in
   Settings — app, helpers (MCP servers, gate hook, status line), processes it started, and each
   background feature with cadence and the CPU it measured in its own threads (5-minute average,
-  startup excluded), with switches; a warning past 2 % of a core or 500 MB. MCP `corescope_cost`;
+  startup excluded), with switches; a warning past 2 % of a core (6 % with the window open) or
+  500 MB. MCP `corescope_cost`;
   `set_setting` also takes `collector_interval_seconds` and `floating_panel`.
 
 - **What happened at 2:05 pm?**: History card, ⌥⌘K, `corescope://happened?at=…`, `corescope happened`
@@ -68,6 +71,8 @@ section as the GitHub release notes.
 ### Changed
 - `.corescope.yml` discovery walks folders every 10 minutes (and when roots change) and only
   re-reads known files in between, instead of a full walk plus process list every minute.
+- Settings no longer rebuilds its whole form on every sample (about 12 % → 4.5 % of a core
+  while it is open).
 - The collector no longer allocates strings to match app bundles and runtimes for every process
   on every sample.
 
@@ -233,7 +238,8 @@ First public release.
   compact / standard / detailed layouts and in-panel controls.
 - English, Portuguese and Spanish; offline-only.
 
-[Unreleased]: https://github.com/Tiagospem/corescope/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/Tiagospem/corescope/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/Tiagospem/corescope/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/Tiagospem/corescope/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/Tiagospem/corescope/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/Tiagospem/corescope/compare/v0.3.0...v0.3.1

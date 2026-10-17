@@ -177,7 +177,11 @@ pub fn report(list: &[Measurement], home: &Path, day_start: i64) -> Report {
                 .map(|before| *bytes as i64 - *before as i64),
         })
         .collect();
-    folders.sort_by_key(|g| std::cmp::Reverse((g.change.unwrap_or(0), g.bytes as i64)));
+    // Changes under 1 MB are noise (a log line, a cache entry): those sort by size.
+    folders.sort_by_key(|g| {
+        let change = g.change.filter(|c| c.abs() >= 1 << 20).unwrap_or(0);
+        std::cmp::Reverse((change, g.bytes as i64))
+    });
     Report {
         measured_at: Some(latest.at),
         baseline_at: baseline.map(|b| b.at),
@@ -198,7 +202,11 @@ mod tests {
         Measurement {
             at,
             free: Some(free),
-            sizes: sizes.iter().map(|(p, b)| (p.to_string(), *b)).collect(),
+            // In MB, so changes are above the 1 MB noise floor.
+            sizes: sizes
+                .iter()
+                .map(|(p, b)| (p.to_string(), *b << 20))
+                .collect(),
         }
     }
 
@@ -221,13 +229,17 @@ mod tests {
             .collect();
         assert_eq!(
             changes,
-            [("/h/a", Some(40)), ("/h/c", None), ("/h/b", Some(-10))]
+            [
+                ("/h/a", Some(40 << 20)),
+                ("/h/c", None),
+                ("/h/b", Some(-10 << 20))
+            ]
         );
         // Without anything before today, today's first measurement is the baseline.
         let r = report(&list[2..], Path::new("/nowhere"), day);
         assert_eq!(
             (r.baseline_at, r.folders[0].change),
-            (Some(day + 600), Some(35))
+            (Some(day + 600), Some(35 << 20))
         );
         assert_eq!(report(&[], Path::new("/x"), day).measured_at, None);
     }
