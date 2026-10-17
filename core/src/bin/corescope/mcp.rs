@@ -128,10 +128,14 @@ fn app_tools() -> Vec<(
           through the user's login shell, and containers to start. Read the project first \
           (package.json scripts, composer.json, Makefile, docker-compose, Procfile) and propose \
           commands that fit the purpose — e.g. a QA profile that builds and serves a production \
-          build instead of running watchers like `npm run dev`. Ask the user before creating.",
+          build instead of running watchers like `npm run dev`. Setup commands that exit \\
+          (docker compose up -d, make env-up) count as up once they finish with exit 0; give them \\
+          a stop_command to undo them on stop_profile. Ask the user before creating.",
             json!({"name": {"type": "string"}, "folder": {"type": "string", "description": "absolute path"},
                 "commands": {"type": "array", "items": {"type": "object", "properties": {
-                    "name": {"type": "string"}, "command": {"type": "string"}}, "required": ["command"]}},
+                    "name": {"type": "string"}, "command": {"type": "string"},
+                    "stop_command": {"type": "string", "description": "run on stop_profile, e.g. `make env-down` for a setup command that exits"}},
+                    "required": ["command"]}},
                 "containers": {"type": "array", "items": {"type": "string"}, "description": "container names"},
                 "replace": {"type": "boolean"}}),
             vec!["name", "folder"],
@@ -277,7 +281,6 @@ fn app_tools() -> Vec<(
 
 /// One request to the app's control socket.
 fn app(op: &str, args: &Value) -> Value {
-    use std::io::Read;
     use std::os::unix::net::UnixStream;
     let path = std::path::PathBuf::from(std::env::var_os("HOME").unwrap_or_default())
         .join("Library/Application Support/CoreScope/control.sock");
@@ -291,8 +294,13 @@ fn app(op: &str, args: &Value) -> Value {
     if writeln!(stream, "{request}").is_err() {
         return offline;
     }
+    // One line per answer; not waiting for EOF keeps a stray copy of the socket from hanging us.
     let mut body = String::new();
-    if stream.read_to_string(&mut body).is_err() {
+    if std::io::BufReader::new(stream)
+        .read_line(&mut body)
+        .is_err()
+        || body.is_empty()
+    {
         return json!({"error": "CoreScope did not answer in time"});
     }
     serde_json::from_str(body.trim())

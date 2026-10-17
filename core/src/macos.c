@@ -89,6 +89,7 @@ int os_process(int32_t pid,CSProcess *o){
  o->task_error=o->task_ok?0:errno;
  if(o->task_ok){o->cpu_ns=t.pti_total_user+t.pti_total_system;o->resident=t.pti_resident_size;o->threads=t.pti_threadnum;}
  // v6 adds per-process energy (ri_energy_nj); its first fields are v4's, so v4 is the fallback.
+ o->sid=getsid(pid);
  struct rusage_info_v6 r={0};errno=0;o->energy_ok=proc_pid_rusage(pid,RUSAGE_INFO_V6,(rusage_info_t*)&r)==0;
  o->usage_ok=o->energy_ok||proc_pid_rusage(pid,RUSAGE_INFO_V4,(rusage_info_t*)&r)==0;
  o->usage_error=o->usage_ok?0:errno;

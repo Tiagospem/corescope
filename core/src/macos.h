@@ -12,7 +12,8 @@ typedef struct {
  uint64_t start, cpu_ns, resident, footprint, read_bytes, write_bytes, wakeups;
  // Energy used by the process (nanojoules, rusage_info_v6.ri_energy_nj); energy_ok when read.
  uint64_t energy_nj;
- int32_t threads, task_ok, usage_ok, task_error, usage_error, energy_ok; char name[64], path[4096], user[64];
+ // sid: session id (getsid), kept by children that detach from their parent.
+ int32_t threads, task_ok, usage_ok, task_error, usage_error, energy_ok, sid; char name[64], path[4096], user[64];
 } CSProcess;
 typedef struct { uint64_t total, available; char device[1024], mount[1024], kind[32]; } CSVolume;
 typedef struct { uint64_t id, read_bytes, write_bytes; int32_t ok; char name[128]; } CSDisk;

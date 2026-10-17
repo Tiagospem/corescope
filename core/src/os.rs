@@ -37,6 +37,7 @@ pub struct RawProcess {
     pub task_error: i32,
     pub usage_error: i32,
     pub energy_ok: i32,
+    pub sid: i32,
     pub name: [c_char; 64],
     pub path: [c_char; 4096],
     pub user: [c_char; 64],

@@ -37,6 +37,9 @@ section as the GitHub release notes.
   login shell (logged to ~/Library/Application Support/CoreScope/logs) plus containers to start;
   Stop ends only the process trees CoreScope started and stops only containers a profile started
   that no other started profile still uses (shared databases stay up until the last one stops).
+  Commands run in their own session, so what they leave running (detached servers) stays tracked
+  across shell exits and app restarts; setup commands that exit count as done on exit 0, and an
+  optional *on stop* command undoes them.
 - **Databases page**: local MySQL/MariaDB, PostgreSQL and Redis (processes and containers) with
   version, uptime, size per database, connections, slow-query counters and queries running over
   5 s, over each wire protocol, read-only and time-capped. Never uses or reads passwords; servers

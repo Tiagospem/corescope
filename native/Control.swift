@@ -271,7 +271,10 @@ enum ControlAPI {
     }
     let commands = (args["commands"] as? [[String: Any]] ?? []).compactMap { c -> ProfileCommand? in
       guard let command = (c["command"] as? String)?.trimmingCharacters(in: .whitespaces), !command.isEmpty else { return nil }
-      return ProfileCommand(name: (c["name"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "cmd", command: command)
+      let stop = (c["stop_command"] as? String)?.trimmingCharacters(in: .whitespaces)
+      return ProfileCommand(
+        name: (c["name"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "cmd", command: command,
+        stopCommand: stop?.isEmpty == false ? stop : nil)
     }
     let containers = args["containers"] as? [String] ?? []
     guard !commands.isEmpty || !containers.isEmpty else {
@@ -289,17 +292,22 @@ enum ControlAPI {
   private static func profileJSON(_ p: EnvProfile) -> [String: Any] {
     let store = ProfileStore.shared
     let containers = ContainerStore.shared.report?.containers ?? []
-    let snapshot = Monitor.shared.snapshot
     return [
       "id": p.id.uuidString, "name": p.name, "folder": p.folder, "active": store.active.contains(p.id),
       "commands": p.commands.map { c -> [String: Any] in
         var row: [String: Any] = ["name": c.name, "command": c.command, "running": false]
-        if let l = store.running(c) {
+        if let stop = c.stopCommand { row["stop_command"] = stop }
+        switch store.state(c, in: p) {
+        case .completed: row["state"] = "completed (exit 0)"
+        case .failed(let status, _): row["state"] = "failed (exit \(status))"
+        case .running: row["state"] = "running"
+        case .idle: row["state"] = "not started"
+        }
+        let members = store.members(c)
+        if store.running(c) != nil {
           row["running"] = true
-          row["pid"] = l.pid
-          if let s = snapshot, let root = s.process(pid: l.pid) {
-            row["ports"] = s.subtree(of: root).flatMap(\.ports).map(\.port)
-          }
+          row["processes"] = members.map { ["pid": $0.pid, "name": $0.name] }
+          row["ports"] = members.flatMap(\.ports).map(\.port)
         }
         return row
       },

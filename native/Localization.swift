@@ -844,4 +844,15 @@ private let entries = """
   Perfis (criar, iniciar, parar, logs), Serviços, Máquinas, limpeza (analisar e mover para a Lixeira o que a análise encontrou) e ajustes de notificação. Pelo socket local do app, só para o seu usuário. O agente pede a sua aprovação antes de cada ação. ¦ Profiles (create, start, stop, logs), Services, Machines, cleanup (scan, and move to the Trash what the scan found) and notification settings. Through the app's local socket, for your user only. The agent asks for your approval before each action. ¦ Perfiles (crear, iniciar, detener, logs), Servicios, Máquinas, limpieza (analizar y mover a la Papelera lo que encontró el análisis) y ajustes de notificación. Por el socket local de la app, solo para tu usuario. El agente pide tu aprobación antes de cada acción.
   Uma análise ou limpeza já está em andamento ¦ A scan or cleanup is already running ¦ Ya hay un análisis o limpieza en curso
   O perfil já está iniciando ou parando ¦ The profile is already starting or stopping ¦ El perfil ya se está iniciando o deteniendo
+  ao parar ¦ on stop ¦ al detener
+  Ao parar ¦ On stop ¦ Al detener
+  ao parar: %@ ¦ on stop: %@ ¦ al detener: %@
+  Opcional, ex.: make env-down ¦ Optional, e.g. make env-down ¦ Opcional, p. ej. make env-down
+  concluído %@ ¦ completed %@ ¦ completado %@
+  falhou · saída %@ ¦ failed · exit %@ ¦ falló · salida %@
+  Comando de preparação: terminou com sucesso (saída 0) e conta como ativo enquanto o perfil está iniciado. ¦ Setup command: it finished successfully (exit 0) and counts as up while the profile is started. ¦ Comando de preparación: terminó con éxito (salida 0) y cuenta como activo mientras el perfil está iniciado.
+  %@: o comando ao parar passou de 2 min ¦ %@: the stop command took more than 2 min ¦ %@: el comando al detener tardó más de 2 min
+  %@: o comando ao parar saiu com %@ ¦ %@: the stop command exited with %@ ¦ %@: el comando al detener salió con %@
+  concluído ¦ completed ¦ completado
+  %@ processos ¦ %@ processes ¦ %@ procesos
   """

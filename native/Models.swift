@@ -73,6 +73,8 @@ struct ProcessItem: Decodable, Identifiable {
   let blocked: String
   let orphan: String?
   var orphan_parent: String?
+  /// Session id; nil from older cores.
+  let sid: Int32?
   var cwd: String
   let ports: [PortInfo]
   let tags: [String]

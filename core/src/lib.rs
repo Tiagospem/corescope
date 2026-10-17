@@ -488,6 +488,8 @@ pub struct Process {
     pub orphan: Option<String>,
     /// Parent observed before reparenting to launchd, when known.
     pub orphan_parent: Option<String>,
+    /// Session id: shared by everything a command started, even after it detaches.
+    pub sid: i32,
     pub cwd: String,
     pub ports: Vec<Port>,
     pub tags: Vec<&'static str>,
@@ -838,6 +840,7 @@ impl Collector {
                     orphan_reason(raw.ppid, lost.as_deref(), age, &path, &tags)
                 },
                 orphan_parent: lost.clone(),
+                sid: raw.sid,
                 path,
                 cwd,
                 ports: listening,
@@ -1589,6 +1592,7 @@ pub(crate) fn process_fixture() -> Process {
         blocked: String::new(),
         orphan: None,
         orphan_parent: None,
+        sid: 0,
         cwd: String::new(),
         ports: vec![],
         tags: vec![],
