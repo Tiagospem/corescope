@@ -220,10 +220,16 @@ struct Snapshot: Decodable {
     }
     return groups.values.sorted { ($0.0.ports.first?.port ?? 0) < ($1.0.ports.first?.port ?? 0) }
   }
-  var agentSessions: [ProcessItem] { memo("agentSessions") { processes.filter(\.isAgentSession) } }
+  /// Newest session first, by start time: a stable order, so rows don't jump as CPU changes.
+  var agentSessions: [ProcessItem] {
+    memo("agentSessions") {
+      processes.filter(\.isAgentSession).sorted { ($0.start, $0.pid) > ($1.start, $1.pid) }
+    }
+  }
   var orphans: [ProcessItem] {
     memo("orphans") {
-      processes.filter { $0.orphan != nil }.sorted { $0.memoryValue > $1.memoryValue }
+      // Oldest first: stable while memory values fluctuate between samples.
+      processes.filter { $0.orphan != nil }.sorted { ($0.start, $0.pid) < ($1.start, $1.pid) }
     }
   }
   private var byPID: [Int32: ProcessItem] {
@@ -240,7 +246,9 @@ struct Snapshot: Decodable {
       var seen: Set<Int32> = [root.pid]
       var index = 0
       while index < ids.count {
-        for child in children[ids[index]] ?? [] where seen.insert(child).inserted { ids.append(child) }
+        for child in (children[ids[index]] ?? []).sorted() where seen.insert(child).inserted {
+          ids.append(child)
+        }
         index += 1
       }
       return ids.reversed().compactMap { byPID[$0] }

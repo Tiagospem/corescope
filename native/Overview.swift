@@ -247,7 +247,6 @@ private struct AgentSessionsCard: View {
   private var sessions: [AgentSession] {
     snapshot.agentSessions
       .map { AgentSession(root: $0, tree: snapshot.subtree(of: $0)) }
-      .sorted { $0.memory > $1.memory }
   }
   var body: some View {
     let sessions = self.sessions

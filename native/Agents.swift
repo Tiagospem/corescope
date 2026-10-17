@@ -301,7 +301,9 @@ private struct SessionCard: View {
   @ViewState private var expanded = false
   private var busy: Bool? { meta?.status.map { $0 != "idle" } }
   var body: some View {
+    // Spawn order (start time) keeps the list steady between samples.
     let children = tree.filter { $0.pid != root.pid && $0.name != "disclaimer" }
+      .sorted { ($0.start, $0.pid) < ($1.start, $1.pid) }
     let cpu = tree.compactMap(\.cpu.value).reduce(0, +)
     let memory = tree.compactMap(\.memory.value).reduce(0, +)
     let ports = tree.flatMap(\.ports)
