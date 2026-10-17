@@ -700,4 +700,14 @@ private let entries = """
   recuperáveis em 1 item ¦ reclaimable in 1 item ¦ recuperables en 1 elemento
   %@ liberados em 1 item. ¦ %@ freed from 1 item. ¦ %@ liberados en 1 elemento.
   Não foi possível limpar %@ ¦ Could not clean %@ ¦ No se pudo limpiar %@
+  %@ parece travado ¦ %@ looks stuck ¦ %@ parece atascado
+  Rodando %@ há %@ min, sem novas mensagens ¦ Running %@ for %@ min, no new messages ¦ Ejecutando %@ desde hace %@ min, sin mensajes nuevos
+  Esperando %@ há %@ min: pode estar pedindo uma entrada ¦ Waiting on %@ for %@ min: it may be asking for input ¦ Esperando a %@ desde hace %@ min: puede estar pidiendo una entrada
+  Sem atividade há %@ min ¦ No activity for %@ min ¦ Sin actividad desde hace %@ min
+  Parece travada · %@ min ¦ Looks stuck · %@ min ¦ Parece atascada · %@ min
+  Comando longo · %@ min ¦ Long command · %@ min ¦ Comando largo · %@ min
+  Agente parece travado ¦ Agent looks stuck ¦ El agente parece atascado
+  Travado após ¦ Stuck after ¦ Atascado tras
+  %@ min sem atividade ¦ %@ min without activity ¦ %@ min sin actividad
+  Uma sessão ocupada (Claude Code, Codex) que não escreve na própria transcrição por esse tempo. Se um comando iniciado nesta vez está usando CPU, é só um comando longo; se está parado, pode estar esperando uma entrada. Vale também para o selo na página Agentes. Lê apenas datas de modificação, nunca o conteúdo. ¦ A busy session (Claude Code, Codex) that has not written to its transcript for this long. If a command started in this turn is using CPU, it is just a long command; if it sits idle, it may be waiting for input. Also drives the badge on the Agents page. Reads modification dates only, never content. ¦ Una sesión ocupada (Claude Code, Codex) que no escribe en su transcripción durante ese tiempo. Si un comando iniciado en este turno usa CPU, solo es un comando largo; si está parado, puede estar esperando una entrada. También controla la insignia de la página Agentes. Solo lee fechas de modificación, nunca el contenido.
   """

@@ -524,3 +524,48 @@ func shortcutLabel(modifiers: Int, key: String) -> String {
   if modifiers & HotkeyModifier.command != 0 { out += "⌘" }
   return out + key.uppercased()
 }
+
+/// A process an agent session started, as far as stall detection cares.
+struct TurnChild {
+  let name: String
+  let cpu: Double
+  /// Start time, seconds since 1970.
+  let start: Double
+  let listening: Bool
+}
+/// What a busy agent session seems to be doing when nothing new has reached its transcript for
+/// a while. `since` is when the transcript last changed (or the turn began).
+enum AgentStall: Equatable {
+  /// A command it started in this turn is still computing: probably just long.
+  case longCommand(String, since: Double)
+  /// A command it started in this turn sits idle: waiting for input, a lock or the network.
+  case waiting(String, since: Double)
+  /// No transcript writes and nothing running: the agent itself looks stuck.
+  case silent(since: Double)
+  var since: Double {
+    switch self {
+    case .longCommand(_, let since), .waiting(_, let since), .silent(let since): since
+    }
+  }
+  /// Worth an alert: a long build or test run is not.
+  var suspicious: Bool { if case .longCommand = self { false } else { true } }
+}
+/// Nil while the session is idle or wrote to its transcript within `threshold` seconds. Servers
+/// it left listening and processes from earlier turns (MCP servers, dev servers) are ignored.
+func agentStall(
+  busySince: Double?, lastWrite: Double?, children: [TurnChild], now: Double, threshold: Double
+) -> AgentStall? {
+  guard let busySince else { return nil }
+  let quietSince = max(busySince, lastWrite ?? busySince)
+  guard now - quietSince >= threshold else { return nil }
+  let turn = children.filter { $0.start >= busySince - 1 && !$0.listening }
+  if let hot = turn.max(by: { $0.cpu < $1.cpu }), hot.cpu >= 20 {
+    return .longCommand(hot.name, since: quietSince)
+  }
+  if let newest = turn.max(by: { $0.start < $1.start }) { return .waiting(newest.name, since: quietSince) }
+  return .silent(since: quietSince)
+}
+/// Claude Code's folder under ~/.claude/projects for a working directory.
+func claudeProjectFolder(_ cwd: String) -> String {
+  String(cwd.map { $0.isASCII && ($0.isLetter || $0.isNumber) ? $0 : "-" })
+}

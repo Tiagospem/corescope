@@ -107,6 +107,18 @@ final class Notifier: NSObject, ObservableObject, UNUserNotificationCenterDelega
       body: body, process: nil, at: Date().timeIntervalSince1970)
   }
 
+  /// A busy agent session stopped making progress; clicking opens it (Claude Desktop or Codex).
+  func agentStalled(key: String, title: String, body: String, url: URL?) {
+    if center == nil { activate() }
+    guard let center, !denied else { return }
+    let content = UNMutableNotificationContent()
+    content.title = title
+    content.body = body
+    content.threadIdentifier = "agents"
+    if let url { content.userInfo = ["open": url.absoluteString] }
+    center.add(UNNotificationRequest(identifier: "stall.\(key)", content: content, trigger: nil))
+  }
+
   private func describe(_ p: ProcessItem) -> String {
     let ports = p.ports.prefix(3).map { ":\($0.port)" }.joined(separator: " ")
     return [
@@ -148,7 +160,14 @@ final class Notifier: NSObject, ObservableObject, UNUserNotificationCenterDelega
       if action == Self.terminate, let id {
         self.terminate(id)
       } else if action == UNNotificationDefaultActionIdentifier {
-        WindowOpener.shared.showMain(page: .processes)
+        let info = response.notification.request.content.userInfo
+        if let link = info["open"] as? String, let url = URL(string: link),
+          ["claude", "codex"].contains(url.scheme ?? "")
+        {
+          NSWorkspace.shared.open(url)
+        } else {
+          WindowOpener.shared.showMain(page: response.notification.request.identifier.hasPrefix("stall.") ? .agents : .processes)
+        }
       }
       completionHandler()
     }

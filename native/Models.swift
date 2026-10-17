@@ -444,7 +444,15 @@ final class Preferences: ObservableObject {
   @Published var notifySustain =
     UserDefaults.standard.object(forKey: "notifySustain") as? Double ?? 60
   { didSet { save("notifySustain", notifySustain) } }
-  var notificationsEnabled: Bool { notifyOrphans || notifyHeavy || notifyPressure }
+  /// Notify when a busy agent session stops making progress.
+  @Published var notifyStalls = UserDefaults.standard.bool(forKey: "notifyStalls") {
+    didSet { save("notifyStalls", notifyStalls) }
+  }
+  /// Minutes without transcript writes before a busy session counts as stalled.
+  @Published var stallMinutes = UserDefaults.standard.object(forKey: "stallMinutes") as? Double ?? 10 {
+    didSet { save("stallMinutes", stallMinutes) }
+  }
+  var notificationsEnabled: Bool { notifyOrphans || notifyHeavy || notifyPressure || notifyStalls }
   // Global port lookup shortcut (Carbon key code + modifier mask); default ⌥⌘K.
   @Published var hotkeyEnabled = UserDefaults.standard.object(forKey: "hotkeyEnabled") as? Bool ?? true
   {

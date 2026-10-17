@@ -35,6 +35,8 @@ struct ClaudeSessionMeta: Decodable, Equatable {
   var name: String?
   let status: String?
   let updatedAt: Double?
+  /// When `status` last changed (milliseconds since 1970): the start of the current turn.
+  let statusUpdatedAt: Double?
   /// Claude Desktop's own id for the Code session (`local_…`), used by its deep links.
   let hostSessionId: String?
   /// `claude://code/continue?session=local_…` opens this session in Claude Desktop.
@@ -347,6 +349,8 @@ final class AgentStore: ObservableObject {
   @Published private(set) var claudeSessions: [Int32: ClaudeSessionMeta] = [:]
   /// Codex desktop threads (running or active in the last hour), from Codex's local databases.
   @Published private(set) var codexThreads: [CodexThread] = []
+  /// Last transcript write (seconds since 1970) per busy session: "claude:<id>" / "codex:<id>".
+  @Published private(set) var lastWrites: [String: Double] = [:]
   /// Separate object so token updates redraw only the views that show tokens.
   let tokens = TokenUsageStore()
   private let queue = DispatchQueue(label: "app.corescope.agents", qos: .utility)
@@ -389,13 +393,16 @@ final class AgentStore: ObservableObject {
       let claude = readClaude ? self.readClaudeLimits() : ClaudeUsage()
       let sessions = Self.readClaudeSessions()
       let threads = CodexThreads.read()
+      let writes = Transcripts.lastWrites(claude: Array(sessions.values), codex: threads)
       DispatchQueue.main.async {
         if threads != self.codexThreads { self.codexThreads = threads }
+        if writes != self.lastWrites { self.lastWrites = writes }
         // Publish only real changes so idle refreshes do not redraw the interface.
         if let codex, codex != self.codex { self.codex = codex }
         if claude != self.claude { self.claude = claude }
         if sessions != self.claudeSessions { self.claudeSessions = sessions }
         self.tokens.refresh(live: Set(sessions.values.compactMap(\.sessionId)))
+        StallWatch.shared.evaluate()
       }
     }
   }
@@ -736,7 +743,9 @@ private struct SessionCard: View {
           HStack(spacing: 6) {
             Text(meta?.name ?? root.project ?? root.host ?? root.name)
               .font(.system(size: 14, weight: .semibold)).lineLimit(1)
-            if let busy {
+            if let stall = StallWatch.shared.stall(root: root, tree: tree, meta: meta) {
+              StallBadge(stall: stall)
+            } else if let busy {
               Badge(
                 text: busy ? L("Trabalhando") : L("Ociosa"), color: busy ? Tint.brand : .secondary,
                 symbol: busy ? "bolt.fill" : "moon.fill")

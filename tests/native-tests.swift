@@ -133,8 +133,25 @@ import Foundation
     precondition(parsePort("0") == nil && parsePort("70000") == nil && parsePort("abc") == nil)
     precondition(
       shortcutLabel(modifiers: HotkeyModifier.command | HotkeyModifier.option, key: "k") == "⌥⌘K")
+    // Stalls: quiet transcript + what the turn's own commands are doing.
+    let busy = 1000.0
+    precondition(agentStall(busySince: nil, lastWrite: nil, children: [], now: 9999, threshold: 600) == nil)
+    precondition(agentStall(busySince: busy, lastWrite: 1500, children: [], now: 2000, threshold: 600) == nil)
+    precondition(agentStall(busySince: busy, lastWrite: 1100, children: [], now: 2000, threshold: 600) == .silent(since: 1100))
+    let server = TurnChild(name: "vite", cpu: 0, start: 1050, listening: true)
+    let mcp = TurnChild(name: "node", cpu: 90, start: 10, listening: false)
+    precondition(
+      agentStall(busySince: busy, lastWrite: nil, children: [server, mcp], now: 2000, threshold: 600) == .silent(since: busy))
+    let tests = TurnChild(name: "cargo", cpu: 180, start: 1200, listening: false)
+    let prompt = TurnChild(name: "npm", cpu: 0, start: 1300, listening: false)
+    precondition(
+      agentStall(busySince: busy, lastWrite: 1100, children: [tests, prompt], now: 2000, threshold: 600)
+        == .longCommand("cargo", since: 1100))
+    let stuck = agentStall(busySince: busy, lastWrite: 1100, children: [prompt], now: 2000, threshold: 600)
+    precondition(stuck == .waiting("npm", since: 1100) && stuck?.suspicious == true)
+    precondition(claudeProjectFolder("/Volumes/HD Externo/a_b/.claude") == "-Volumes-HD-Externo-a-b--claude")
     print(
-      "25 native assertions passed: descendants, cycle, ordering, off-screen recovery, negative-origin monitor, forest roots, flatten, collapse, totals, ancestors, filter, formatting, container ports, shared ports, demo paths, debounce, sustained thresholds, new arrivals, port parsing, shortcut label; plus settings JSON, Unicode escapes, status line install/chain, Claude limits"
+      "25 native assertions passed: descendants, cycle, ordering, off-screen recovery, negative-origin monitor, forest roots, flatten, collapse, totals, ancestors, filter, formatting, container ports, shared ports, demo paths, debounce, sustained thresholds, new arrivals, port parsing, shortcut label, agent stalls; plus settings JSON, Unicode escapes, status line install/chain, Claude limits"
     )
     print(
       "token usage assertions passed: timestamps, formatting, Claude block dedupe, embedded entries, partial lines, long-line skip, fast/full parity, Codex repeats and forks"

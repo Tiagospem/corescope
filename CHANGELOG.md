@@ -25,6 +25,10 @@ section as the GitHub release notes.
   sizes and age. Folders go to the Trash after confirmation; items in use by a process are locked
   and every folder is re-verified right before it moves. Also `corescope space` and the MCP tool
   `list_dev_space` (read-only).
+- **Stuck agent detection**: busy Claude Code sessions and Codex threads with no transcript
+  writes for N minutes (default 10) show *Looks stuck* (idle command, possibly waiting for input,
+  or nothing running) or *Long command* (a command of this turn using CPU) on the Agents page;
+  optional notification that opens the session in Claude or Codex.
 
 ## [0.3.2] - 2026-10-17
 
