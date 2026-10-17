@@ -355,6 +355,15 @@ final class Preferences: ObservableObject {
   @Published var limitsInPanel = UserDefaults.standard.bool(forKey: "limitsInPanel") {
     didSet { save("limitsInPanel", limitsInPanel) }
   }
+  /// Opt-in: installs CoreScope's status line command in ~/.claude/settings.json (turning it off
+  /// restores the previous statusLine). Off by default; nothing of Claude's is touched while off.
+  @Published var claudeLimits = UserDefaults.standard.bool(forKey: "claudeLimits") {
+    didSet {
+      guard claudeLimits != oldValue else { return }
+      save("claudeLimits", claudeLimits)
+      AgentStore.shared.setClaudeLimits(claudeLimits)
+    }
+  }
   @Published var limitsInOverview =
     UserDefaults.standard.object(forKey: "limitsInOverview") as? Bool ?? true
   { didSet { save("limitsInOverview", limitsInOverview) } }

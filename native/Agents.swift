@@ -111,34 +111,105 @@ struct CodexUsage: Equatable {
   var observedAt: Date?
   var weekly: LimitWindow? { windows.first { $0.windowMinutes == 10080 } ?? windows.last }
 }
+/// Claude Code plan usage saved by CoreScope's opt-in status line command.
+struct ClaudeUsage: Equatable {
+  var windows: [LimitWindow] = []
+  /// When the status line last ran with usage data (the file's modification time).
+  var observedAt: Date?
+  var weekly: LimitWindow? { windows.first { $0.windowMinutes == 10080 } ?? windows.last }
+}
+/// A limit row with the agent it belongs to, for the compact lists in the popover and panel.
+struct AgentLimit: Identifiable {
+  let title: String
+  let window: LimitWindow
+  var id: String { title + window.id }
+}
 
 /// Reads agent metadata from local files only (no network, no credentials). Codex limits come
-/// from the `rate_limits` events its CLI writes to session logs; Claude Code does not store its
-/// usage limits on disk, so only session metadata is available for it.
+/// from the `rate_limits` events its CLI writes to session logs. Claude Code limits come only
+/// when the user opts in: its status line hands them to CoreScope's command (see
+/// ClaudeLimitsBridge); with the option off nothing of Claude's settings is read or written.
 final class AgentStore: ObservableObject {
   static let shared = AgentStore()
   @Published private(set) var codex = CodexUsage()
+  @Published private(set) var claude = ClaudeUsage()
+  /// How CoreScope's status line sits in ~/.claude/settings.json; nil while unknown or off.
+  @Published private(set) var claudeLink: ClaudeStatusLine.Link?
+  @Published private(set) var claudeError: String?
   @Published private(set) var claudeSessions: [Int32: ClaudeSessionMeta] = [:]
   private let queue = DispatchQueue(label: "app.corescope.agents", qos: .utility)
   private var timer: Timer?
   private var lastCodexFile: (URL, Date)?
+  private var claudeSamples: (Date, [ClaudeLimitSample])?
   init() {
+    if Preferences.shared.claudeLimits {
+      queue.async {
+        let link = ClaudeLimitsBridge.currentLink()
+        DispatchQueue.main.async { self.claudeLink = link }
+      }
+    }
     refresh()
     timer = Timer.scheduledTimer(withTimeInterval: 20, repeats: true) { [weak self] _ in
       self?.refresh()
     }
     timer?.tolerance = 5
   }
+  var limits: [AgentLimit] {
+    codex.windows.map { AgentLimit(title: "Codex", window: $0) }
+      + claude.windows.map { AgentLimit(title: "Claude", window: $0) }
+  }
   func refresh() {
+    let readClaude = Preferences.shared.claudeLimits
     queue.async {
       let codex = self.readCodex()
+      let claude = readClaude ? self.readClaudeLimits() : ClaudeUsage()
       let sessions = Self.readClaudeSessions()
       DispatchQueue.main.async {
         // Publish only real changes so idle refreshes do not redraw the interface.
         if let codex, codex != self.codex { self.codex = codex }
+        if claude != self.claude { self.claude = claude }
         if sessions != self.claudeSessions { self.claudeSessions = sessions }
       }
     }
+  }
+  /// Turns the Claude status line bridge on or off; `chain` puts it in front of an existing
+  /// status line, which is never replaced otherwise.
+  func setClaudeLimits(_ on: Bool, chain: Bool = false) {
+    queue.async {
+      let result = on ? ClaudeLimitsBridge.enable(chain: chain) : ClaudeLimitsBridge.disable()
+      if !on { self.claudeSamples = nil }
+      DispatchQueue.main.async {
+        switch result {
+        case .success(let link):
+          self.claudeLink = on ? link : nil
+          self.claudeError = nil
+        case .failure(let failure):
+          self.claudeLink = nil
+          self.claudeError = failure.message
+        }
+        self.refresh()
+      }
+    }
+  }
+  /// Re-reads only when the file changed; expired windows drop out on every pass.
+  private func readClaudeLimits() -> ClaudeUsage {
+    let file = ClaudeLimitsBridge.limitsFile
+    guard
+      let modified = (try? file.resourceValues(forKeys: [.contentModificationDateKey]))?
+        .contentModificationDate
+    else {
+      claudeSamples = nil
+      return ClaudeUsage()
+    }
+    if claudeSamples?.0 != modified {
+      let data = (try? Data(contentsOf: file)).flatMap { $0.count < 16 * 1024 ? $0 : nil } ?? Data()
+      claudeSamples = (modified, parseClaudeLimits(data, now: .distantPast))
+    }
+    let now = Date()
+    let windows = (claudeSamples?.1 ?? []).filter { ($0.resetsAt ?? .distantFuture) > now }.map {
+      LimitWindow(id: $0.id, usedPercent: $0.usedPercent, windowMinutes: $0.windowMinutes, resetsAt: $0.resetsAt)
+    }
+    return ClaudeUsage(windows: windows, observedAt: windows.isEmpty ? nil : modified)
   }
 
   private static let home = FileManager.default.homeDirectoryForCurrentUser
@@ -273,9 +344,10 @@ struct LimitBar: View {
   }
 }
 
-/// Usage limits card: Codex from its local logs; Claude explains why it is not available.
+/// Usage limits card: Codex from its local logs; Claude from the opt-in status line bridge.
 struct LimitsCard: View {
   @ObservedObject var agents = AgentStore.shared
+  @ObservedObject var prefs = Preferences.shared
   var body: some View {
     Card {
       CardHeader(title: L("Limites de uso"), symbol: "gauge.with.dots.needle.33percent", tint: .orange)
@@ -293,14 +365,31 @@ struct LimitsCard: View {
             ).font(.caption2).foregroundStyle(.secondary)
           }
         }.frame(maxWidth: .infinity, alignment: .leading)
-        LimitPlaceholder(
-          title: "Claude Code",
-          text: L(
-            "O Claude Code não grava o limite semanal em disco. Use /usage no Claude Code; o CoreScope não lê credenciais nem acessa a rede."
-          )
-        ).frame(maxWidth: .infinity, alignment: .leading)
+        VStack(alignment: .leading, spacing: 10) {
+          if agents.claude.windows.isEmpty {
+            LimitPlaceholder(title: "Claude Code", text: claudeNote)
+          } else {
+            ForEach(agents.claude.windows) { w in LimitBar(title: "Claude", window: w) }
+            Text(
+              [agents.claude.observedAt.map { L("atualizado %@", $0.formatted(date: .omitted, time: .shortened)) },
+               L("renova a cada resposta do Claude Code")].compactMap { $0 }.joined(separator: " · ")
+            ).font(.caption2).foregroundStyle(.secondary)
+          }
+        }.frame(maxWidth: .infinity, alignment: .leading)
       }
     }
+  }
+  private var claudeNote: String {
+    guard prefs.claudeLimits else {
+      return L(
+        "O Claude Code não grava o limite em disco. Ative “Ler limite do Claude pelo status line” em Ajustes › Agentes (local, sem credenciais nem rede)."
+      )
+    }
+    if let error = agents.claudeError { return error }
+    if case .foreign = agents.claudeLink {
+      return L("Você já tem um status line no Claude Code. Encadeie-o em Ajustes › Agentes para ler o limite.")
+    }
+    return L("Aguardando a próxima resposta do Claude Code (só planos Pro e Max informam o limite).")
   }
 }
 private struct LimitPlaceholder: View {

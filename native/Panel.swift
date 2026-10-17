@@ -219,6 +219,9 @@ struct FloatingView: View {
         if prefs.limitsInPanel, let w = agents.codex.weekly {
           stripMetric("CODEX", String(format: "%.0f%%", w.usedPercent), w.color, w.usedPercent / 100)
         }
+        if prefs.limitsInPanel, let w = agents.claude.weekly {
+          stripMetric("CLAUDE", String(format: "%.0f%%", w.usedPercent), w.color, w.usedPercent / 100)
+        }
         if !s.orphans.isEmpty {
           Badge(text: "\(s.orphans.count)", color: .orange, symbol: "exclamationmark.triangle.fill")
             .help(L("%@ possíveis órfãos", "\(s.orphans.count)"))
@@ -294,7 +297,7 @@ struct FloatingView: View {
             ])
         }
         if prefs.limitsInPanel {
-          ForEach(agents.codex.windows) { w in LimitBar(title: "Codex", window: w, compact: true) }
+          ForEach(agents.limits) { row in LimitBar(title: row.title, window: row.window, compact: true) }
         }
         statusLine(s)
         if prefs.panelMode == "detailed" { detail(s) }
@@ -418,7 +421,7 @@ struct PanelMenu: View {
     Toggle(L("Travar posição"), isOn: $prefs.panelLocked)
     Toggle(L("Mostrar rede"), isOn: $prefs.panelNetwork)
     Toggle(L("Mostrar estado térmico"), isOn: $prefs.thermalInPanel)
-    Toggle(L("Mostrar limite do Codex"), isOn: $prefs.limitsInPanel)
+    Toggle(L("Mostrar limites dos agentes"), isOn: $prefs.limitsInPanel)
     Divider()
     Button(L("Abrir CoreScope")) { WindowOpener.shared.showMain() }
     Button(L("Ver processos")) { WindowOpener.shared.showMain(page: .processes) }

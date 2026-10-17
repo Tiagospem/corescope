@@ -389,7 +389,6 @@ private let entries = """
   Plano %@ ¦ Plan %@ ¦ Plan %@
   créditos %@ ¦ credits %@ ¦ créditos %@
   lido %@ ¦ read %@ ¦ leído %@
-  O Claude Code não grava o limite semanal em disco. Use /usage no Claude Code; o CoreScope não lê credenciais nem acessa a rede. ¦ Claude Code does not store its weekly limit on disk. Use /usage in Claude Code; CoreScope does not read credentials or use the network. ¦ Claude Code no guarda el límite semanal en disco. Usa /usage en Claude Code; CoreScope no lee credenciales ni usa la red.
   Sessões ativas ¦ Active sessions ¦ Sesiones activas
   %@ processos · CPU %@ · %@ ¦ %@ processes · CPU %@ · %@ ¦ %@ procesos · CPU %@ · %@
   Trabalhando ¦ Working ¦ Trabajando
@@ -398,13 +397,30 @@ private let entries = """
   Encerrar sessão… ¦ Terminate session… ¦ Finalizar sesión…
   %@ processos iniciados pela sessão ¦ %@ processes started by the session ¦ %@ procesos iniciados por la sesión
   Ver agentes ¦ See agents ¦ Ver agentes
-  Mostrar limite do Codex ¦ Show Codex limit ¦ Mostrar límite de Codex
-  Limite do Codex na barra de menus ¦ Codex limit in the menu bar ¦ Límite de Codex en la barra de menús
-  Limite do Codex no painel flutuante ¦ Codex limit in the floating panel ¦ Límite de Codex en el panel flotante
   Limites na visão geral ¦ Limits in the overview ¦ Límites en el resumen
-  O limite do Codex vem dos eventos rate_limits que o próprio Codex grava em ~/.codex/sessions (somente leitura local). O Claude Code não grava o limite semanal em disco; sessões do Claude vêm de ~/.claude/sessions. ¦ The Codex limit comes from the rate_limits events Codex itself writes to ~/.codex/sessions (local read only). Claude Code does not store its weekly limit on disk; Claude sessions come from ~/.claude/sessions. ¦ El límite de Codex viene de los eventos rate_limits que el propio Codex escribe en ~/.codex/sessions (solo lectura local). Claude Code no guarda el límite semanal en disco; las sesiones de Claude vienen de ~/.claude/sessions.
   Abrir no Claude ¦ Open in Claude ¦ Abrir en Claude
   Mostrar no %@ ¦ Show in %@ ¦ Mostrar en %@
   Abre esta sessão no Claude Desktop ¦ Opens this session in Claude Desktop ¦ Abre esta sesión en Claude Desktop
   Traz %@, onde a sessão está rodando, para a frente ¦ Brings %@, where the session runs, to the front ¦ Trae al frente %@, donde se ejecuta la sesión
+  Mostrar limites dos agentes ¦ Show agent limits ¦ Mostrar límites de los agentes
+  Limites na barra de menus ¦ Limits in the menu bar ¦ Límites en la barra de menús
+  Limites no painel flutuante ¦ Limits in the floating panel ¦ Límites en el panel flotante
+  O limite do Codex vem dos eventos rate_limits que o próprio Codex grava em ~/.codex/sessions (somente leitura local). Sessões do Claude vêm de ~/.claude/sessions. ¦ The Codex limit comes from the rate_limits events Codex itself writes to ~/.codex/sessions (local read only). Claude sessions come from ~/.claude/sessions. ¦ El límite de Codex viene de los eventos rate_limits que el propio Codex escribe en ~/.codex/sessions (solo lectura local). Las sesiones de Claude vienen de ~/.claude/sessions.
+  Ler limite do Claude pelo status line ¦ Read the Claude limit from the status line ¦ Leer el límite de Claude desde la línea de estado
+  Desligado por padrão. Ao ligar, o CoreScope instala um comando de status line em ~/.claude/settings.json (com backup; se você já tiver um status line, nada é trocado sem sua confirmação). A cada resposta, o próprio Claude Code passa o uso do plano a esse comando, que grava só rate_limits em ~/Library/Application Support/CoreScope. Sem Keychain, sem credenciais, sem rede. Desligar restaura o statusLine anterior. Só planos Pro e Max informam o limite. ¦ Off by default. Turning it on installs a status line command in ~/.claude/settings.json (backed up first; if you already have a status line, nothing is replaced without your confirmation). After each reply, Claude Code itself hands your plan usage to that command, which saves only rate_limits to ~/Library/Application Support/CoreScope. No Keychain, no credentials, no network. Turning it off restores the previous statusLine. Only Pro and Max plans report the limit. ¦ Desactivado por defecto. Al activarlo, CoreScope instala un comando de línea de estado en ~/.claude/settings.json (con copia de seguridad; si ya tienes una línea de estado, no se reemplaza nada sin tu confirmación). Tras cada respuesta, el propio Claude Code pasa el uso del plan a ese comando, que guarda solo rate_limits en ~/Library/Application Support/CoreScope. Sin Llavero, sin credenciales, sin red. Al desactivarlo se restaura el statusLine anterior. Solo los planes Pro y Max informan el límite.
+  Status line do CoreScope instalado. ¦ CoreScope status line installed. ¦ Línea de estado de CoreScope instalada.
+  Encadeado com o seu status line; a saída dele continua a mesma. ¦ Chained with your status line; its output stays the same. ¦ Encadenado con tu línea de estado; su salida sigue igual.
+  Você já tem um status line, por isso nada foi alterado: ¦ You already have a status line, so nothing was changed: ¦ Ya tienes una línea de estado, así que no se cambió nada:
+  Encadear com o status line atual ¦ Chain with the current status line ¦ Encadenar con la línea de estado actual
+  Coloca o comando do CoreScope antes do seu; a saída do seu status line não muda. ¦ Puts CoreScope's command in front of yours; your status line output does not change. ¦ Pone el comando de CoreScope delante del tuyo; la salida de tu línea de estado no cambia.
+  Ou edite à mão: comece o comando com ¦ Or edit it by hand: start the command with ¦ O edítalo a mano: empieza el comando con
+  ~/.claude/settings.json não é um JSON válido; nada foi alterado. ¦ ~/.claude/settings.json is not valid JSON; nothing was changed. ¦ ~/.claude/settings.json no es un JSON válido; no se cambió nada.
+  ~/.claude/settings.json não é um objeto JSON; nada foi alterado. ¦ ~/.claude/settings.json is not a JSON object; nothing was changed. ¦ ~/.claude/settings.json no es un objeto JSON; no se cambió nada.
+  O statusLine mudou desde que o CoreScope o instalou; ele foi mantido como está. ¦ The statusLine changed since CoreScope installed it, so it was left as is. ¦ El statusLine cambió desde que CoreScope lo instaló, así que se dejó como está.
+  Não foi possível gravar: %@ ¦ Could not write: %@ ¦ No se pudo escribir: %@
+  atualizado %@ ¦ updated %@ ¦ actualizado %@
+  renova a cada resposta do Claude Code ¦ refreshes after each Claude Code reply ¦ se renueva tras cada respuesta de Claude Code
+  O Claude Code não grava o limite em disco. Ative “Ler limite do Claude pelo status line” em Ajustes › Agentes (local, sem credenciais nem rede). ¦ Claude Code does not store its limit on disk. Turn on “Read the Claude limit from the status line” in Settings › Agents (local, no credentials, no network). ¦ Claude Code no guarda el límite en disco. Activa “Leer el límite de Claude desde la línea de estado” en Ajustes › Agentes (local, sin credenciales ni red).
+  Você já tem um status line no Claude Code. Encadeie-o em Ajustes › Agentes para ler o limite. ¦ You already have a Claude Code status line. Chain it in Settings › Agents to read the limit. ¦ Ya tienes una línea de estado en Claude Code. Encadénala en Ajustes › Agentes para leer el límite.
+  Aguardando a próxima resposta do Claude Code (só planos Pro e Max informam o limite). ¦ Waiting for the next Claude Code reply (only Pro and Max plans report the limit). ¦ Esperando la próxima respuesta de Claude Code (solo los planes Pro y Max informan el límite).
   """
