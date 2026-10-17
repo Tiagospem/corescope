@@ -100,13 +100,25 @@ struct ProcessesView: View {
         .sorted(using: sort)
     }
     let parent = Dictionary(all.map { ($0.pid, $0.ppid) }, uniquingKeysWith: { a, _ in a })
-    let visible = filtering ? matched.union(forest.ancestors(of: matched, parent: parent)) : nil
+    // A filter keeps each match in context: ancestors open to reveal it, and its own
+    // descendants stay available (dimmed, collapsed) so watched/dev trees can still expand.
+    let ancestors = filtering ? forest.ancestors(of: matched, parent: parent) : []
+    var descendants = Set<Int32>()
+    if filtering {
+      var stack = Array(matched)
+      while let pid = stack.popLast() {
+        for child in forest.children[pid] ?? [] where descendants.insert(child).inserted {
+          stack.append(child)
+        }
+      }
+    }
+    let visible = filtering ? matched.union(ancestors).union(descendants) : nil
     let draft = Dictionary(
       all.map { ($0.pid, row($0, depth: 0, children: 0, open: false, tree: true)) },
       uniquingKeysWith: { a, _ in a })
     let comparator = sort.first ?? KeyPathComparator(\ProcessRow.cpu, order: .reverse)
     let isOpen: (Int32) -> Bool = { pid in
-      filtering || byPID[pid].map { expanded.contains($0.id) } ?? false
+      ancestors.contains(pid) || byPID[pid].map { expanded.contains($0.id) } ?? false
     }
     return forest.flatten(
       visible: visible, expanded: isOpen,

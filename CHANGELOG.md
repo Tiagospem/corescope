@@ -10,7 +10,22 @@ section as the GitHub release notes.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-17
+
 ### Added
+- **Containers** page for Docker, OrbStack, Docker Desktop and Colima (local engine socket
+  only): status, health, image, compose project, published ports, CPU and memory, with
+  stop / restart using the same click-to-arm ✕ as processes; an Overview card; and listening
+  servers that name the container instead of the VM helper.
+- **Opt-in notifications** (new orphan, process above a memory or CPU threshold, memory
+  pressure) and a **port lookup** in the menu bar popover ("who is on :3000?") with a
+  global shortcut (⌥⌘K by default).
+- **Token usage chart**: totals with an input / output / cache split, tokens per day for the
+  last 7 days stacked by agent, and proportional bars per agent and per project.
+- English documentation, contributing guide, issue and PR templates; VoiceOver labels for
+  icon-only buttons.
+- `scripts/readme-media.sh` regenerates the README screenshots and demo GIF from the app
+  itself (demo mode, no Screen Recording permission).
 - **Claude Code 5-hour and weekly limits** (opt-in, off by default) in the limits card,
   menu bar, popover and floating panel, read from the `rate_limits` data Claude Code
   passes to its status line. Turning it on adds a `statusLine` command to
@@ -30,6 +45,15 @@ section as the GitHub release notes.
   (`~/.claude/projects`, `~/.codex/sessions`): input, output and prompt-cache tokens and
   the model on each session card, plus today / last-7-days totals per agent and project.
   Tokens only, no dollar estimates; message content is never retained.
+
+### Changed
+- Containers moved out of the Agents page into their own sidebar tab.
+- Filtered process trees (Watched, Dev, Agents, search…) keep each match's children,
+  collapsed and expandable, instead of hiding them.
+- Agent session cards switch their buttons to icons when the window is narrow instead of
+  overflowing the card.
+- An expired Codex limit window now says it was reset and is waiting for new usage,
+  instead of "resets in 0 s".
 
 ### Fixed
 - Only one CoreScope runs at a time: launching another copy brings the running one
@@ -73,6 +97,7 @@ First public release.
   compact / standard / detailed layouts and in-panel controls.
 - English, Portuguese and Spanish; offline-only.
 
-[Unreleased]: https://github.com/Tiagospem/corescope/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/Tiagospem/corescope/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/Tiagospem/corescope/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/Tiagospem/corescope/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/Tiagospem/corescope/releases/tag/v0.2.0

@@ -163,7 +163,8 @@ final class HistoryStore: ObservableObject {
 struct HistoryView: View {
   @ObservedObject var store = HistoryStore.shared
   @ObservedObject var prefs = Preferences.shared
-  @ViewState private var range: HistoryRange = .day
+  // Tour captures start on 1 h so a fresh recording fills the charts.
+  @ViewState private var range: HistoryRange = Tour.folder != nil ? .hour : .day
   /// nil follows the present; otherwise the window ends at this moment.
   @ViewState private var end: Date?
   @ViewState private var selected: Int?

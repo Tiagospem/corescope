@@ -611,4 +611,10 @@ private let entries = """
   entrada %@ · saída %@ · cache %@ ¦ input %@ · output %@ · cache %@ ¦ entrada %@ · salida %@ · caché %@
   Hoje: %@ | 7 dias: %@ ¦ Today: %@ | 7 days: %@ ¦ Hoy: %@ | 7 días: %@
   + %@ outros projetos ¦ + %@ more projects ¦ + %@ proyectos más
+  Por agente ¦ By agent ¦ Por agente
+  Por projeto ¦ By project ¦ Por proyecto
+  Por dia ¦ Per day ¦ Por día
+  hoje ¦ today ¦ hoy
+  Mostrar menos ¦ Show less ¦ Mostrar menos
+  janela já reiniciou · aguardando novo uso para atualizar ¦ window already reset · waiting for new usage to update ¦ la ventana ya se reinició · esperando nuevo uso para actualizar
   """
