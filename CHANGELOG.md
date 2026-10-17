@@ -62,6 +62,9 @@ section as the GitHub release notes.
   sampling, jump to a moment in History. **Menu bar** profile switcher and Services status dots.
 - **`corescope://` links** for Shortcuts, Raycast and scripts: open a page, start/stop/toggle a
   profile (file profiles ask first), port lookup, check services, what happened, palette.
+- **Universal build**: releases run natively on Apple Silicon and Intel Macs
+  (`CoreScope-<version>-macos-universal.dmg`); `UNIVERSAL=1 ./scripts/build.sh` builds both
+  slices of the app and the bundled `corescope`, and packaging refuses a release missing one.
 ### Changed
 - `.corescope.yml` discovery walks folders every 10 minutes (and when roots change) and only
   re-reads known files in between, instead of a full walk plus process list every minute.

@@ -8,7 +8,7 @@ VERSION=${1:?usage: release-notes.sh <version> [ref]}
 REF=${2:-v$VERSION}
 git rev-parse -q --verify "$REF^{commit}" >/dev/null || REF=HEAD
 PREV=$(git describe --tags --abbrev=0 --match 'v[0-9]*' "$REF^" 2>/dev/null || true)
-DMG="CoreScope-$VERSION-macos-arm64.dmg"
+DMG="CoreScope-$VERSION-macos-universal.dmg"
 
 # Lines under "## [<version>]" up to the next version heading or the link references.
 SECTION=$(awk -v v="## [$VERSION]" '

@@ -3,10 +3,15 @@
 # a zip, and SHA-256 checksums in dist/.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-./scripts/build.sh
+UNIVERSAL=1 ./scripts/build.sh
 APP=build/CoreScope.app
 VERSION=$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" "$APP/Contents/Info.plist")
-ARCH=$(lipo -archs "$APP/Contents/MacOS/CoreScope" | tr ' ' '-')
+ARCHS=$(lipo -archs "$APP/Contents/MacOS/CoreScope")
+# Both slices in the app and the command-line tool, or the release is not universal.
+for bin in "$APP/Contents/MacOS/CoreScope" "$APP/Contents/Resources/bin/corescope"; do
+  lipo "$bin" -verify_arch arm64 x86_64
+done
+ARCH=$([ "$(echo "$ARCHS" | wc -w)" -gt 1 ] && echo universal || echo "$ARCHS")
 NAME="CoreScope-$VERSION-macos-$ARCH"
 rm -rf dist && mkdir -p dist/stage
 ditto -c -k --keepParent "$APP" "dist/$NAME.zip"
