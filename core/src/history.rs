@@ -422,13 +422,19 @@ pub struct Bucket {
     pub at: i64,
     pub samples: i64,
     pub cpu: Option<f64>,
+    pub cpu_minutes: i64,
     pub cpu_max: Option<f64>,
     pub memory: Option<f64>,
+    pub memory_minutes: i64,
     pub swap: Option<f64>,
     pub disk_read: Option<f64>,
+    pub disk_read_minutes: i64,
     pub disk_write: Option<f64>,
+    pub disk_write_minutes: i64,
     pub net_in: Option<f64>,
+    pub net_in_minutes: i64,
     pub net_out: Option<f64>,
+    pub net_out_minutes: i64,
     pub thermal: Option<i64>,
     pub pressure: Option<i64>,
     pub pressure_pct: Option<f64>,
@@ -504,7 +510,8 @@ pub fn series(path: &str, from: i64, to: i64, bucket: i64) -> Result<Series, Str
         let mut s = db.prepare(
             "SELECT (at-?1)/?2, sum(samples), avg(cpu), max(cpu_max), avg(memory), max(swap),
              avg(disk_read), avg(disk_write), avg(net_in), avg(net_out), max(thermal),
-             max(pressure), max(pressure_pct)
+             max(pressure), max(pressure_pct), count(cpu), count(memory), count(disk_read),
+             count(disk_write), count(net_in), count(net_out)
              FROM minutes WHERE at>=?1 AND at<?3 GROUP BY 1",
         )?;
         s.bind(&[Value::Int(from), Value::Int(bucket), Value::Int(to)])?;
@@ -524,6 +531,12 @@ pub fn series(path: &str, from: i64, to: i64, bucket: i64) -> Result<Series, Str
             p.thermal = s.int(10);
             p.pressure = s.int(11);
             p.pressure_pct = s.real(12);
+            p.cpu_minutes = s.int(13).unwrap_or(0);
+            p.memory_minutes = s.int(14).unwrap_or(0);
+            p.disk_read_minutes = s.int(15).unwrap_or(0);
+            p.disk_write_minutes = s.int(16).unwrap_or(0);
+            p.net_in_minutes = s.int(17).unwrap_or(0);
+            p.net_out_minutes = s.int(18).unwrap_or(0);
         }
     }
     Ok(Series {

@@ -6,13 +6,19 @@ struct HistoryBucket: Decodable {
   let at: Double
   let samples: Int
   let cpu: Double?
+  let cpu_minutes: Int
   let cpu_max: Double?
   let memory: Double?
+  let memory_minutes: Int
   let swap: Double?
   let disk_read: Double?
+  let disk_read_minutes: Int
   let disk_write: Double?
+  let disk_write_minutes: Int
   let net_in: Double?
+  let net_in_minutes: Int
   let net_out: Double?
+  let net_out_minutes: Int
   let thermal: Int?
   let pressure: Int?
   let pressure_pct: Double?
@@ -261,7 +267,8 @@ struct HistoryView: View {
     ) {
       HistoryChart(
         title: L("CPU"), symbol: "cpu", value: summary(
-          p, \.cpu, \.cpu_max, format: { String(format: "%.0f%%", $0) }, labels: ("", L("pico")), secondIsPeak: true),
+          p, \.cpu, firstCount: \.cpu_minutes, \.cpu_max, secondCount: nil,
+          format: { String(format: "%.0f%%", $0) }, labels: ("", L("pico")), secondIsPeak: true),
         series: [
           ChartSeries(values: p.map(\.cpu_max), color: Tint.cpu.opacity(0.45), name: L("pico"), format: percent),
           ChartSeries(values: p.map(\.cpu), color: Tint.cpu, name: L("média"), format: percent),
@@ -269,7 +276,8 @@ struct HistoryView: View {
         selected: $selected)
       HistoryChart(
         title: L("Memória"), symbol: "memorychip", value: summary(
-          p, \.memory, \.swap, format: formatBytes, labels: ("", L("swap")), secondIsPeak: true),
+          p, \.memory, firstCount: \.memory_minutes, \.swap, secondCount: nil,
+          format: formatBytes, labels: ("", L("swap")), secondIsPeak: true),
         series: [
           ChartSeries(values: p.map(\.memory), color: Tint.memory, name: L("usada"), format: formatBytes),
           ChartSeries(values: p.map(\.swap), color: .orange, name: L("swap"), format: formatBytes),
@@ -277,13 +285,15 @@ struct HistoryView: View {
         selected: $selected)
       HistoryChart(
         title: L("Disco"), symbol: "internaldrive", value: summary(
-          p, \.disk_read, \.disk_write, format: formatRate, labels: ("↓", "↑"), secondIsPeak: false),
+          p, \.disk_read, firstCount: \.disk_read_minutes, \.disk_write, secondCount: \.disk_write_minutes,
+          format: formatRate, labels: ("↓", "↑"), secondIsPeak: false),
         series: [
           .diskRead(p.map(\.disk_read)), .diskWrite(p.map(\.disk_write)),
         ], times: p.map(\.at), legend: [("leitura", Tint.diskRead), ("escrita", Tint.diskWrite)], selected: $selected)
       HistoryChart(
         title: L("Rede"), symbol: "arrow.up.arrow.down", value: summary(
-          p, \.net_in, \.net_out, format: formatRate, labels: ("↓", "↑"), secondIsPeak: false),
+          p, \.net_in, firstCount: \.net_in_minutes, \.net_out, secondCount: \.net_out_minutes,
+          format: formatRate, labels: ("↓", "↑"), secondIsPeak: false),
         series: [
           .netIn(p.map(\.net_in)), .netOut(p.map(\.net_out)),
         ], times: p.map(\.at), legend: [("entrada", Tint.netIn), ("saída", Tint.netOut)], selected: $selected)
@@ -294,7 +304,8 @@ struct HistoryView: View {
   /// mean (rates) or maximum (peaks, swap) of the second.
   private func summary(
     _ points: [HistoryBucket], _ first: KeyPath<HistoryBucket, Double?>,
-    _ second: KeyPath<HistoryBucket, Double?>, format: @escaping (Double) -> String, labels: (String, String),
+    firstCount: KeyPath<HistoryBucket, Int>, _ second: KeyPath<HistoryBucket, Double?>,
+    secondCount: KeyPath<HistoryBucket, Int>?, format: @escaping (Double) -> String, labels: (String, String),
     secondIsPeak: Bool
   ) -> String {
     let label = { (text: String, value: Double) in text.isEmpty ? format(value) : text + " " + format(value) }
@@ -303,12 +314,20 @@ struct HistoryView: View {
       let parts = [b[keyPath: first].map { label(labels.0, $0) }, b[keyPath: second].map { label(labels.1, $0) }]
       return parts.compactMap { $0 }.joined(separator: " · ").nonEmpty ?? L("Sem dados")
     }
-    func mean(_ key: KeyPath<HistoryBucket, Double?>) -> Double? {
-      let values = points.compactMap { $0[keyPath: key] }
-      return values.isEmpty ? nil : values.reduce(0, +) / Double(values.count)
+    func mean(_ key: KeyPath<HistoryBucket, Double?>, count: KeyPath<HistoryBucket, Int>) -> Double? {
+      var total = 0
+      var weightedSum = 0.0
+      for point in points {
+        let minutes = point[keyPath: count]
+        if minutes > 0, let value = point[keyPath: key] {
+          total += minutes
+          weightedSum += value * Double(minutes)
+        }
+      }
+      return total > 0 ? weightedSum / Double(total) : nil
     }
-    guard let a = mean(first) else { return L("Sem dados") }
-    let b = secondIsPeak ? points.compactMap { $0[keyPath: second] }.max() : mean(second)
+    guard let a = mean(first, count: firstCount) else { return L("Sem dados") }
+    let b = secondIsPeak ? points.compactMap { $0[keyPath: second] }.max() : secondCount.flatMap { mean(second, count: $0) }
     return [L("média %@", label(labels.0, a)), b.map { (secondIsPeak ? L("máx. %@", label(labels.1, $0)) : label(labels.1, $0)) }]
       .compactMap { $0 }.joined(separator: " · ")
   }

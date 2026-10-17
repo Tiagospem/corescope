@@ -1824,6 +1824,51 @@ mod tests {
         second.delete().unwrap();
     }
     #[test]
+    fn history_series_counts_valid_minutes_per_metric() {
+        let path = temp_db("metric-counts");
+        let mut r = history::Recorder::new(&path);
+        let base = 1_800_000_000.;
+        r.add(
+            base,
+            7,
+            history::System {
+                cpu: Some(100.),
+                memory: Some(1.),
+                net_in: Some(1.),
+                ..Default::default()
+            },
+            std::iter::empty(),
+        );
+        for step in 0..30 {
+            r.add(
+                base + 1800. + step as f64 * 60.,
+                7,
+                history::System {
+                    cpu: Some(0.),
+                    memory: Some(0.),
+                    ..Default::default()
+                },
+                std::iter::empty(),
+            );
+        }
+        r.add(
+            base + 3600.,
+            7,
+            history::System::default(),
+            std::iter::empty(),
+        );
+        r.flush(7);
+
+        let series = history::series(&path, base as i64, base as i64 + 3600, 1800).unwrap();
+        assert_eq!(series.points[0].cpu_minutes, 1);
+        assert_eq!(series.points[1].cpu_minutes, 30);
+        assert_eq!(series.points[0].memory_minutes, 1);
+        assert_eq!(series.points[1].memory_minutes, 30);
+        assert_eq!(series.points[0].net_in_minutes, 1);
+        assert_eq!(series.points[1].net_in_minutes, 0);
+        r.delete().unwrap();
+    }
+    #[test]
     fn history_retention_purges_old_minutes() {
         let path = temp_db("retention");
         let mut r = history::Recorder::new(&path);
