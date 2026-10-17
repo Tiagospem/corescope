@@ -21,7 +21,7 @@ open --env CORESCOPE_DEMO=1 build/CoreScope.app   # or: demo mode, for screensho
 
 `open` reuses a running instance and its environment, so quit CoreScope with ⌘Q (closing the window is not enough) before switching between normal and demo mode.
 
-Demo mode replaces your user name, home folder and agent session titles, and gives folders on external volumes (`/Volumes/…`) fake project names. Folders under your home keep their real names, so `~/code/client-x` still shows up as `client-x`. Inspect and redact every capture before sharing.
+Demo mode replaces your user name and agent session titles, and maps every working directory and executable outside system locations (home subfolders and `/Volumes/…` alike) to `/Users/dev/code/<fake project>`, so `~/code/client-x` shows up as something like `acme-api`. System paths (`/System`, `/usr`, `/Applications`, `/Library`…) stay readable. Process names come straight from macOS, so a binary named after a project still shows that name; inspect every capture before sharing.
 
 `./scripts/test.sh` and `./scripts/build.sh` must both pass before you open a pull request. Use demo mode for any screenshot or recording you attach.
 
@@ -69,7 +69,7 @@ These are not negotiable, because they are what CoreScope is:
 
 ## Recording the demo GIF
 
-The GIF at the top of the README is recorded in demo mode, which keeps live metrics and anonymizes some user details. Project names and path components may remain visible, so inspect and redact captures before sharing. Keep it short (about 15 s) and under ~3 MB.
+The GIF at the top of the README is recorded in demo mode, which keeps live metrics and replaces your user name, folders, project names and session titles. Process names stay real, so inspect captures before sharing. Keep it short (about 15 s) and under ~3 MB.
 
 1. Build, and start a throwaway server you can safely terminate on camera:
 
@@ -103,7 +103,7 @@ The GIF at the top of the README is recorded in demo mode, which keeps live metr
 1. Branch from `main` (it is protected, so all changes land through PRs).
 2. Keep each PR to one topic, and describe what changed and how you verified it.
 3. Run `./scripts/test.sh` and `./scripts/build.sh`.
-4. For UI changes, quit CoreScope with ⌘Q before switching to demo mode, then attach a screenshot and inspect/redact it first—project names and path components may remain visible. Note light/dark mode and VoiceOver if you checked them.
+4. For UI changes, quit CoreScope with ⌘Q before switching to demo mode, then attach a screenshot and inspect it first—process names stay real. Note light/dark mode and VoiceOver if you checked them.
 5. Update the docs or README when behavior, data sources or permissions change.
 
 By contributing you agree that your contributions are licensed under the [MIT License](LICENSE).

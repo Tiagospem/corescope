@@ -126,10 +126,182 @@ struct AgentLimit: Identifiable {
   var id: String { title + window.id }
 }
 
+/// Tokens of one agent session: its transcript plus any subagent transcripts.
+struct SessionTokens: Equatable {
+  var counts = TokenCounts()
+  var model: String?
+  var subagents = 0
+  var cwd: String?
+  var updated = Date.distantPast
+}
+/// Tokens used today and over the last 7 days (today included) by one agent or project.
+struct TokenRow: Equatable, Identifiable {
+  let id: String
+  var today = TokenCounts()
+  var week = TokenCounts()
+}
+struct TokenReport: Equatable {
+  /// False until the first pass over the transcripts finishes.
+  var ready = false
+  var total = TokenRow(id: "")
+  var agents: [TokenRow] = []
+  var projects: [TokenRow] = []
+  /// "claude:<session uuid>" or "codex:<session id>".
+  var sessions: [String: SessionTokens] = [:]
+  func claude(_ meta: ClaudeSessionMeta?) -> SessionTokens? {
+    meta?.sessionId.flatMap { sessions["claude:" + $0] }
+  }
+  /// Codex keeps no pid → session map on disk: only show a candidate when exactly one
+  /// conversation in the process's folder was written since the process started.
+  func codex(for root: ProcessItem) -> SessionTokens? {
+    guard root.name.lowercased().hasPrefix("codex") else { return nil }
+    let since = root.startDate.addingTimeInterval(-60)
+    let matches = sessions.filter { $0.key.hasPrefix("codex:") && $0.value.cwd == root.cwd && $0.value.updated >= since }
+    return matches.count == 1 ? matches.first?.value : nil
+  }
+}
+
+/// Token usage from agent transcripts on disk, read incrementally: each file is read from where
+/// the previous pass stopped, and only counts per file and per day stay in memory. Files:
+/// ~/.claude/projects/*/<session>.jsonl (+ <session>/subagents/*.jsonl) and
+/// ~/.codex/sessions/YYYY/MM/DD/*.jsonl, limited to those written in the last 7 days plus the
+/// transcripts of running Claude sessions.
+final class TokenUsageStore: ObservableObject {
+  @Published private(set) var report = TokenReport()
+  private let queue = DispatchQueue(label: "app.corescope.tokens", qos: .utility)
+  private var files: [String: (tally: TranscriptTally, modified: Date)] = [:]
+  private var started = false
+  private var running = false
+
+  /// The first pass reads whole transcripts, so it waits until the Agents page is first shown.
+  func start() {
+    guard !started else { return }
+    started = true
+    AgentStore.shared.refresh()
+  }
+  func refresh(live: Set<String>) {
+    guard started, !running else { return }
+    running = true
+    queue.async {
+      let report = self.scan(live: live)
+      DispatchQueue.main.async {
+        self.running = false
+        if report != self.report { self.report = report }
+      }
+    }
+  }
+
+  private static let home = FileManager.default.homeDirectoryForCurrentUser
+  private static let keys: [URLResourceKey] = [.contentModificationDateKey, .fileSizeKey, .isDirectoryKey]
+  private typealias Candidate = (url: URL, kind: AgentKind, size: UInt64, modified: Date)
+  private static func list(_ dir: URL) -> [URL] {
+    (try? FileManager.default.contentsOfDirectory(
+      at: dir, includingPropertiesForKeys: keys, options: [.skipsHiddenFiles])) ?? []
+  }
+  private static func stat(_ url: URL) -> (size: UInt64, modified: Date)? {
+    guard let v = try? url.resourceValues(forKeys: Set(keys)), v.isDirectory != true,
+      let size = v.fileSize, let modified = v.contentModificationDate
+    else { return nil }
+    return (UInt64(size), modified)
+  }
+  private func candidates(live: Set<String>, since: Date) -> [Candidate] {
+    var out: [Candidate] = []
+    for project in Self.list(Self.home.appendingPathComponent(".claude/projects")) where project.hasDirectoryPath {
+      for file in Self.list(project) where file.pathExtension == "jsonl" {
+        guard let s = Self.stat(file) else { continue }
+        let session = file.deletingPathExtension().lastPathComponent
+        guard s.modified >= since || live.contains(session) else { continue }
+        out.append((file, .claude, s.size, s.modified))
+        let subagents = project.appendingPathComponent(session).appendingPathComponent("subagents")
+        for sub in Self.list(subagents) where sub.pathExtension == "jsonl" {
+          if let t = Self.stat(sub) { out.append((sub, .claude, t.size, t.modified)) }
+        }
+      }
+    }
+    // Resumed Codex conversations can remain under arbitrarily old start dates.
+    let root = Self.home.appendingPathComponent(".codex/sessions")
+    if let enumerator = FileManager.default.enumerator(
+      at: root, includingPropertiesForKeys: Self.keys, options: [.skipsHiddenFiles])
+    {
+      for case let file as URL in enumerator where file.pathExtension == "jsonl" {
+        guard let s = Self.stat(file), s.modified >= since else { continue }
+        out.append((file, .codex, s.size, s.modified))
+      }
+    }
+    return out
+  }
+
+  private func scan(live: Set<String>) -> TokenReport {
+    let today = localDay(Date().timeIntervalSince1970)
+    let weekStart = today - 6
+    var next: [String: (tally: TranscriptTally, modified: Date)] = [:]
+    for file in candidates(live: live, since: Date().addingTimeInterval(-7 * 86400)) {
+      var entry = files[file.url.path] ?? (TranscriptTally(kind: file.kind, path: file.url.path), file.modified)
+      if file.size != entry.tally.offset {
+        autoreleasepool { entry.tally.read(file.url, size: file.size) }
+      }
+      entry.tally.prune(before: weekStart)
+      entry.modified = file.modified
+      next[file.url.path] = entry
+    }
+    files = next  // files that aged out or disappeared are forgotten
+
+    var report = TokenReport(ready: true)
+    var agents: [String: TokenRow] = [:]
+    var projects: [String: TokenRow] = [:]
+    var codexEventDeduper = CodexEventDeduper()
+    for (tally, modified) in files.values {
+      let cwd = Demo.enabled ? tally.cwd.map { Demo.path($0) } : tally.cwd
+      let project = usageProject(cwd) ?? L("Sem projeto")
+      let agent = tally.kind.rawValue
+      let session = tally.session.map { (tally.kind == .claude ? "claude:" : "codex:") + $0 }
+      var codexCounts = TokenCounts()
+      let dailyCounts: [(Int, TokenCounts)]
+      if tally.kind == .codex {
+        var daily: [Int: TokenCounts] = [:]
+        for event in tally.codexEvents where codexEventDeduper.insert(event, session: session) {
+          codexCounts += event.counts
+          if let day = event.day { daily[day, default: TokenCounts()] += event.counts }
+        }
+        dailyCounts = daily.map { ($0.key, $0.value) }
+      } else {
+        dailyCounts = Array(tally.days)
+      }
+      for (day, counts) in dailyCounts where day >= weekStart {
+        func add(_ row: inout TokenRow) {
+          row.week += counts
+          if day == today { row.today += counts }
+        }
+        add(&report.total)
+        add(&agents[agent, default: TokenRow(id: agent)])
+        add(&projects[project, default: TokenRow(id: project)])
+      }
+      guard let session else { continue }
+      let key = session
+      var s = report.sessions[key] ?? SessionTokens()
+      s.counts += tally.kind == .codex ? codexCounts : tally.total
+      if tally.isSubagent {
+        s.subagents += 1
+        if s.model == nil { s.model = tally.model }
+      } else {
+        s.model = tally.model ?? s.model
+        s.cwd = cwd
+      }
+      s.updated = max(s.updated, modified)
+      report.sessions[key] = s
+    }
+    let byWeek: (TokenRow, TokenRow) -> Bool = { ($0.week.total, $0.id) > ($1.week.total, $1.id) }
+    report.agents = agents.values.sorted(by: byWeek)
+    report.projects = projects.values.sorted(by: byWeek)
+    return report
+  }
+}
+
 /// Reads agent metadata from local files only (no network, no credentials). Codex limits come
 /// from the `rate_limits` events its CLI writes to session logs. Claude Code limits come only
 /// when the user opts in: its status line hands them to CoreScope's command (see
 /// ClaudeLimitsBridge); with the option off nothing of Claude's settings is read or written.
+/// Token counts come from both agents' transcripts (see TokenUsageStore).
 final class AgentStore: ObservableObject {
   static let shared = AgentStore()
   @Published private(set) var codex = CodexUsage()
@@ -138,6 +310,8 @@ final class AgentStore: ObservableObject {
   @Published private(set) var claudeLink: ClaudeStatusLine.Link?
   @Published private(set) var claudeError: String?
   @Published private(set) var claudeSessions: [Int32: ClaudeSessionMeta] = [:]
+  /// Separate object so token updates redraw only the views that show tokens.
+  let tokens = TokenUsageStore()
   private let queue = DispatchQueue(label: "app.corescope.agents", qos: .utility)
   private var timer: Timer?
   private var lastCodexFile: (URL, Date)?
@@ -170,6 +344,7 @@ final class AgentStore: ObservableObject {
         if let codex, codex != self.codex { self.codex = codex }
         if claude != self.claude { self.claude = claude }
         if sessions != self.claudeSessions { self.claudeSessions = sessions }
+        self.tokens.refresh(live: Set(sessions.values.compactMap(\.sessionId)))
       }
     }
   }
@@ -312,7 +487,7 @@ final class AgentStore: ObservableObject {
       else { continue }
       if Demo.enabled {
         meta.name = Demo.sessionTitle(meta.pid)
-        meta.cwd = meta.cwd.map(Demo.path)
+        meta.cwd = meta.cwd.map { Demo.path($0) }
       }
       out[meta.pid] = meta
     }
@@ -410,11 +585,13 @@ private struct LimitPlaceholder: View {
 struct AgentsView: View {
   @ObservedObject var monitor = Monitor.shared
   @ObservedObject var agents = AgentStore.shared
+  @ObservedObject var tokens = AgentStore.shared.tokens
   var body: some View {
     ScrollView {
       if let s = monitor.snapshot {
         VStack(alignment: .leading, spacing: 16) {
           LimitsCard()
+          TokensCard()
           let sessions = s.agentSessions
           HStack {
             Text(L("Sessões ativas")).font(.system(size: 15, weight: .semibold))
@@ -436,7 +613,10 @@ struct AgentsView: View {
             }
           }
           ForEach(sessions) { root in
-            SessionCard(root: root, tree: s.subtree(of: root), meta: agents.claudeSessions[root.pid])
+            let meta = agents.claudeSessions[root.pid]
+            SessionCard(
+              root: root, tree: s.subtree(of: root), meta: meta,
+              tokens: tokens.report.claude(meta) ?? tokens.report.codex(for: root))
           }
           ContainersSection()
           let orphans = s.orphans
@@ -456,6 +636,7 @@ struct AgentsView: View {
         ProgressView(L("Lendo processos…")).frame(maxWidth: .infinity, minHeight: 320)
       }
     }
+    .onAppear { tokens.start() }
   }
 }
 
@@ -463,6 +644,7 @@ private struct SessionCard: View {
   let root: ProcessItem
   let tree: [ProcessItem]
   let meta: ClaudeSessionMeta?
+  let tokens: SessionTokens?
   @ViewState private var expanded = false
   private var busy: Bool? { meta?.status.map { $0 != "idle" } }
   var body: some View {
@@ -497,6 +679,7 @@ private struct SessionCard: View {
         stat(L("Memória"), formatBytes(memory))
         KillButton(process: root, targets: tree)
       }
+      if let tokens { SessionTokensLine(tokens: tokens) }
       if !ports.isEmpty {
         HStack(spacing: 4) {
           Text(L("Portas")).font(.caption).foregroundStyle(.secondary)
@@ -554,5 +737,114 @@ private struct SessionCard: View {
       Text(title).font(.caption2).foregroundStyle(.secondary)
       Text(value).font(.system(.callout, design: .rounded).weight(.medium)).monospacedDigit()
     }.frame(minWidth: 64, alignment: .trailing).accessibilityElement(children: .combine)
+  }
+}
+
+// MARK: - Tokens UI
+
+/// Tokens of one session, under its header: input, output and prompt cache, plus the model.
+private struct SessionTokensLine: View {
+  let tokens: SessionTokens
+  var body: some View {
+    let c = tokens.counts
+    HStack(spacing: 12) {
+      Text(L("Tokens")).foregroundStyle(.secondary)
+      value(L("Entrada"), c.input)
+      value(L("Saída"), c.output)
+      value(L("Cache"), c.cache)
+        .help(L("Cache de prompt: %@ gravados · %@ lidos", formatTokens(c.cacheWrite), formatTokens(c.cacheRead)))
+      Spacer(minLength: 8)
+      if tokens.subagents > 0 {
+        Text(L("+ %@ subagentes", String(tokens.subagents))).foregroundStyle(.secondary)
+      }
+      if let model = tokens.model { Badge(text: model, color: Tint.memory, symbol: "cpu") }
+    }
+    .font(.caption)
+    .help(L("Tokens desta sessão (subagentes incluídos), lidos do registro local do agente."))
+  }
+  private func value(_ title: String, _ count: Int) -> some View {
+    HStack(spacing: 4) {
+      Text(title).foregroundStyle(.secondary)
+      Text(formatTokens(count)).fontWeight(.medium).monospacedDigit()
+    }
+  }
+}
+
+/// Tokens today and over the last 7 days, by agent and by project, from local transcripts.
+struct TokensCard: View {
+  @ObservedObject var store = AgentStore.shared.tokens
+  var body: some View {
+    let report = store.report
+    Card {
+      CardHeader(title: L("Uso de tokens"), symbol: "chart.bar.xaxis", tint: Tint.memory)
+      if !report.ready {
+        HStack(spacing: 8) {
+          ProgressView().controlSize(.small)
+          Text(L("Lendo registros locais dos agentes…")).font(.caption).foregroundStyle(.secondary)
+        }
+      } else if report.total.week.total == 0 {
+        EmptyNote(text: L("Nenhum token registrado nos últimos 7 dias."))
+      } else {
+        HStack(alignment: .top, spacing: 18) {
+          TokenTotal(title: L("Hoje"), counts: report.total.today)
+          TokenTotal(title: L("Últimos 7 dias"), counts: report.total.week)
+        }
+        HStack(alignment: .top, spacing: 18) {
+          TokenTable(title: L("Agente"), rows: report.agents)
+          TokenTable(title: L("Projeto"), rows: Array(report.projects.prefix(6)), more: report.projects.count - 6)
+        }
+        Text(
+          L(
+            "Contado dos registros locais do Claude Code e do Codex. Cache = tokens de prompt gravados e lidos do cache. Sem valores em dólar."
+          )
+        ).font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+      }
+    }
+    .onAppear { store.start() }
+  }
+}
+private func tokenBreakdown(_ c: TokenCounts) -> String {
+  L("entrada %@ · saída %@ · cache %@", formatTokens(c.input), formatTokens(c.output), formatTokens(c.cache))
+}
+private struct TokenTotal: View {
+  let title: String
+  let counts: TokenCounts
+  var body: some View {
+    VStack(alignment: .leading, spacing: 2) {
+      Text(title).font(.caption).foregroundStyle(.secondary)
+      Text(formatTokens(counts.total)).font(.system(size: 20, weight: .semibold, design: .rounded))
+        .monospacedDigit()
+      Text(tokenBreakdown(counts)).font(.caption2).foregroundStyle(.secondary).monospacedDigit()
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+  }
+}
+private struct TokenTable: View {
+  let title: String
+  let rows: [TokenRow]
+  var more = 0
+  var body: some View {
+    VStack(alignment: .leading, spacing: 4) {
+      Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 4) {
+        GridRow {
+          Text(title)
+          Text(L("Hoje")).gridColumnAlignment(.trailing)
+          Text(L("7 dias")).gridColumnAlignment(.trailing)
+        }.font(.caption2).foregroundStyle(.secondary)
+        ForEach(rows) { row in
+          GridRow {
+            Text(row.id).lineLimit(1).truncationMode(.middle)
+            Text(formatTokens(row.today.total))
+            Text(formatTokens(row.week.total))
+          }
+          .font(.caption).monospacedDigit()
+          .help(L("Hoje: %@ | 7 dias: %@", tokenBreakdown(row.today), tokenBreakdown(row.week)))
+        }
+      }
+      if more > 0 {
+        Text(L("+ %@ outros projetos", String(more))).font(.caption2).foregroundStyle(.secondary)
+      }
+    }
+    .frame(maxWidth: .infinity, alignment: .topLeading)
   }
 }

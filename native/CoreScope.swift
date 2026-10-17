@@ -8,6 +8,24 @@ enum AppIcon {
 }
 final class AppDelegate: NSObject, NSApplicationDelegate {
   private var observers: [NSObjectProtocol] = []
+  /// Only one CoreScope runs at a time: a second launch (another copy or build of the app)
+  /// reopens the running one, which shows its window, and quits before showing anything.
+  func applicationWillFinishLaunching(_ notification: Notification) {
+    guard let id = Bundle.main.bundleIdentifier,
+      let running = NSRunningApplication.runningApplications(withBundleIdentifier: id)
+        .first(where: { $0.processIdentifier != getpid() && !$0.isTerminated })
+    else { return }
+    let done = DispatchSemaphore(value: 0)
+    if let url = running.bundleURL {
+      let config = NSWorkspace.OpenConfiguration()
+      config.activates = true
+      NSWorkspace.shared.openApplication(at: url, configuration: config) { _, _ in done.signal() }
+      _ = done.wait(timeout: .now() + 2)
+    } else {
+      running.activate()
+    }
+    exit(0)
+  }
   func applicationDidFinishLaunching(_ notification: Notification) {
     if let icon = AppIcon.image { NSApp.applicationIconImage = icon }
     Preferences.shared.applyAppearance()
@@ -26,6 +44,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         })
     }
     DispatchQueue.main.async { Preferences.shared.applyActivationPolicy() }
+  }
+  func applicationWillTerminate(_ notification: Notification) {
+    // Keeps the minute in progress instead of dropping it on quit.
+    if Preferences.shared.historyEnabled { HistoryStore.flush() }
   }
   func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
   func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {

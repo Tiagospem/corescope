@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for the report. Please don't include private paths, project names or process lists you'd rather keep private. If you use demo mode (`open --env CORESCOPE_DEMO=1 /Applications/CoreScope.app`), quit CoreScope with ⌘Q before switching modes; project names and path components may still be visible. Inspect and redact screenshots before sharing.
+        Thanks for the report. Please don't include private paths, project names or process lists you'd rather keep private. If you use demo mode (`open --env CORESCOPE_DEMO=1 /Applications/CoreScope.app`), quit CoreScope with ⌘Q before switching modes. It hides folder and project names, but process names stay real, so inspect screenshots before sharing.
         Security issues go through [private reporting](https://github.com/Tiagospem/corescope/security/advisories/new), not here.
   - type: input
     id: version
@@ -76,4 +76,4 @@ body:
     id: extra
     attributes:
       label: Screenshots, logs or crash reports
-      description: For crashes, attach the report from Console → Crash Reports (CoreScope). For screenshots, quit CoreScope with ⌘Q before switching to demo mode, then inspect and redact the capture before sharing; project names and path components may remain visible.
+      description: For crashes, attach the report from Console → Crash Reports (CoreScope). For screenshots, quit CoreScope with ⌘Q before switching to demo mode, then inspect the capture before sharing; process names stay real.

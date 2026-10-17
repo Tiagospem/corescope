@@ -46,6 +46,7 @@ enum Page: String, CaseIterable, Identifiable {
   case overview = "Visão geral"
   case processes = "Processos"
   case agents = "Agentes"
+  case history = "Histórico"
   case storage = "Armazenamento"
   case sensors = "Sensores"
   case settings = "Ajustes"
@@ -56,6 +57,7 @@ enum Page: String, CaseIterable, Identifiable {
     case .overview: "gauge.with.dots.needle.50percent"
     case .processes: "list.bullet.indent"
     case .agents: "sparkles"
+    case .history: "clock.arrow.circlepath"
     case .storage: "internaldrive"
     case .sensors: "thermometer.medium"
     case .settings: "gearshape"
@@ -110,6 +112,7 @@ struct MainView: View {
           case .overview: OverviewView()
           case .processes: ProcessesView()
           case .agents: AgentsView()
+          case .history: HistoryView()
           case .storage: StorageView()
           case .sensors: SensorsView()
           case .settings: PreferencesView()

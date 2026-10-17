@@ -7,7 +7,10 @@ Verificadas em 16/10/2026, junto aos headers do SDK macOS local.
 | Uso | Fonte |
 |---|---|
 | CPU total | `host_statistics(HOST_CPU_LOAD_INFO)`; [Mach host statistics](https://developer.apple.com/documentation/kernel/1502863-host_statistics64) e `mach/host_info.h` |
-| Memória | `host_statistics64(HOST_VM_INFO64)`, `hw.memsize`, `vm.swapusage`; estruturas compiladas contra o SDK real, sem layout Mach copiado à mão |
+| Memória | `host_statistics64(HOST_VM_INFO64)`, `hw.memsize`, `vm.swapusage`; estruturas compiladas contra o SDK real, sem layout Mach copiado à mão. Categorias do Monitor de Atividade: apps = `internal_page_count − purgeable_count`, cache de arquivos = `external_page_count + purgeable_count` |
+| Pressão % | `sysctl kern.memorystatus_level` (percentual de memória disponível segundo o kernel, o mesmo do `memory_pressure`); exibido como 100 − nível, sem substituir os eventos Dispatch |
+| CPU por núcleo | `host_processor_info(PROCESSOR_CPU_LOAD_INFO)`; tipo P/E pelo `cluster-type` + `logical-cpu-id` de `IODeviceTree:/cpus/*`, aceito só se bater com `hw.perflevel0/1.logicalcpu`; caso contrário o tipo fica desconhecido |
+| Histórico opcional | `libsqlite3` do sistema pela API C (`sqlite3_open_v2`, `prepare_v2`, `bind`, `step`), WAL + `synchronous=NORMAL`, `auto_vacuum=INCREMENTAL`; uma transação por minuto |
 | Processos | `libproc.h`, `sys/proc_info.h`, `sys/resource.h`: `proc_listpids`, `proc_pidinfo`, `proc_pidpath`, `proc_pid_rusage` |
 | CPU por processo | RUSAGE retorna tempo absoluto Mach. Conversão por `mach_timebase_info`; [XNU fill_task_rusage](https://github.com/apple-oss-distributions/xnu/blob/main/osfmk/kern/bsd_kern.c). Multiplicação intermediária de 128 bits evita overflow; teste de carga real valida a escala em Apple Silicon |
 | Pressão | [DISPATCH_SOURCE_TYPE_MEMORYPRESSURE](https://developer.apple.com/documentation/Dispatch/DISPATCH_SOURCE_TYPE_MEMORYPRESSURE). Estado desconhecido até evento, sem inferir “normal” da falta de evento |
@@ -17,7 +20,7 @@ Verificadas em 16/10/2026, junto aos headers do SDK macOS local.
 | Painel | [NSPanel](https://developer.apple.com/documentation/appkit/nspanel), nonactivatingPanel, canJoinAllSpaces, fullScreenAuxiliary e NSScreen.visibleFrame |
 | Início de sessão | [SMAppService.mainApp](https://developer.apple.com/documentation/servicemanagement/smappservice/mainapp?language=objc). Só register/unregister ao usuário mudar o toggle; sem helper privilegiado |
 
-Dependências Rust diretas: serde e serde_json; cc apenas em build. Versões transitivas fixadas em Cargo.lock. Nenhum sysinfo, coleta de argumentos, framework web ou serviço externo.
+Dependências Rust diretas: serde e serde_json; cc apenas em build. SQLite é o do sistema (`-lsqlite3`), sem crate nem motor embutido. Versões transitivas fixadas em Cargo.lock. Nenhum sysinfo, coleta de argumentos, framework web ou serviço externo.
 
 Limitações: `phys_footprint` não é RSS; I/O atribuído por processo não é a soma exata do I/O físico; volumes APFS compartilham blocos. Contadores podem reiniciar após dispositivos sumirem. Leituras sem baseline, falha de acesso e falta de suporte produzem valor ausente, nunca zero simulado. `pkg_idle_wkups` mede despertares do pacote atribuídos ao processo, não todos os timers; `interrupt_wkups` é outro contador. Campos brutos de energia não são convertidos em watts sem unidade confiável.
 

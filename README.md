@@ -63,7 +63,13 @@ If you work with Claude Code, Codex, editors and terminals all day, your Mac fil
 - **Terminate a whole session** — the agent and every server, shell and tool it spawned — in one action.
 - **Codex weekly limit**, read from the `rate_limits` events Codex itself writes to `~/.codex/sessions` — no network, no credentials. Optionally shown in the menu bar and floating panel.
 - **Claude Code 5-hour and weekly limits** (opt-in, Pro/Max plans), taken from the [`rate_limits` data Claude Code hands to its status line](https://code.claude.com/docs/en/statusline). Turn on *Settings → Agents → Read the Claude limit from the status line*; see [Privacy](#privacy) for exactly what it changes.
+- **Token usage**, counted from the agents' own local transcripts: input, output and prompt-cache tokens plus the model on each session card, and totals for today and the last 7 days per agent and per project. Tokens only — no dollar estimates.
 - **Possible orphans:** dev runtimes still running after their terminal, editor or agent went away.
+
+### 🕒 History (opt-in)
+
+- Answers *“what made my Mac slow yesterday at 3 pm?”*: 1 h, 24 h and 7 d views of CPU (mean and peak), memory and swap, disk, network, thermal state and memory pressure, with gaps where nothing was recorded.
+- Click any chart to see **the processes that dominated that moment** (top CPU and memory, with project and “via Claude Code”-style origin); step back period by period or jump to a date.
 
 ### 🐳 Containers
 
@@ -136,8 +142,10 @@ CoreScope is **local-only**: no network access, no telemetry, no accounts.
   - After each reply, Claude Code itself pipes the status line JSON to that command (`~/Library/Application Support/CoreScope/claude-statusline.sh`, a readable shell script). It keeps **only** `rate_limits` (percentages and reset times) in `claude-limits.json` next to it; nothing else from the session is stored.
   - The numbers refresh only when Claude Code replies, and only Pro/Max plans report them.
   - Turning the option off restores the previous `statusLine` exactly (or leaves it alone if you edited it since) and deletes the saved limits and the script (the script stays only while a hand-edited status line still calls it).
+- Token usage is counted from the agents' transcripts, read-only, and only once you open the Agents page: `~/.claude/projects/<project>/<session>.jsonl` and `~/.claude/projects/<project>/<session>/subagents/*.jsonl` (the `usage` object of assistant entries) and `~/.codex/sessions/YYYY/MM/DD/*.jsonl` (`token_count` events). Only files written in the last 7 days and the transcripts of running sessions are read, each from where the previous pass stopped. **Message content is never retained:** lines are scanned in a small reusable buffer and only token counts, model ids, session ids, working directories and the id of the last message seen in each file are kept, in memory — nothing is written to disk.
 - Containers come from the Docker Engine API over its local Unix socket — never TCP, never registry or Docker Hub credentials. Nothing is read while no container view is on screen.
-- History (up to 10 minutes) lives in memory only. Preferences and watched processes stay in `UserDefaults`.
+- Live charts (up to 10 minutes) live in memory only. Preferences and watched processes stay in `UserDefaults`.
+- **Persistent history is opt-in** (off by default; Settings › History, retention 1, 7 or 30 days). When on, CoreScope writes one-minute rollups — system CPU, memory, swap, disk/network rates, thermal state, memory pressure and, per minute, the top 10 processes by CPU and by memory (name, executable, working directory and agent/editor origin; never arguments or environment) — to `~/Library/Application Support/CoreScope/history.sqlite`, in one SQLite transaction per minute. Older rows are purged automatically and *Delete history* removes the file.
 - Nothing is ever killed automatically. Termination only targets your own, eligible processes, revalidates each process identity (PID + start time + executable) right before signaling, and never touches system services or CoreScope's own ancestors.
 
 ## Resource usage
@@ -170,10 +178,10 @@ The Swift UI calls the Rust core over a small C ABI that returns one JSON snapsh
 ./scripts/test.sh     # cargo fmt --check, cargo test, clippy -D warnings, native logic tests
 ./scripts/build.sh    # release build into build/CoreScope.app
 ./scripts/package.sh  # DMG + zip + SHA-256 checksums into dist/ (release artifacts)
-open --env CORESCOPE_DEMO=1 build/CoreScope.app   # demo mode: live metrics, anonymized user, home and session titles (quit with ⌘Q first)
+open --env CORESCOPE_DEMO=1 build/CoreScope.app   # demo mode: live metrics, anonymized user, folders, projects and session titles (quit with ⌘Q first)
 ```
 
-The screenshots in this README were taken in demo mode. Demo mode doesn't rename folders under your home, so check captures before sharing them (see [CONTRIBUTING.md](CONTRIBUTING.md)).
+The screenshots in this README were taken in demo mode. It replaces every folder outside system locations with a fake project, but process names stay real, so check captures before sharing them (see [CONTRIBUTING.md](CONTRIBUTING.md)).
 
 ## Roadmap
 
