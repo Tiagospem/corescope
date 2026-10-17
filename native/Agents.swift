@@ -524,6 +524,7 @@ struct AgentsView: View {
               root: root, tree: s.subtree(of: root), meta: meta,
               tokens: tokens.report.claude(meta) ?? tokens.report.codex(for: root))
           }
+          ContainersSection()
           let orphans = s.orphans
           if !orphans.isEmpty {
             Card {

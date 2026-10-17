@@ -66,3 +66,16 @@ pgrep -x CoreScope
 ```
 
 Para uma comparação controlada: use o mesmo build, intervalo de 3 s, número semelhante de processos, sem interação ou captura AX durante a janela; execute separadamente visão geral, tabela, somente barra e painel. Confirme visualmente o estado antes e depois. Rode por alguns minutos em vez de extrapolar destas janelas curtas. Não altere serviços do usuário para obter números artificialmente baixos.
+
+## Contêineres (ADR 003)
+
+16/10/2026, mesmo Mac, OrbStack com 6 contêineres em execução (5 do usuário + `nginx:alpine` de teste). `scripts/measure.c`, 60 s por janela após 20 s de aquecimento, alternando o build anterior (`a854cec`) e o novo; com o app oculto (`NSRunningApplication.hide`) nenhuma leitura de contêiner ocorre. Outras sessões compilavam e executavam CoreScope ao mesmo tempo: a variação entre janelas iguais é maior que a diferença medida.
+
+| Cenário | Build | CPU de um núcleo | Footprint médio / maior |
+|---|---|---:|---:|
+| Visão geral visível (com cartão Contêineres) | anterior | 4.78% · 4.72% | 99.8 / 134.7 · 89.9 / 124.0 MiB |
+| Visão geral visível (com cartão Contêineres) | novo | 5.14% · 4.35% | 93.7 / 130.8 · 92.8 / 128.7 MiB |
+| App oculto | anterior | 1.31% | 75.3 / 115.6 MiB |
+| App oculto | novo | 1.53% | 85.8 / 128.8 MiB |
+
+Uma leitura completa (lista + 6 stats `one-shot`) leva ~70 ms de relógio, quase toda à espera do motor, a cada 5 s. Conclusão: custo não distinguível do ruído nesta máquina; uma janela oculta isolada não basta para afirmar diferença de memória.

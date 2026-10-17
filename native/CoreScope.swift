@@ -183,6 +183,7 @@ struct MenuSummary: View {
   @ObservedObject var monitor = Monitor.shared
   @ObservedObject var prefs = Preferences.shared
   @ObservedObject var agents = AgentStore.shared
+  @ObservedObject var containers = ContainerStore.shared
   @Environment(\.openWindow) var openWindow
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
@@ -280,17 +281,23 @@ struct MenuSummary: View {
             }
           }
         }
-        if !s.servers.isEmpty {
-          section(L("Servidores em escuta"), count: s.servers.count, tint: Tint.netIn) {
+        let servers = serverEntries(s.serverGroups, owners: containers.owners)
+        if !servers.isEmpty {
+          section(L("Servidores em escuta"), count: servers.count, tint: Tint.netIn) {
             EmptyView()
           } content: {
-            ForEach(s.servers.prefix(4)) { p in
-              ProcessLine(process: p, subtitle: devSubtitle(p)) {
-                if let port = p.ports.first {
-                  PortBadge(port: port)
-                  OpenPortButton(port: port.port)
+            ForEach(servers.prefix(4)) { entry in
+              switch entry {
+              case .container(let c, let via, let ports):
+                ContainerServerLine(container: c, via: via, ports: ports, maxPorts: 1)
+              case .process(let p, _, let ports):
+                ProcessLine(process: p, subtitle: devSubtitle(p)) {
+                  if let port = ports.first {
+                    PortBadge(port: port)
+                    OpenPortButton(port: port.port)
+                  }
+                  KillButton(process: p)
                 }
-                KillButton(process: p)
               }
             }
           }
@@ -316,7 +323,7 @@ struct MenuSummary: View {
         Spacer()
         Button(L("Sair")) { NSApp.terminate(nil) }.keyboardShortcut("q")
       }.controlSize(.regular)
-    }.padding(14).frame(width: 372).id(prefs.language)
+    }.padding(14).frame(width: 372).id(prefs.language).watchesContainers(stats: false)
   }
   private func open(_ page: Page?) {
     // The popover is the key window at click time; dismiss it before showing the main window.
