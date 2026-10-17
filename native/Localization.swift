@@ -403,4 +403,8 @@ private let entries = """
   Limite do Codex no painel flutuante ¦ Codex limit in the floating panel ¦ Límite de Codex en el panel flotante
   Limites na visão geral ¦ Limits in the overview ¦ Límites en el resumen
   O limite do Codex vem dos eventos rate_limits que o próprio Codex grava em ~/.codex/sessions (somente leitura local). O Claude Code não grava o limite semanal em disco; sessões do Claude vêm de ~/.claude/sessions. ¦ The Codex limit comes from the rate_limits events Codex itself writes to ~/.codex/sessions (local read only). Claude Code does not store its weekly limit on disk; Claude sessions come from ~/.claude/sessions. ¦ El límite de Codex viene de los eventos rate_limits que el propio Codex escribe en ~/.codex/sessions (solo lectura local). Claude Code no guarda el límite semanal en disco; las sesiones de Claude vienen de ~/.claude/sessions.
+  Abrir no Claude ¦ Open in Claude ¦ Abrir en Claude
+  Mostrar no %@ ¦ Show in %@ ¦ Mostrar en %@
+  Abre esta sessão no Claude Desktop ¦ Opens this session in Claude Desktop ¦ Abre esta sesión en Claude Desktop
+  Traz %@, onde a sessão está rodando, para a frente ¦ Brings %@, where the session runs, to the front ¦ Trae al frente %@, donde se ejecuta la sesión
   """

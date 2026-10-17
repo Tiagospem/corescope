@@ -184,21 +184,6 @@ private struct HoverPlate<Label: View>: View {
       .onHover { hovering = $0 }
   }
 }
-struct PillButtonStyle: ButtonStyle {
-  var tint: Color = .accentColor
-  var prominent = false
-  func makeBody(configuration: Configuration) -> some View {
-    configuration.label
-      .font(.system(size: 11, weight: .semibold))
-      .padding(.horizontal, 9).padding(.vertical, 4)
-      .foregroundStyle(prominent ? Color.white : tint)
-      .background(
-        Capsule().fill(prominent ? tint : tint.opacity(configuration.isPressed ? 0.28 : 0.15))
-      )
-      .opacity(configuration.isPressed ? 0.8 : 1)
-      .contentShape(Capsule())
-  }
-}
 
 enum IconCache {
   private static var images: [String: NSImage] = [:]
@@ -249,6 +234,10 @@ struct ProcessIcon: View {
 struct KillButton: View {
   let process: ProcessItem
   var force = false
+  /// Everything to signal on confirm (e.g. a whole agent session); defaults to the process.
+  /// Group kills always ask for the second click, whatever the confirmation preference.
+  var targets: [ProcessItem]? = nil
+  private var group: [ProcessItem] { targets ?? [process] }
   // Not observed: hundreds of rows would otherwise re-render on every snapshot.
   private var monitor: Monitor { Monitor.shared }
   private var prefs: Preferences { Preferences.shared }
@@ -263,8 +252,8 @@ struct KillButton: View {
         HStack(spacing: 2) {
           Button(force ? L("Forçar") : L("Encerrar")) {
             armed = false
-            monitor.signal([process], force: force)
-          }.buttonStyle(PillButtonStyle(tint: Tint.danger, prominent: true))
+            monitor.signal(group, force: force)
+          }.buttonStyle(.borderedProminent).tint(.red).controlSize(.small)
           Button {
             armed = false
           } label: {
@@ -273,7 +262,7 @@ struct KillButton: View {
         }
       } else {
         Button {
-          if prefs.confirmTerminate || force {
+          if prefs.confirmTerminate || force || group.count > 1 {
             armed = true
             token += 1
             let current = token
@@ -288,9 +277,11 @@ struct KillButton: View {
         }
         .buttonStyle(HoverButtonStyle(tint: Tint.danger, size: 22))
         .help(
-          force
-            ? L("Forçar encerramento (SIGKILL) de %@", "\(process.name)")
-            : L("Encerrar %@ (SIGTERM)", "\(process.name)"))
+          group.count > 1
+            ? L("Encerra a sessão e os %@ processos que ela iniciou", String(group.count - 1))
+            : force
+              ? L("Forçar encerramento (SIGKILL) de %@", "\(process.name)")
+              : L("Encerrar %@ (SIGTERM)", "\(process.name)"))
       }
     }
   }
@@ -325,7 +316,7 @@ struct FeedbackToast: View {
         if !f.survivors.isEmpty {
           Button(L("Forçar encerramento")) {
             monitor.signal(f.survivors, force: true)
-          }.buttonStyle(PillButtonStyle(tint: Tint.danger, prominent: true))
+          }.buttonStyle(.borderedProminent).tint(.red).controlSize(.small)
         }
         Button {
           monitor.feedback = nil

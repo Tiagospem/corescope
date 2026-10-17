@@ -30,6 +30,79 @@ struct ClaudeSessionMeta: Decodable, Equatable {
   var name: String?
   let status: String?
   let updatedAt: Double?
+  /// Claude Desktop's own id for the Code session (`local_…`), used by its deep links.
+  let hostSessionId: String?
+  /// `claude://code/continue?session=local_…` opens this session in Claude Desktop.
+  var desktopURL: URL? {
+    guard entrypoint == "claude-desktop", let id = hostSessionId,
+      id.range(of: #"^local_[A-Za-z0-9-]{1,64}$"#, options: .regularExpression) != nil
+    else { return nil }
+    return URL(string: "claude://code/continue?session=\(id)")
+  }
+}
+
+/// How to jump to where a session lives: its Claude Desktop page, or the app hosting it
+/// (terminal, editor or Codex) brought to the front.
+enum SessionJump {
+  case desktop(URL)
+  case app(NSRunningApplication, String)
+  static func target(for root: ProcessItem, meta: ClaudeSessionMeta?, in snapshot: Snapshot?)
+    -> SessionJump?
+  {
+    if let url = meta?.desktopURL { return .desktop(url) }
+    // Walk up from the session to the nearest process that is a regular app.
+    var pid = root.ppid
+    for _ in 0..<48 {
+      guard pid > 1 else { break }
+      if let app = NSRunningApplication(processIdentifier: pid), app.activationPolicy == .regular {
+        return .app(app, app.localizedName ?? root.origin?.label ?? "")
+      }
+      guard let parent = snapshot?.process(pid: pid)?.ppid else { break }
+      pid = parent
+    }
+    return nil
+  }
+  var label: String {
+    switch self {
+    case .desktop: L("Abrir no Claude")
+    case .app(_, let name): L("Mostrar no %@", name)
+    }
+  }
+  var help: String {
+    switch self {
+    case .desktop: L("Abre esta sessão no Claude Desktop")
+    case .app(_, let name): L("Traz %@, onde a sessão está rodando, para a frente", name)
+    }
+  }
+  func open() {
+    switch self {
+    case .desktop(let url): NSWorkspace.shared.open(url)
+    case .app(let app, _): app.activate()
+    }
+  }
+}
+struct SessionJumpButton: View {
+  let root: ProcessItem
+  let meta: ClaudeSessionMeta?
+  /// Icon-only for dense rows; a native bordered button with label in session cards.
+  var compact = false
+  var body: some View {
+    if let jump = SessionJump.target(for: root, meta: meta, in: Monitor.shared.snapshot) {
+      if compact {
+        Button {
+          jump.open()
+        } label: {
+          Image(systemName: "arrow.up.forward.app")
+        }.buttonStyle(HoverButtonStyle(tint: .accentColor, size: 24)).help(jump.help)
+      } else {
+        Button {
+          jump.open()
+        } label: {
+          Label(jump.label, systemImage: "arrow.up.forward.app")
+        }.buttonStyle(.bordered).help(jump.help)
+      }
+    }
+  }
 }
 struct CodexUsage: Equatable {
   var windows: [LimitWindow] = []
@@ -326,25 +399,11 @@ private struct SessionCard: View {
               .compactMap { $0 }.joined(separator: " · ")
           ).font(.caption).foregroundStyle(.secondary).lineLimit(1)
         }
-        Spacer()
+        Spacer(minLength: 12)
         stat(L("Processos"), "\(tree.count)")
         stat("CPU", String(format: "%.1f%%", cpu))
         stat(L("Memória"), formatBytes(memory))
-        if !root.cwd.isEmpty {
-          Button {
-            NSWorkspace.shared.open(URL(fileURLWithPath: root.cwd))
-          } label: {
-            Image(systemName: "folder")
-          }.buttonStyle(HoverButtonStyle(size: 26)).help(L("Abrir no Finder"))
-          Button {
-            openTerminal(at: root.cwd)
-          } label: {
-            Image(systemName: "terminal")
-          }.buttonStyle(HoverButtonStyle(size: 26)).help(L("Abrir Terminal aqui"))
-        }
-        Button(L("Encerrar sessão…")) { Monitor.shared.requestKill([root], tree: true) }
-          .buttonStyle(PillButtonStyle(tint: Tint.danger)).disabled(!root.eligible)
-          .help(L("Encerra o agente e todos os processos que ele iniciou"))
+        KillButton(process: root, targets: tree)
       }
       if !ports.isEmpty {
         HStack(spacing: 4) {
@@ -354,9 +413,37 @@ private struct SessionCard: View {
           }
         }
       }
-      if !children.isEmpty {
-        DisclosureGroup(isExpanded: $expanded) {
-          VStack(spacing: 6) {
+      // Actions row: the process list toggle on the left, native buttons on the right.
+      HStack(spacing: 8) {
+        if !children.isEmpty {
+          Button {
+            expanded.toggle()
+          } label: {
+            HStack(spacing: 5) {
+              Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold))
+                .rotationEffect(.degrees(expanded ? 90 : 0))
+              Text(L("%@ processos iniciados pela sessão", String(children.count)))
+            }.contentShape(Rectangle())
+          }.buttonStyle(.plain).font(.callout).foregroundStyle(.secondary)
+        }
+        Spacer(minLength: 8)
+        SessionJumpButton(root: root, meta: meta)
+        if !root.cwd.isEmpty {
+          Button {
+            NSWorkspace.shared.open(URL(fileURLWithPath: root.cwd))
+          } label: {
+            Label("Finder", systemImage: "folder")
+          }.help(L("Abrir no Finder"))
+          Button {
+            openTerminal(at: root.cwd)
+          } label: {
+            Label("Terminal", systemImage: "terminal")
+          }.help(L("Abrir Terminal aqui"))
+        }
+      }
+      .buttonStyle(.bordered).controlSize(.small)
+      if expanded && !children.isEmpty {
+        VStack(spacing: 6) {
             ForEach(children) { p in
               ProcessLine(process: p, subtitle: [p.project, p.portsLabel.isEmpty ? nil : p.portsLabel]
                 .compactMap { $0 }.joined(separator: " · ")) {
@@ -365,10 +452,7 @@ private struct SessionCard: View {
                 KillButton(process: p)
               }
             }
-          }.padding(.top, 6)
-        } label: {
-          Text(L("%@ processos iniciados pela sessão", String(children.count))).font(.callout)
-        }
+        }.padding(.top, 2)
       }
     }
   }

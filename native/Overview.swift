@@ -294,9 +294,10 @@ private struct SessionRow: View {
         .foregroundStyle(ports.isEmpty ? Color.secondary : Tint.netIn).lineLimit(1)
       Text(String(format: L("%.1f%%"), session.cpu)).monospacedDigit()
       Text(formatBytes(session.memory)).monospacedDigit()
-      Button(L("Encerrar…")) { monitor.requestKill([root], tree: true) }
-        .buttonStyle(PillButtonStyle(tint: Tint.danger)).disabled(!root.eligible)
-        .help(L("Encerra o agente e todos os processos que ele iniciou"))
+      HStack(spacing: 4) {
+        SessionJumpButton(root: root, meta: AgentStore.shared.claudeSessions[root.pid], compact: true)
+        KillButton(process: root, targets: session.tree)
+      }
     }.font(.callout)
   }
 }

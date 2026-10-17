@@ -150,11 +150,11 @@ struct KillAllButton: View {
         Button(L("Encerrar %@", "\(items.count)")) {
           armed = false
           monitor.signal(items, force: false)
-        }.buttonStyle(PillButtonStyle(tint: Tint.danger, prominent: true))
-        Button(L("Cancelar")) { armed = false }.buttonStyle(PillButtonStyle(tint: .secondary))
+        }.buttonStyle(.borderedProminent).tint(.red)
+        Button(L("Cancelar")) { armed = false }.buttonStyle(.bordered)
       }
     } else {
-      Button(label) { armed = true }.buttonStyle(PillButtonStyle(tint: Tint.danger))
+      Button(label, role: .destructive) { armed = true }.buttonStyle(.bordered)
         .disabled(items.allSatisfy { !$0.eligible })
     }
   }
@@ -254,8 +254,7 @@ struct MenuSummary: View {
                 subtitle: [p.project, p.sessionSource, L("%@ proc.", "\(tree.count)"), formatBytes(tree.compactMap(\.memory.value).reduce(0, +))]
                   .compactMap { $0 }.joined(separator: " · ")
               ) {
-                KillAllButton(items: tree, label: L("Encerrar"))
-                  .help(L("Encerra a sessão e os %@ processos que ela iniciou", "\(tree.count - 1)"))
+                KillButton(process: p, targets: tree)
               }
             }
           }
