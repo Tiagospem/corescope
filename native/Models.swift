@@ -376,6 +376,10 @@ final class Preferences: ObservableObject {
       AgentStore.shared.setClaudeLimits(claudeLimits)
     }
   }
+  /// Ask Codex's app-server for the current limit (Codex contacts OpenAI with its login).
+  @Published var codexLiveLimits = UserDefaults.standard.bool(forKey: "codexLiveLimits") {
+    didSet { save("codexLiveLimits", codexLiveLimits) }
+  }
   @Published var limitsInOverview =
     UserDefaults.standard.object(forKey: "limitsInOverview") as? Bool ?? true
   { didSet { save("limitsInOverview", limitsInOverview) } }

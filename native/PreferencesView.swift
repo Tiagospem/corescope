@@ -138,6 +138,11 @@ struct PreferencesView: View {
         ).font(.caption).foregroundStyle(.secondary)
       }
       Section(L("Agentes")) {
+        Toggle(L("Ler o limite atual pelo Codex"), isOn: $p.codexLiveLimits)
+          .onChange(of: p.codexLiveLimits) { _, on in if on { AgentStore.shared.refreshCodexLive() } }
+        Text(
+          L("O Codex não grava mais o limite em disco. Com isto ligado, o CoreScope executa o app-server do próprio Codex a cada 5 minutos e pede o limite; o Codex consulta a OpenAI com o login dele. Nenhuma credencial é lida pelo CoreScope.")
+        ).font(.caption).foregroundStyle(.secondary)
         Toggle(L("Limites na barra de menus"), isOn: $p.limitsInMenuBar)
         Toggle(L("Limites no painel flutuante"), isOn: $p.limitsInPanel)
         Toggle(L("Limites na visão geral"), isOn: $p.limitsInOverview)
