@@ -66,6 +66,7 @@ final class ContainerStore: ObservableObject {
   private let actions = DispatchQueue(label: "app.corescope.containers.actions", qos: .userInitiated)
   private var statsWatchers = Set<UUID>()
   private var portWatchers = Set<UUID>()
+  private var watcherWindows: [UUID: ObjectIdentifier] = [:]
   private var timer: Timer?
   private var busy = false
   private var lastRead = Date.distantPast
@@ -82,12 +83,23 @@ final class ContainerStore: ObservableObject {
       timer?.invalidate()
       timer = nil
     }
+    watcherWindows.removeValue(forKey: token)
   }
-  /// Some surface is on screen: a minimized or covered window keeps its views but needs no data.
-  private var surfaceVisible: Bool {
-    NSApp.windows.contains {
-      $0.isVisible && !$0.isMiniaturized && $0.occlusionState.contains(.visible)
-        && $0.className != "NSStatusBarWindow"
+  func associate(_ token: UUID, with window: NSWindow?) {
+    let id = window.map(ObjectIdentifier.init)
+    guard watcherWindows[token] != id else { return }
+    if let window {
+      watcherWindows[token] = ObjectIdentifier(window)
+    } else {
+      watcherWindows.removeValue(forKey: token)
+    }
+    tick()
+  }
+  private func windowIsVisible(for token: UUID) -> Bool {
+    guard let id = watcherWindows[token] else { return false }
+    return NSApp.windows.contains {
+      ObjectIdentifier($0) == id && $0.isVisible && !$0.isMiniaturized
+        && $0.occlusionState.contains(.visible)
     }
   }
   private func tick() {
@@ -95,12 +107,17 @@ final class ContainerStore: ObservableObject {
     timer = nil
     guard !busy, !statsWatchers.isEmpty || !portWatchers.isEmpty else { return }
     let monitor = Monitor.shared
-    let stats = !statsWatchers.isEmpty
+    let stats = statsWatchers.contains { windowIsVisible(for: $0) }
+    let ports = portWatchers.contains { windowIsVisible(for: $0) }
+    guard stats || ports else {
+      schedule()
+      return
+    }
     // Port labels only matter when a VM helper (OrbStack, Docker Desktop…) is listening.
     let needed =
       stats
-      || monitor.snapshot?.servers.contains { $0.tags.contains("container") } == true
-    guard needed, !monitor.sleeping, !monitor.manuallyPaused, surfaceVisible else {
+      || (ports && monitor.snapshot?.servers.contains { $0.tags.contains("container") } == true)
+    guard needed, !monitor.sleeping, !monitor.manuallyPaused else {
       schedule()
       return
     }
@@ -200,8 +217,32 @@ private struct ContainerWatch: ViewModifier {
   @ViewState private var token = UUID()
   func body(content: Content) -> some View {
     content
+      .background(ContainerWindowObserver(token: token))
       .onAppear { ContainerStore.shared.watch(token, stats: stats) }
       .onDisappear { ContainerStore.shared.unwatch(token) }
+  }
+}
+private struct ContainerWindowObserver: NSViewRepresentable {
+  let token: UUID
+  func makeNSView(context: Context) -> ContainerWindowView {
+    let view = ContainerWindowView()
+    view.isHidden = true
+    view.onWindowChanged = { ContainerStore.shared.associate(token, with: $0) }
+    return view
+  }
+  func updateNSView(_ view: ContainerWindowView, context: Context) {
+    view.onWindowChanged = { ContainerStore.shared.associate(token, with: $0) }
+    view.onWindowChanged?(view.window)
+  }
+  static func dismantleNSView(_ view: ContainerWindowView, coordinator: ()) {
+    view.onWindowChanged?(nil)
+  }
+}
+private final class ContainerWindowView: NSView {
+  var onWindowChanged: ((NSWindow?) -> Void)?
+  override func viewDidMoveToWindow() {
+    super.viewDidMoveToWindow()
+    onWindowChanged?(window)
   }
 }
 extension View {

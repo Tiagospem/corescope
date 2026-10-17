@@ -34,6 +34,7 @@ enum Demo {
     if let project = c.project {
       let fake = pick(projects, project)
       c.name = c.name.replacingOccurrences(of: project, with: fake)
+      c.image = c.image.replacingOccurrences(of: project, with: fake)
       c.project = fake
     }
     return c
