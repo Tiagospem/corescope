@@ -15,14 +15,15 @@ Requirements: macOS 14 or later, Xcode Command Line Tools (Swift 6) and Rust/Car
 ```bash
 ./scripts/test.sh     # cargo fmt --check, cargo test, clippy -D warnings, native logic tests
 ./scripts/build.sh    # release build into build/CoreScope.app
-# Before launching or switching modes, quit CoreScope with ⌘Q; closing its window is not enough.
-# Demo mode may leave project names and path components visible; inspect and redact captures:
-open --env CORESCOPE_DEMO=1 build/CoreScope.app
-# For normal use, run this INSTEAD of the demo command (quit CoreScope with ⌘Q first):
-# open build/CoreScope.app
+open build/CoreScope.app                          # normal use
+open --env CORESCOPE_DEMO=1 build/CoreScope.app   # or: demo mode, for screenshots
 ```
 
-`./scripts/test.sh` and `./scripts/build.sh` must both pass before you open a pull request. Use demo mode for any screenshot or recording you attach, but note that project names and path components may remain visible. Inspect and redact captures before sharing.
+`open` reuses a running instance and its environment, so quit CoreScope with ⌘Q (closing the window is not enough) before switching between normal and demo mode.
+
+Demo mode replaces your user name, home folder and agent session titles, and gives folders on external volumes (`/Volumes/…`) fake project names. Folders under your home keep their real names, so `~/code/client-x` still shows up as `client-x`. Inspect and redact every capture before sharing.
+
+`./scripts/test.sh` and `./scripts/build.sh` must both pass before you open a pull request. Use demo mode for any screenshot or recording you attach.
 
 ## Where things live
 
