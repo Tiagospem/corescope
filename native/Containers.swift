@@ -147,8 +147,16 @@ final class ContainerStore: ObservableObject {
   }
   static func owners(_ containers: [ContainerItem]) -> [UInt16: ContainerItem] {
     var out: [UInt16: ContainerItem] = [:]
+    var ambiguous = Set<UInt16>()
     for c in containers where c.running {
-      for p in c.tcpPorts where out[p.host] == nil { out[p.host] = c }
+      for p in c.tcpPorts where !ambiguous.contains(p.host) {
+        if out[p.host] != nil {
+          out.removeValue(forKey: p.host)
+          ambiguous.insert(p.host)
+        } else {
+          out[p.host] = c
+        }
+      }
     }
     return out
   }
