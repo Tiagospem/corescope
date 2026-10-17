@@ -1312,6 +1312,24 @@ mod tests {
         assert!(signal_process(p.pid, p.start, &string(&p.path), false).is_err());
     }
     #[test]
+    fn volumes_are_safe_to_read_from_several_threads() {
+        // getmntinfo() shares one buffer per process; concurrent samples crashed intermittently.
+        let threads: Vec<_> = (0..8)
+            .map(|_| {
+                std::thread::spawn(|| {
+                    let mut raw: Vec<RawVolume> =
+                        (0..256).map(|_| unsafe { std::mem::zeroed() }).collect();
+                    (0..2000)
+                        .map(|_| unsafe { os_volumes(raw.as_mut_ptr(), 256) })
+                        .min()
+                })
+            })
+            .collect();
+        for t in threads {
+            assert!(t.join().unwrap().unwrap() > 0);
+        }
+    }
+    #[test]
     fn termination_only_disposable_child() {
         use std::process::Command;
         let mut child = Command::new("/bin/sleep").arg("30").spawn().unwrap();
