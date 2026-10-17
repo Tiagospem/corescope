@@ -15,6 +15,7 @@
 #include <errno.h>
 #include <string.h>
 #include <stdlib.h>
+#include <time.h>
 #include <IOKit/IOKitLib.h>
 #include <CoreFoundation/CoreFoundation.h>
 
@@ -222,3 +223,21 @@ int os_battery(int32_t *percent,int32_t *charging,int32_t *on_ac,int32_t *minute
   *minutes=*charging?cf_int(d,CFSTR(kIOPSTimeToFullChargeKey),-1):*on_ac?-1:cf_int(d,CFSTR(kIOPSTimeToEmptyKey),-1);
   missing=0;}
  if(list)CFRelease(list);CFRelease(info);return missing;}
+
+int32_t os_pressure_level(void){
+ int level=0;size_t size=sizeof(level);
+ return sysctlbyname("kern.memorystatus_vm_pressure_level",&level,&size,NULL,0)==0?level:-1;}
+
+// Darwin background QoS for a same-user process: lower CPU and I/O priority, reversible.
+int os_background(int32_t pid,int on){
+ errno=0;return setpriority(PRIO_DARWIN_PROCESS,pid,on?PRIO_DARWIN_BG:0)==0?0:errno;}
+
+int64_t os_local_time(int64_t day,int hour,int minute){
+ time_t t=(time_t)day;struct tm tm;if(!localtime_r(&t,&tm))return -1;
+ tm.tm_hour=hour;tm.tm_min=minute;tm.tm_sec=0;tm.tm_isdst=-1;
+ time_t out=mktime(&tm);return out==(time_t)-1?-1:(int64_t)out;}
+
+int os_local_format(int64_t t,char *out,int size){
+ time_t v=(time_t)t;struct tm tm;
+ if(size<17||!localtime_r(&v,&tm))return -1;
+ return strftime(out,(size_t)size,"%Y-%m-%d %H:%M",&tm)>0?0:-1;}

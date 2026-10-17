@@ -36,6 +36,8 @@ struct StateFooter: View {
         Text(L("%@ processos · %@ servidores · %@ órfãos", "\(s.processes.count)", "\(s.servers.count)", "\(s.orphans.count)"))
         Text("·")
         Text(Date(timeIntervalSince1970: s.at), style: .time)
+        Text("·")
+        SelfCostBadge()
       }
     }.font(.caption).foregroundStyle(.secondary).monospacedDigit()
       .padding(.horizontal, 16).padding(.vertical, 7)
@@ -55,10 +57,33 @@ enum Page: String, CaseIterable, Identifiable {
   case databases = "Bancos"
   case machines = "Máquinas"
   case energy = "Energia"
+  case logs = "Logs"
+  case ports = "Portas"
   case sensors = "Sensores"
   case settings = "Ajustes"
   var id: String { rawValue }
   var title: String { L(rawValue) }
+  /// Name in corescope://open/<slug> links.
+  var slug: String {
+    switch self {
+    case .overview: "overview"
+    case .processes: "processes"
+    case .agents: "agents"
+    case .containers: "containers"
+    case .history: "history"
+    case .storage: "storage"
+    case .cleanup: "cleanup"
+    case .health: "services"
+    case .profiles: "profiles"
+    case .databases: "databases"
+    case .machines: "machines"
+    case .energy: "energy"
+    case .logs: "logs"
+    case .ports: "ports"
+    case .sensors: "sensors"
+    case .settings: "settings"
+    }
+  }
   var icon: String {
     switch self {
     case .overview: "gauge.with.dots.needle.50percent"
@@ -73,6 +98,8 @@ enum Page: String, CaseIterable, Identifiable {
     case .databases: "cylinder.split.1x2"
     case .machines: "server.rack"
     case .energy: "bolt.batteryblock"
+    case .logs: "text.alignleft"
+    case .ports: "point.3.connected.trianglepath.dotted"
     case .sensors: "thermometer.medium"
     case .settings: "gearshape"
     }
@@ -138,6 +165,8 @@ struct MainView: View {
           case .databases: DatabasesView()
           case .machines: MachinesView()
           case .energy: EnergyView()
+          case .logs: LogsView()
+          case .ports: PortsView()
           case .sensors: SensorsView()
           case .settings: PreferencesView()
           }
@@ -190,6 +219,7 @@ struct StorageView: View {
               .diskRead(s.history.map(\.disk_read)),
               .diskWrite(s.history.map(\.disk_write)),
             ], legend: [("leitura", Tint.diskRead), ("escrita", Tint.diskWrite)])
+          DiskGrowthCard()
           Card {
             CardHeader(title: L("Dispositivos"), symbol: "externaldrive", count: s.disks.count)
             if s.disks.isEmpty {

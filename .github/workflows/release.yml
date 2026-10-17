@@ -19,7 +19,7 @@ permissions:
 
 jobs:
   package:
-    name: Package (macOS arm64)
+    name: Package (macOS universal)
     runs-on: macos-latest
     timeout-minutes: 30
     outputs:
@@ -34,6 +34,7 @@ jobs:
         run: |
           rustup toolchain install stable --profile minimal
           rustup default stable
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
 
       - name: Build and package
         run: ./scripts/package.sh
@@ -49,7 +50,7 @@ jobs:
             echo "::error::Tag $REF_NAME does not match bundle version $VERSION (scripts/build.sh)"
             exit 1
           fi
-          test -f "dist/CoreScope-$VERSION-macos-arm64.dmg"
+          test -f "dist/CoreScope-$VERSION-macos-universal.dmg"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Release notes
@@ -92,6 +93,6 @@ jobs:
           gh release create "$TAG" --verify-tag \
             --title "CoreScope $VERSION" \
             --notes-file RELEASE_NOTES.md \
-            "CoreScope-$VERSION-macos-arm64.dmg" \
-            "CoreScope-$VERSION-macos-arm64.zip" \
+            "CoreScope-$VERSION-macos-universal.dmg" \
+            "CoreScope-$VERSION-macos-universal.zip" \
             SHA256SUMS.txt

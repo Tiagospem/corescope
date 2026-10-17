@@ -10,6 +10,72 @@ section as the GitHub release notes.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-17
+
+### Added
+- **Profiles as code**: a committed `.corescope.yml` (profiles with commands, stop commands and
+  containers; preferred ports; Services checks; log globs; agent capacity rules) is found
+  automatically and shown read-only in Profiles and Services. `corescope config` validates it;
+  MCP `read_project_config` / `write_project_config` let agents read and write it.
+- **Logs page**: project log files (conventional folders, `*.log`, `.corescope.yml` globs),
+  profile command output and container logs, by project; live tail, search, and recent errors by
+  declared level or generic markers, with stack traces and repeats counted. `corescope logs` and
+  MCP `recent_errors`, `search_logs`, `tail_log`, `list_log_sources`.
+- **Containers**: grouped by compose project with start-all/stop-all, start for stopped
+  containers, restart policy, image age and a Volumes card (size, use, unused flagged).
+  `corescope containers` and MCP `list_containers`, `container_logs`, `container_action`
+  (stopping one a started profile uses needs `force`).
+- **Agents wait for capacity**: projects opt in with `agents.wait_for_capacity` in
+  `.corescope.yml`; an optional Claude Code hook (`corescope gate`) holds heavy commands until CPU
+  and memory pressure settle, other agents get MCP `wait_for_capacity` / `system_capacity` and
+  server instructions, the Agents page shows who is waiting, and `corescope wait` does it for
+  scripts. **Economy mode**: on battery, busy agent-started processes run at background priority.
+- **Worktrees and agent conflicts**: Cleanup lists git worktrees agents left (Claude Code, Codex,
+  Conductor, Cursor or any) with agent, branch and merged state; clean, unused ones go to the Trash
+  and are pruned from git (branches stay), dirty or occupied ones are locked. The Agents page
+  flags sessions sharing one working tree. `corescope worktrees` and MCP `list_worktrees`;
+  conflicts in `corescope agents` / `list_agent_sessions`.
+- **Ports page**: what listens beyond localhost (processes and published container ports) ranked
+  by risk with how to bind it to 127.0.0.1; projects' preferred ports from `.corescope.yml`
+  (free, ours or taken, with a free alternative); free port finder; every listening server.
+  `corescope exposure`, `corescope ports --check`, MCP `exposure_report` and `port_conflicts`.
+- **Machines**: distribution, swap, every disk, top processes by memory, failed systemd units and
+  the container list; alerts (disk over 90%, sustained load, failed units, stopped or unhealthy
+  containers) with optional notifications; recipes — read-only commands run on demand, built-in
+  or your own — also over MCP (`list_recipes`, `run_recipe`, by name only).
+- **Services history**: a week of 5-minute buckets per check with uptime over 24 h / 7 days,
+  incidents and the day's latency; included in MCP `list_services`.
+- **CoreScope's own cost**: footer readout of the app's CPU and memory with a breakdown in
+  Settings — app, helpers (MCP servers, gate hook, status line), processes it started, and each
+  background feature with cadence and the CPU it measured in its own threads (5-minute average,
+  startup excluded), with switches; a warning past 2 % of a core (6 % with the window open) or
+  500 MB. MCP `corescope_cost`;
+  `set_setting` also takes `collector_interval_seconds` and `floating_panel`.
+
+- **What happened at 2:05 pm?**: History card, ⌥⌘K, `corescope://happened?at=…`, `corescope happened`
+  and MCP `what_happened` — CPU and process power around a moment against the hour before,
+  memory, swap growth, pressure, thermal state, disk writes and who dominated CPU, memory and
+  power. History now records total process power and a top 10 by power (schema 2, migrated in
+  place).
+- **What grew today**: Storage card measuring the usual space-hungry folders (caches, Xcode,
+  simulators, container VMs, package stores, models, Downloads, Trash, agent data) at most every
+  6 hours and on demand, with today's growth and free space; `corescope disk-growth`, MCP
+  `disk_growth`.
+- **Quick actions in ⌥⌘K**: start/stop profiles, check services, open projects and pages, pause
+  sampling, jump to a moment in History. **Menu bar** profile switcher and Services status dots.
+- **`corescope://` links** for Shortcuts, Raycast and scripts: open a page, start/stop/toggle a
+  profile (file profiles ask first), port lookup, check services, what happened, palette.
+- **Universal build**: releases run natively on Apple Silicon and Intel Macs
+  (`CoreScope-<version>-macos-universal.dmg`); `UNIVERSAL=1 ./scripts/build.sh` builds both
+  slices of the app and the bundled `corescope`, and packaging refuses a release missing one.
+### Changed
+- `.corescope.yml` discovery walks folders every 10 minutes (and when roots change) and only
+  re-reads known files in between, instead of a full walk plus process list every minute.
+- Settings no longer rebuilds its whole form on every sample (about 12 % → 4.5 % of a core
+  while it is open).
+- The collector no longer allocates strings to match app bundles and runtimes for every process
+  on every sample.
+
 ## [0.4.0] - 2026-10-17
 
 ### Added
@@ -172,7 +238,8 @@ First public release.
   compact / standard / detailed layouts and in-panel controls.
 - English, Portuguese and Spanish; offline-only.
 
-[Unreleased]: https://github.com/Tiagospem/corescope/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/Tiagospem/corescope/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/Tiagospem/corescope/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/Tiagospem/corescope/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/Tiagospem/corescope/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/Tiagospem/corescope/compare/v0.3.0...v0.3.1

@@ -13,6 +13,10 @@ struct DevSpaceItem: Codable, Identifiable, Equatable {
   let modified: Double
   var busy: String?
   let engine: String?
+  /// A worktree's agent, branch and merged state.
+  var detail: String? = nil
+  /// A worktree's main repository.
+  var repo: String? = nil
   var isDocker: Bool { engine != nil }
   var modifiedDate: Date? { modified > 0 ? Date(timeIntervalSince1970: modified) : nil }
   var title: String {
@@ -26,6 +30,7 @@ struct DevSpaceItem: Codable, Identifiable, Equatable {
     switch kind {
     case "node_modules": "node_modules"
     case "rust_target": "target/ do Rust"
+    case "worktree": "worktree"
     case "derived_data": "DerivedData"
     case "device_support": "Suporte a dispositivo"
     case "simulator_caches": "Caches do Simulador"
@@ -39,6 +44,7 @@ struct DevSpaceItem: Codable, Identifiable, Equatable {
     switch kind {
     case "node_modules": "shippingbox"
     case "rust_target": "gearshape.2"
+    case "worktree": "arrow.triangle.branch"
     case "derived_data", "device_support", "simulator_caches": "hammer"
     case "docker_dangling", "docker_unused", "docker_build_cache": "cube.transparent"
     default: "archivebox"
@@ -96,6 +102,8 @@ final class CleanupStore: ObservableObject {
     guard let report, let scannedAt else { return }
     let cache = Cache(report: report, scannedAt: scannedAt, roots: scannedRoots)
     queue.async {
+      let cost = CostMeter.begin()
+      defer { CostMeter.end("cleanup", cost) }
       try? FileManager.default.createDirectory(
         at: Self.cacheURL.deletingLastPathComponent(), withIntermediateDirectories: true)
       if let data = try? JSONEncoder().encode(cache) { try? data.write(to: Self.cacheURL, options: .atomic) }
@@ -120,6 +128,8 @@ final class CleanupStore: ObservableObject {
     let roots = Preferences.shared.cleanupRoots
     let request: [String: Any] = ["roots": roots, "auto": true, "docker": true]
     queue.async {
+      let cost = CostMeter.begin()
+      defer { CostMeter.end("cleanup", cost) }
       let result: Result<DevSpaceReport, Error> = Result {
         let data = try Self.call(request)
         return try JSONDecoder().decode(DevSpaceReport.self, from: data)
@@ -156,6 +166,8 @@ final class CleanupStore: ObservableObject {
     let monitor = Monitor.shared
     monitor.feedback = ActionFeedback(message: plural(items.count, "Limpando 1 item…", "Limpando %@ itens…"), pending: true)
     queue.async {
+      let cost = CostMeter.begin()
+      defer { CostMeter.end("cleanup", cost) }
       var finished = Set<String>()
       var freed = 0.0
       var failures: [String] = []
@@ -182,6 +194,8 @@ final class CleanupStore: ObservableObject {
           try FileManager.default.trashItem(at: URL(fileURLWithPath: item.path), resultingItemURL: nil)
           finished.insert(item.id)
           freed += item.bytes
+          // The folder is in the Trash; drop git's record of it (the branch stays).
+          if item.kind == "worktree", let repo = item.repo { Self.prune(repo) }
         } catch {
           failures.append("\(item.title): \(error.localizedDescription)")
         }
@@ -211,6 +225,15 @@ final class CleanupStore: ObservableObject {
     }
   }
 
+  private static func prune(_ repo: String) {
+    let p = Process()
+    p.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+    p.arguments = ["-C", repo, "worktree", "prune"]
+    p.standardOutput = FileHandle.nullDevice
+    p.standardError = FileHandle.nullDevice
+    try? p.run()
+    p.waitUntilExit()
+  }
   private static func call(_ request: [String: Any]) throws -> Data {
     let json = String(data: try JSONSerialization.data(withJSONObject: request), encoding: .utf8) ?? "{}"
     guard let pointer = json.withCString({ cs_dev_space($0) }) else {
@@ -260,6 +283,7 @@ struct CleanupView: View {
   private static let groups: [(id: String, title: String, symbol: String)] = [
     ("projects", "Projetos", "folder"),
     ("xcode", "Xcode", "hammer"),
+    ("worktrees", "Worktrees", "arrow.triangle.branch"),
     ("caches", "Caches de pacotes", "archivebox"),
     ("docker", "Docker", "cube.transparent"),
   ]
@@ -449,6 +473,13 @@ private struct FlowRoots: View {
 }
 
 private struct CleanupRow: View {
+  /// A process using the item ("node (PID 1)"), or why a worktree must stay.
+  static func lockLabel(_ reason: String) -> String {
+    if reason.contains("(PID") { return L("Em uso · %@", reason) }
+    let suffix = " alterações não commitadas"
+    if reason.hasSuffix(suffix) { return L("%@ alterações não commitadas", String(reason.dropLast(suffix.count))) }
+    return L(reason)
+  }
   let item: DevSpaceItem
   @Binding var selected: Bool
   var body: some View {
@@ -462,13 +493,13 @@ private struct CleanupRow: View {
             Text(L(item.kindLabel)).font(.caption).foregroundStyle(.tertiary).lineLimit(1)
           }
         }
-        Text(item.isDocker ? L("Removido pelo Docker") : abbreviateHome(item.path))
+        Text(item.isDocker ? L("Removido pelo Docker") : item.detail ?? abbreviateHome(item.path))
           .font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
           .help(item.path)
       }
       Spacer(minLength: 8)
       if let busy = item.busy {
-        Badge(text: L("Em uso · %@", busy), color: .orange, symbol: "lock.fill")
+        Badge(text: Self.lockLabel(busy), color: .orange, symbol: "lock.fill")
           .help(L("Feche ou pare o processo para poder limpar"))
       } else if let date = item.modifiedDate {
         Text(date.formatted(.relative(presentation: .named))).font(.caption).foregroundStyle(.secondary)

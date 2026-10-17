@@ -172,8 +172,58 @@ import Foundation
     precondition(validSSHDestination("deploy@web-1.example.com") && validSSHDestination("forge-redis"))
     precondition(!validSSHDestination("-oProxyCommand=x") && !validSSHDestination("a b") && !validSSHDestination("a;rm"))
     precondition(sshConfigHosts("Host *\n  User x\nHost web db-1 !bad\nhost web\n") == ["web", "db-1"])
+    // The gate hook sits next to the user's own hooks and leaves them as they were.
+    let userHooks = try! OrderedJSON.parse(#"{"model":"x","hooks":{"PreToolUse":[{"matcher":"Edit","hooks":[{"type":"command","command":"lint"}]}],"Stop":[]}}"#)
+    let withGate = ClaudeGateHook.installing(into: userHooks, binary: "/Apps/Core Scope.app/bin/corescope")
+    precondition(ClaudeGateHook.installed(in: withGate) && !ClaudeGateHook.installed(in: userHooks))
+    precondition(withGate.serialized().contains("'/Apps/Core Scope.app/bin/corescope' gate"))
+    let twice = ClaudeGateHook.installing(into: withGate, binary: "/new/corescope")
+    precondition(twice.serialized().components(separatedBy: " gate").count == 2, "one entry after reinstalling")
+    precondition(ClaudeGateHook.removing(from: twice) == userHooks)
+    let bare = try! OrderedJSON.parse(#"{"model":"x"}"#)
+    precondition(ClaudeGateHook.removing(from: ClaudeGateHook.installing(into: bare, binary: "/c/corescope")) == bare)
+    let before = RemoteStats(parsing: "os=Linux\ncpus=2\nload=4.0 3 2\ncontainer=web|running|Up 2 hours\ncontainer=db|running|Up 2 hours (unhealthy)\n")
+    let now = RemoteStats(parsing: "os=Linux\ncpus=2\nload=3.5 3 2\ndisk=/|100000000000|95000000000\ndisk=/data|100000000000|50000000000\nfailed=nginx.service\ncontainer=web|exited|Exited (1) 1 minute ago\ncontainer=db|running|Up 2 hours (unhealthy)\nosname=Ubuntu 24.04 LTS\nmproc=1.0|40.5|/usr/sbin/mysqld\n")
+    precondition(now.osName == "Ubuntu 24.04 LTS" && now.memoryProcesses.first?.name == "mysqld" && now.disks.count == 2)
+    precondition(machineAlerts(now, before: before) == [
+      .disk(mount: "/", percent: 95), .load(3.5, cores: 2), .failedUnits(["nginx.service"]),
+      .containerStopped("web", status: "Exited (1) 1 minute ago"), .containerUnhealthy("db"),
+    ])
+    precondition(machineAlerts(now, before: nil).contains(.load(3.5, cores: 2)) == false, "load must be sustained")
+    // Services history: 5-minute buckets, uptime windows and merged incidents.
+    var buckets: [Int: HealthBucket] = [:]
+    let t0 = Date(timeIntervalSince1970: 1_800_000_000)
+    for i in 0..<12 { HealthHistory.record(&buckets, at: t0.addingTimeInterval(Double(i) * 300), up: i < 8, latency: i < 8 ? 10 : nil) }
+    let end = t0.addingTimeInterval(12 * 300)
+    precondition(abs((HealthHistory.uptime(buckets, now: end, seconds: 86400) ?? 0) - 8.0 / 12.0) < 0.001)
+    let incidents = HealthHistory.incidents(buckets)
+    precondition(incidents.count == 1 && incidents[0].end.timeIntervalSince(incidents[0].start) == 4 * 300)
+    HealthHistory.record(&buckets, at: t0.addingTimeInterval(8 * 86400), up: true, latency: 5)
+    precondition(buckets.count == 1, "older than a week is dropped")
+    // Own cost: average share of a core from a cumulative counter, weights, helper detection.
+    let cpuSamples: [(at: Double, seconds: Double)] = [(0, 1.0), (100, 1.5), (400, 2.5), (700, 4.0)]
+    precondition(abs((averageCPUShare(cpuSamples, window: 300) ?? 0) - 0.5) < 0.0001, "last 5 minutes only")
+    precondition(averageCPUShare([(0, 1.0)], window: 300) == nil && averageCPUShare([(0, 2.0), (60, 1.0)], window: 300) == nil)
+    precondition(CostWeight(percent: 0.05) == .low && CostWeight(percent: 0.5) == .medium && CostWeight(percent: 3) == .high)
+    precondition(isCoreScopeHelper(path: "/Applications/CoreScope.app/Contents/Resources/bin/corescope"))
+    precondition(!isCoreScopeHelper(path: "/usr/local/bin/corescope"))
+    // corescope:// links and the quick-action palette.
+    precondition(AppLink(URL(string: "corescope://open/ports")!) == .open(page: "ports"))
+    precondition(AppLink(URL(string: "corescope://")!) == .open(page: nil))
+    precondition(AppLink(URL(string: "corescope://profile/start?name=Revamp%20Test")!) == .profile(action: "start", name: "Revamp Test"))
+    precondition(AppLink(URL(string: "corescope://profile/delete?name=x")!) == nil, "only start, stop and toggle")
+    precondition(AppLink(URL(string: "corescope://profile/stop")!) == nil, "a name is required")
+    precondition(AppLink(URL(string: "corescope://lookup?port=8000")!) == .lookup(port: 8000))
+    precondition(AppLink(URL(string: "corescope://services/check")!) == .checkServices)
+    precondition(AppLink(URL(string: "corescope://happened?at=14:05")!) == .happened(at: "14:05"))
+    precondition(AppLink(URL(string: "https://example.com/open")!) == nil && AppLink(URL(string: "corescope://format/disk")!) == nil)
+    precondition(quickScore("rev", "Iniciar perfil Revamp Test") == 1 && quickScore("ini rev", "Iniciar perfil Revamp Test") == 0)
+    precondition(quickScore("servi", "Abrir Serviços") != nil && quickScore("vamp", "Iniciar perfil Revamp") == 3)
+    precondition(quickScore("xyz", "Abrir Portas") == nil && quickScore("", "Abrir") == nil)
+    precondition(looksLikeTime("14:05") && looksLikeTime("2:05 pm") && looksLikeTime("14h05") && looksLikeTime("ontem 9:30"))
+    precondition(!looksLikeTime("8000") && !looksLikeTime("redis") && !looksLikeTime("14"))
     print(
-      "25 native assertions passed: descendants, cycle, ordering, off-screen recovery, negative-origin monitor, forest roots, flatten, collapse, totals, ancestors, filter, formatting, container ports, shared ports, demo paths, debounce, sustained thresholds, new arrivals, port parsing, shortcut label, agent stalls, health targets, shared containers, ssh stats; plus settings JSON, Unicode escapes, status line install/chain, Claude limits"
+      "28 native assertions passed: descendants, cycle, ordering, off-screen recovery, negative-origin monitor, forest roots, flatten, collapse, totals, ancestors, filter, formatting, container ports, shared ports, demo paths, debounce, sustained thresholds, new arrivals, port parsing, shortcut label, agent stalls, health targets, shared containers, ssh stats, gate hook, machine alerts, service history, own cost, links, palette; plus settings JSON, Unicode escapes, status line install/chain, Claude limits"
     )
     print(
       "token usage assertions passed: timestamps, formatting, Claude block dedupe, embedded entries, partial lines, long-line skip, fast/full parity, Codex repeats and forks"

@@ -56,6 +56,8 @@ enum PortLookup {
   static let focus = Notification.Name("CoreScope.focusPort")
   /// Read by the popover when it appears, for the case where it was closed.
   static var pendingFocus = false
+  /// Text to put in the field when it appears (corescope://lookup?port=…).
+  static var pendingText: String?
   /// Fallback popover, alive only while shown.
   private static var popover: NSPopover?
   private static var closeObserver: NSObjectProtocol?
@@ -161,7 +163,9 @@ struct ShortcutRecorder: View {
   }
 }
 
-/// Popover field: which of the user's processes listens on a port, with open and stop actions.
+/// Popover field: a port shows which of the user's processes listens on it, with open and stop
+/// actions; words run quick actions (start a profile, check a service, open a project or page,
+/// "14:05" for what happened then). Return runs the first match.
 struct PortQuickLookup: View {
   let snapshot: Snapshot
   @ObservedObject var prefs = Preferences.shared
@@ -172,28 +176,44 @@ struct PortQuickLookup: View {
     guard let port else { return [] }
     return snapshot.serverGroups.filter { $0.0.ports.contains { $0.port == port } }
   }
+  private var actions: [QuickAction] {
+    let t = text.trimmingCharacters(in: .whitespaces)
+    return t.isEmpty || port != nil ? [] : QuickActions.matches(t)
+  }
   var body: some View {
     VStack(alignment: .leading, spacing: 6) {
       HStack(spacing: 6) {
         Image(systemName: "magnifyingglass").foregroundStyle(.secondary).font(.caption)
-        TextField(L("Porta"), text: $text).textFieldStyle(.roundedBorder).frame(width: 90)
+        TextField(L("Porta ou ação"), text: $text).textFieldStyle(.roundedBorder).frame(width: 170)
           .focused($focused)
-          .onChange(of: text) { _, value in
-            let digits = String(value.filter(\.isNumber).prefix(5))
-            if digits != value { text = digits }
-          }
+          .onSubmit { if let first = actions.first { run(first) } }
           .onExitCommand { text = "" }
         if let port, matches.isEmpty {
           Label(L("Livre"), systemImage: "checkmark.circle.fill").foregroundStyle(.green)
             .font(.caption).help(L("Nenhum processo seu escuta em :%@", "\(port)"))
-        } else if port == nil && !text.isEmpty {
-          Text(L("Porta inválida")).font(.caption).foregroundStyle(.secondary)
+        } else if port == nil && !text.isEmpty && actions.isEmpty {
+          Text(L("Nada encontrado")).font(.caption).foregroundStyle(.secondary)
         }
         Spacer()
         if prefs.hotkeyEnabled && !Hotkey.shared.failed {
           Text(prefs.hotkeyLabel).font(.caption2).foregroundStyle(.tertiary)
             .help(L("Atalho global para buscar porta"))
         }
+      }
+      ForEach(actions) { a in
+        Button {
+          run(a)
+        } label: {
+          HStack(spacing: 8) {
+            Image(systemName: a.symbol).frame(width: 16).foregroundStyle(Tint.brand)
+            VStack(alignment: .leading, spacing: 0) {
+              Text(a.title).lineLimit(1)
+              if let s = a.subtitle { Text(s).font(.caption2).foregroundStyle(.secondary).lineLimit(1) }
+            }
+            Spacer(minLength: 0)
+            if a.id == actions.first?.id { Text("↩").font(.caption).foregroundStyle(.tertiary) }
+          }.contentShape(Rectangle())
+        }.buttonStyle(.plain).font(.callout)
       }
       ForEach(matches, id: \.0.id) { p, instances in
         ProcessLine(
@@ -211,6 +231,15 @@ struct PortQuickLookup: View {
   }
   private func focus() {
     PortLookup.pendingFocus = false
+    if let pending = PortLookup.pendingText {
+      PortLookup.pendingText = nil
+      text = pending
+    }
     focused = true
+  }
+  private func run(_ action: QuickAction) {
+    action.run()
+    text = ""
+    if action.closes { PortLookup.close() }
   }
 }

@@ -658,6 +658,12 @@ struct RemoteStats: Equatable {
   var diskTotal: Double?, diskUsed: Double?
   var containers: Int?
   var processes: [(cpu: Double, memory: Double, name: String)] = []
+  var memoryProcesses: [(cpu: Double, memory: Double, name: String)] = []
+  var osName = ""
+  var swapTotal: Double?, swapFree: Double?
+  var disks: [(mount: String, total: Double, used: Double)] = []
+  var failedUnits: [String] = []
+  var containerList: [(name: String, state: String, status: String)] = []
   static func == (a: Self, b: Self) -> Bool {
     a.os == b.os && a.host == b.host && a.load == b.load && a.cpus == b.cpus && a.uptime == b.uptime
       && a.memoryTotal == b.memoryTotal && a.memoryAvailable == b.memoryAvailable && a.diskTotal == b.diskTotal
@@ -680,11 +686,24 @@ struct RemoteStats: Equatable {
       case "disktotal": diskTotal = Double(value)
       case "diskused": diskUsed = Double(value)
       case "containers": containers = Int(value)
-      case "proc":
+      case "proc", "mproc":
         let parts = value.split(separator: "|", maxSplits: 2).map(String.init)
         if parts.count == 3, let cpu = Double(parts[0]), let mem = Double(parts[1]) {
-          processes.append((cpu, mem, (parts[2] as NSString).lastPathComponent))
+          let entry = (cpu, mem, (parts[2] as NSString).lastPathComponent)
+          if key == "proc" { processes.append(entry) } else { memoryProcesses.append(entry) }
         }
+      case "osname": osName = value
+      case "swaptotal": swapTotal = Double(value)
+      case "swapfree": swapFree = Double(value)
+      case "disk":
+        let parts = value.split(separator: "|").map(String.init)
+        if parts.count == 3, let total = Double(parts[1]), let used = Double(parts[2]), total > 0 {
+          disks.append((parts[0], total, used))
+        }
+      case "failed": if !value.isEmpty { failedUnits.append(value) }
+      case "container":
+        let parts = value.split(separator: "|", maxSplits: 2).map(String.init)
+        if parts.count == 3 { containerList.append((parts[0], parts[1], parts[2])) }
       default: break
       }
     }
@@ -707,4 +726,223 @@ func sshConfigHosts(_ config: String) -> [String] {
     }
   }
   return out
+}
+
+/// CoreScope's Claude Code PreToolUse hook (`corescope gate`) inside ~/.claude/settings.json:
+/// added as its own matcher group, recognized by its command, removed without touching other
+/// hooks.
+enum ClaudeGateHook {
+  static func command(binary: String) -> String { ClaudeStatusLine.shellQuote(binary) + " gate" }
+  private static func isOurs(_ hook: OrderedJSON) -> Bool {
+    hook["command"]?.stringValue?.hasSuffix(" gate") == true && hook["command"]?.stringValue?.contains("corescope") == true
+  }
+  static func installed(in settings: OrderedJSON?) -> Bool {
+    guard case .array(let groups)? = settings?["hooks"]?["PreToolUse"] else { return false }
+    return groups.contains { group in
+      guard case .array(let hooks)? = group["hooks"] else { return false }
+      return hooks.contains(where: isOurs)
+    }
+  }
+  /// Settings with the hook (replacing an older CoreScope entry, e.g. after the app moved).
+  static func installing(into settings: OrderedJSON, binary: String, timeout: Int = 3600) -> OrderedJSON {
+    let cleaned = removing(from: settings)
+    let group = OrderedJSON.object([
+      .init(key: "matcher", value: .string("Bash")),
+      .init(key: "hooks", value: .array([
+        .object([
+          .init(key: "type", value: .string("command")),
+          .init(key: "command", value: .string(command(binary: binary))),
+          .init(key: "timeout", value: .number(String(timeout))),
+        ])
+      ])),
+    ])
+    let hooks = cleaned["hooks"] ?? .object([])
+    var groups: [OrderedJSON] = []
+    if case .array(let existing)? = hooks["PreToolUse"] { groups = existing }
+    groups.append(group)
+    return cleaned.setting("hooks", hooks.setting("PreToolUse", .array(groups)))
+  }
+  /// Settings without CoreScope's hook; groups and sections left empty by it are dropped.
+  static func removing(from settings: OrderedJSON) -> OrderedJSON {
+    guard let hooks = settings["hooks"], case .array(let groups)? = hooks["PreToolUse"] else { return settings }
+    var kept: [OrderedJSON] = []
+    for group in groups {
+      guard case .array(let list)? = group["hooks"] else {
+        kept.append(group)
+        continue
+      }
+      let remaining = list.filter { !isOurs($0) }
+      if remaining.count == list.count {
+        kept.append(group)
+      } else if !remaining.isEmpty {
+        kept.append(group.setting("hooks", .array(remaining)))
+      }
+    }
+    let nextHooks = hooks.setting("PreToolUse", kept.isEmpty ? nil : .array(kept))
+    return settings.setting("hooks", nextHooks == .object([]) ? nil : nextHooks)
+  }
+}
+
+/// A problem worth an alert on a remote machine.
+enum MachineAlert: Equatable {
+  case disk(mount: String, percent: Int)
+  case load(Double, cores: Int)
+  case failedUnits([String])
+  case containerStopped(String, status: String)
+  case containerUnhealthy(String)
+}
+/// `before` is the previous reading, for sustained load and containers that stopped since.
+func machineAlerts(_ now: RemoteStats, before: RemoteStats?) -> [MachineAlert] {
+  var out: [MachineAlert] = []
+  // Volumes under 1 GB are disk images and recovery partitions: always nearly full.
+  for d in now.disks where d.total >= 1e9 && d.used / d.total >= 0.9 {
+    out.append(.disk(mount: d.mount, percent: Int((d.used / d.total * 100).rounded())))
+  }
+  if now.disks.isEmpty, let total = now.diskTotal, let used = now.diskUsed, total > 0, used / total >= 0.9 {
+    out.append(.disk(mount: "/", percent: Int((used / total * 100).rounded())))
+  }
+  let cores = Double(max(now.cpus, 1))
+  if let load = now.load.first, load / cores >= 1.5, let previous = before?.load.first, previous / cores >= 1.5 {
+    out.append(.load(load, cores: now.cpus))
+  }
+  if !now.failedUnits.isEmpty { out.append(.failedUnits(now.failedUnits)) }
+  let running = Set(before?.containerList.filter { $0.state == "running" }.map(\.name) ?? [])
+  for c in now.containerList where running.contains(c.name) && c.state != "running" {
+    out.append(.containerStopped(c.name, status: c.status))
+  }
+  for c in now.containerList where c.status.contains("unhealthy") {
+    out.append(.containerUnhealthy(c.name))
+  }
+  return out
+}
+
+/// Five minutes of a Services check: how many checks were up and down, and the summed latency.
+struct HealthBucket: Codable, Equatable {
+  var up = 0
+  var down = 0
+  var latencySum = 0.0
+  var latencyCount = 0
+  var latency: Double? { latencyCount > 0 ? latencySum / Double(latencyCount) : nil }
+}
+enum HealthHistory {
+  static let bucketSeconds = 300.0
+  static let keep = 7 * 24 * 12
+  static func bucket(_ date: Date) -> Int { Int(date.timeIntervalSince1970 / bucketSeconds) }
+  /// Adds one result and drops buckets older than a week.
+  static func record(_ buckets: inout [Int: HealthBucket], at: Date, up: Bool, latency: Double?) {
+    let key = bucket(at)
+    var b = buckets[key] ?? HealthBucket()
+    if up { b.up += 1 } else { b.down += 1 }
+    if let latency {
+      b.latencySum += latency
+      b.latencyCount += 1
+    }
+    buckets[key] = b
+    let oldest = key - keep
+    if buckets.keys.contains(where: { $0 < oldest }) { buckets = buckets.filter { $0.key >= oldest } }
+  }
+  /// Share of checks that were up in the window ending now; nil without data.
+  static func uptime(_ buckets: [Int: HealthBucket], now: Date, seconds: Double) -> Double? {
+    let from = bucket(now.addingTimeInterval(-seconds))
+    let inWindow = buckets.filter { $0.key > from }.values
+    let up = inWindow.reduce(0) { $0 + $1.up }, total = inWindow.reduce(0) { $0 + $1.up + $1.down }
+    return total > 0 ? Double(up) / Double(total) : nil
+  }
+  /// Down periods (buckets where most checks failed), consecutive ones merged, newest first.
+  static func incidents(_ buckets: [Int: HealthBucket]) -> [(start: Date, end: Date)] {
+    let bad = buckets.filter { $0.value.down > $0.value.up }.keys.sorted()
+    var out: [(Int, Int)] = []
+    for k in bad {
+      if let last = out.last, last.1 == k - 1 { out[out.count - 1].1 = k } else { out.append((k, k)) }
+    }
+    return out.reversed().map {
+      (Date(timeIntervalSince1970: Double($0.0) * bucketSeconds), Date(timeIntervalSince1970: Double($0.1 + 1) * bucketSeconds))
+    }
+  }
+}
+
+/// CPU seconds (cumulative counter) read at points in time → average share of one core, in percent,
+/// over the samples inside `window` seconds before the last one. Nil with fewer than two samples
+/// or a counter that went backwards.
+func averageCPUShare(_ samples: [(at: Double, seconds: Double)], window: Double) -> Double? {
+  guard let last = samples.last else { return nil }
+  guard let first = samples.first(where: { last.at - $0.at <= window }), last.at - first.at >= 5,
+    last.seconds >= first.seconds
+  else { return nil }
+  return (last.seconds - first.seconds) / (last.at - first.at) * 100
+}
+/// How heavy an average share of one core is for a background monitor.
+enum CostWeight: Int, Comparable {
+  case low, medium, high
+  init(percent: Double) { self = percent >= 1 ? .high : percent >= 0.2 ? .medium : .low }
+  static func < (a: CostWeight, b: CostWeight) -> Bool { a.rawValue < b.rawValue }
+}
+/// CoreScope's own helpers: the bundled CLI (MCP servers, the gate hook, the status line).
+func isCoreScopeHelper(path: String) -> Bool {
+  path.hasSuffix("/Contents/Resources/bin/corescope") && path.contains("CoreScope")
+}
+
+/// A `corescope://` link, from Shortcuts, Raycast, scripts or a browser.
+///   corescope://open/ports · corescope://profile/start?name=Shop · corescope://lookup?port=8000
+///   corescope://services/check · corescope://happened?at=14:05 · corescope://palette
+enum AppLink: Equatable {
+  case open(page: String?)
+  case profile(action: String, name: String)
+  case lookup(port: UInt16?)
+  case checkServices
+  case happened(at: String)
+  case palette
+  init?(_ url: URL) {
+    guard url.scheme?.lowercased() == "corescope",
+      let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+    else { return nil }
+    var query: [String: String] = [:]
+    for item in components.queryItems ?? [] where query[item.name.lowercased()] == nil {
+      if let value = item.value?.trimmingCharacters(in: .whitespaces), !value.isEmpty { query[item.name.lowercased()] = value }
+    }
+    let path = components.path.split(separator: "/").map { String($0).removingPercentEncoding ?? String($0) }
+    switch (components.host ?? "").lowercased() {
+    case "", "open": self = .open(page: (query["page"] ?? path.first)?.lowercased())
+    case "profile":
+      let action = (path.first ?? query["action"] ?? "").lowercased()
+      guard ["start", "stop", "toggle"].contains(action), let name = query["name"] ?? path.dropFirst().first else {
+        return nil
+      }
+      self = .profile(action: action, name: name)
+    case "lookup", "port": self = .lookup(port: (query["port"] ?? path.first).flatMap(parsePort))
+    case "services":
+      guard path.isEmpty || path.first?.lowercased() == "check" else { return nil }
+      self = .checkServices
+    case "happened":
+      guard let at = query["at"] ?? path.first else { return nil }
+      self = .happened(at: at)
+    case "palette": self = .palette
+    default: return nil
+    }
+  }
+}
+
+/// How well a palette query matches an action title: each query word must start a word of the
+/// title (best) or appear inside it. Case and accents are ignored. Nil: no match; lower is better.
+func quickScore(_ query: String, _ title: String) -> Int? {
+  let fold = { (s: String) in s.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil) }
+  let words = fold(query).split(whereSeparator: \.isWhitespace).map(String.init)
+  guard !words.isEmpty else { return nil }
+  let target = fold(title)
+  let titleWords = target.split(whereSeparator: { $0.isWhitespace || $0 == "/" || $0 == "-" || $0 == "·" }).map(String.init)
+  var score = 0
+  for word in words {
+    if titleWords.contains(where: { $0.hasPrefix(word) }) { continue }
+    guard target.contains(word) else { return nil }
+    score += 2
+  }
+  return target.hasPrefix(words[0]) ? score : score + 1
+}
+/// Whether palette text reads as a clock time ("14:05", "2:05 pm", "14h05", "ontem 9:30").
+func looksLikeTime(_ text: String) -> Bool {
+  let t = text.lowercased().trimmingCharacters(in: .whitespaces)
+  let words = ["ontem", "yesterday", "ayer"]
+  let rest = words.first(where: { t.hasPrefix($0) }).map { String(t.dropFirst($0.count)).trimmingCharacters(in: .whitespaces) } ?? t
+  return rest.range(of: #"^\d{1,2}([:h]\d{2})?\s*(am|pm)?$"#, options: .regularExpression) != nil
+    && (rest.contains(":") || rest.contains("h") || rest.hasSuffix("m"))
 }

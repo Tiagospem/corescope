@@ -474,6 +474,14 @@ final class Preferences: ObservableObject {
       ControlServer.shared.apply()
     }
   }
+  /// Notify when a remote machine needs attention (disk, load, failed units, containers).
+  @Published var notifyMachines = UserDefaults.standard.bool(forKey: "notifyMachines") {
+    didSet { save("notifyMachines", notifyMachines) }
+  }
+  /// On battery, run busy agent-started processes at background priority.
+  @Published var economyMode = UserDefaults.standard.bool(forKey: "economyMode") {
+    didSet { save("economyMode", economyMode) }
+  }
   /// Notify when an agent session draws more than `drainWatts` on battery for 5 minutes.
   @Published var notifyAgentDrain = UserDefaults.standard.bool(forKey: "notifyAgentDrain") {
     didSet { save("notifyAgentDrain", notifyAgentDrain) }
@@ -651,6 +659,8 @@ final class Monitor: ObservableObject {
       return
     }
     queue.async {
+      let cost = CostMeter.begin()
+      defer { CostMeter.end("collector", cost) }
       let result: Result<Snapshot, Error> = Result {
         guard let pointer = json.withCString({ cs_snapshot($0) }) else {
           throw NSError(
@@ -679,6 +689,7 @@ final class Monitor: ObservableObject {
             self.error = nil
             Notifier.shared.evaluate(shown)
             Notifier.shared.evaluateDrain(shown)
+            EconomyWatch.shared.evaluate(shown)
           case .failure(let e): self.error = e.localizedDescription
           }
         }

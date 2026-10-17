@@ -1,9 +1,10 @@
 import ServiceManagement
 import SwiftUI
 
+/// Not observing the Monitor on purpose: the Form would rebuild on every sample (measured at
+/// ~8 % of a core more); what changes per sample lives in small subviews.
 struct PreferencesView: View {
   @ObservedObject var p = Preferences.shared
-  @ObservedObject var monitor = Monitor.shared
   @ObservedObject var agents = AgentStore.shared
   @ObservedObject var notifier = Notifier.shared
   @ObservedObject var hotkey = Hotkey.shared
@@ -38,7 +39,7 @@ struct PreferencesView: View {
           Text(L("A cada 3 segundos")).tag(3.0)
           Text(L("A cada 5 segundos")).tag(5.0)
           Text(L("A cada 10 segundos")).tag(10.0)
-        }.onChange(of: p.interval) { _, _ in monitor.refresh() }
+        }.onChange(of: p.interval) { _, _ in Monitor.shared.refresh() }
         Text(
           L("Um único coletor atende todas as superfícies. Em economia de energia ou sem detalhes visíveis, o intervalo mínimo é 10 s. Pausa durante repouso; deltas são descartados no retorno.")
         ).font(.caption).foregroundStyle(.secondary)
@@ -217,31 +218,19 @@ struct PreferencesView: View {
         ).font(.caption).foregroundStyle(.secondary)
       }
       HistorySettings()
+      Section(L("Custo do CoreScope")) { SelfCostView() }
       Section(L("Privacidade e custo do monitor")) {
         Text(
           L("Sem rede ou telemetria. Sem argumentos, ambiente ou logs de processos. Preferências e identidades acompanhadas/ignoradas ficam no UserDefaults. Gráficos ao vivo em RAM (120 amostras / 10 minutos); o histórico persistente é opcional e local.")
         ).font(.callout)
-        if let s = monitor.snapshot {
-          LabeledContent(
-            L("Última passagem do coletor"), value: String(format: "%.1f ms", s.collector_ms))
-          MetricLine(
-            title: "Despertares do pacote atribuídos ao app", metric: s.own_wakeups,
-            text: s.own_wakeups.value.map { String(format: "%.2f/s", $0) } ?? "—")
-          if let own = s.processes.first(where: {
-            $0.pid == ProcessInfo.processInfo.processIdentifier
-          }) {
-            MetricLine(
-              title: "CPU do CoreScope (um núcleo)", metric: own.cpu, text: own.cpu.percent)
-            MetricLine(title: "Memória do CoreScope · phys_footprint", metric: own.memory)
-          }
-        }
+        CollectorFigures()
         Text(
           L("Energia em watts/joules e Energy Impact: indisponíveis por API pública integrada. Despertares de pacote não são todos os timers; custo total deve ser medido em uso real. Metas e medições estão no relatório do projeto.")
         ).font(.caption).foregroundStyle(.secondary)
         Button(L("Limpar processos acompanhados e ignorados")) {
           p.watched = []
           p.ignored = []
-          monitor.refresh()
+          Monitor.shared.refresh()
         }
       }
     }.formStyle(.grouped)
@@ -259,6 +248,18 @@ struct PreferencesView: View {
   }
 }
 
+/// Collector timing and wakeups, the only per-sample lines in Settings.
+private struct CollectorFigures: View {
+  @ObservedObject var monitor = Monitor.shared
+  var body: some View {
+    if let s = monitor.snapshot {
+      LabeledContent(L("Última passagem do coletor"), value: String(format: "%.1f ms", s.collector_ms))
+      MetricLine(
+        title: "Despertares do pacote atribuídos ao app", metric: s.own_wakeups,
+        text: s.own_wakeups.value.map { String(format: "%.2f/s", $0) } ?? "—")
+    }
+  }
+}
 /// Where CoreScope's Claude status line stands, with the explicit step to chain an existing one.
 private struct ClaudeLinkStatus: View {
   @ObservedObject var agents = AgentStore.shared

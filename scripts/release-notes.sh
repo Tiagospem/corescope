@@ -8,7 +8,7 @@ VERSION=${1:?usage: release-notes.sh <version> [ref]}
 REF=${2:-v$VERSION}
 git rev-parse -q --verify "$REF^{commit}" >/dev/null || REF=HEAD
 PREV=$(git describe --tags --abbrev=0 --match 'v[0-9]*' "$REF^" 2>/dev/null || true)
-DMG="CoreScope-$VERSION-macos-arm64.dmg"
+DMG="CoreScope-$VERSION-macos-universal.dmg"
 
 # Lines under "## [<version>]" up to the next version heading or the link references.
 SECTION=$(awk -v v="## [$VERSION]" '
@@ -32,14 +32,14 @@ if [ -n "$PREV" ]; then
 fi
 cat <<EOF
 ### Install
-1. Download **$DMG** below (Apple Silicon, macOS 14+).
+1. Download **$DMG** below (universal: Apple Silicon and Intel, macOS 14+).
 2. Open the DMG and drag **CoreScope** to **Applications**.
 3. The app is open source and signed ad hoc, **not notarized by Apple**, so macOS blocks it the first time. Open it once, then go to **System Settings → Privacy & Security** and click **Open Anyway**. Alternatively, in Terminal:
    \`\`\`bash
    xattr -dr com.apple.quarantine /Applications/CoreScope.app
    \`\`\`
 
-Intel Macs are not supported by this binary; build from source with \`./scripts/build.sh\` (untested on Intel).
+The Intel slice is built and checked on every release but has not yet been run on an Intel Mac; reports are welcome.
 EOF
 if [ -f dist/SHA256SUMS.txt ]; then
   echo

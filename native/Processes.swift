@@ -574,7 +574,7 @@ struct ProcessInspector: View {
           section(L("Portas em escuta")) {
             ForEach(p.ports, id: \.port) { port in
               HStack {
-                Text(":\(port.port)").font(.system(.body, design: .monospaced))
+                Text(verbatim: ":\(port.port)").font(.system(.body, design: .monospaced))
                 Badge(text: port.exposed ? L("rede") : L("local"), color: port.exposed ? .orange : Tint.netIn)
                 Spacer()
                 OpenPortButton(port: port.port)

@@ -2,10 +2,15 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 export MACOSX_DEPLOYMENT_TARGET=14.0
-cargo build --release --locked --manifest-path core/Cargo.toml
+# UNIVERSAL=1 (releases) builds Apple Silicon and Intel and joins them with lipo; otherwise only
+# this Mac's architecture, for quick local builds.
+if [ "${UNIVERSAL:-0}" = 1 ]; then ARCHS="arm64 x86_64"; else ARCHS=$(uname -m); fi
+rust_target() { [ "$1" = arm64 ] && echo aarch64-apple-darwin || echo "$1-apple-darwin"; }
+for arch in $ARCHS; do
+  cargo build --release --locked --manifest-path core/Cargo.toml --target "$(rust_target "$arch")"
+done
 APP="$PWD/build/CoreScope.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-ARCH=$(uname -m)
 # App icon is drawn procedurally; regenerate only when the drawing script changes.
 if [ ! -f build/AppIcon.icns ] || [ scripts/make-icon.swift -nt build/AppIcon.icns ]; then
   swiftc -O scripts/make-icon.swift -o build/make-icon
@@ -18,7 +23,15 @@ for lang in pt en es; do
   mkdir -p "$APP/Contents/Resources/$lang.lproj"
   echo '"CFBundleDisplayName" = "CoreScope";' > "$APP/Contents/Resources/$lang.lproj/InfoPlist.strings"
 done
-swiftc -O -swift-version 5 -target "$ARCH-apple-macosx14.0" -import-objc-header native/CoreScopeFFI.h native/*.swift core/target/release/libcorescope.a -lsqlite3 -framework SwiftUI -framework AppKit -framework IOKit -framework CoreFoundation -framework ServiceManagement -framework UserNotifications -framework Carbon -o "$APP/Contents/MacOS/CoreScope"
+APPS=() CLIS=()
+for arch in $ARCHS; do
+  lib="core/target/$(rust_target "$arch")/release"
+  swiftc -O -swift-version 5 -target "$arch-apple-macosx14.0" -import-objc-header native/CoreScopeFFI.h native/*.swift "$lib/libcorescope.a" -lsqlite3 -framework SwiftUI -framework AppKit -framework IOKit -framework CoreFoundation -framework ServiceManagement -framework UserNotifications -framework Carbon -o "build/CoreScope-$arch"
+  APPS+=("build/CoreScope-$arch")
+  CLIS+=("$lib/corescope")
+done
+lipo -create "${APPS[@]}" -output "$APP/Contents/MacOS/CoreScope"
+rm -f "${APPS[@]}"
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -31,18 +44,22 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <key>CFBundleDevelopmentRegion</key><string>pt</string>
 <key>CFBundleLocalizations</key><array><string>pt</string><string>en</string><string>es</string></array>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>0.4.0</string>
-<key>CFBundleVersion</key><string>7</string>
+<key>CFBundleShortVersionString</key><string>0.5.0</string>
+<key>CFBundleVersion</key><string>8</string>
 <key>NSHumanReadableCopyright</key><string>© 2026 Tiago Padilha · MIT License</string>
 <key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 <key>NSHighResolutionCapable</key><true/>
 <key>NSPrincipalClass</key><string>NSApplication</string>
+<key>CFBundleURLTypes</key><array><dict>
+<key>CFBundleURLName</key><string>local.corescope.app</string>
+<key>CFBundleURLSchemes</key><array><string>corescope</string></array>
+</dict></array>
 </dict></plist>
 PLIST
 # Command-line tool (corescope ports, kill-port, agents, mcp…), signed before the app.
 mkdir -p "$APP/Contents/Resources/bin"
-cp core/target/release/corescope "$APP/Contents/Resources/bin/corescope"
+lipo -create "${CLIS[@]}" -output "$APP/Contents/Resources/bin/corescope"
 codesign --force --sign - "$APP/Contents/Resources/bin/corescope"
 codesign --force --sign - "$APP"
 # Refresh LaunchServices so the Dock and Finder pick up the current icon.

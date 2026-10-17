@@ -6,11 +6,17 @@ import AppKit
 /// permission is needed.
 enum Tour {
   static let folder = ProcessInfo.processInfo.environment["CORESCOPE_TOUR"]
-  /// (file name, page, seconds to wait before capturing)
-  private static let steps: [(String, Page, Double)] = [
-    ("overview", .overview, 3), ("processes", .processes, 3), ("agents", .agents, 4),
-    ("containers", .containers, 9), ("history", .history, 3), ("overview-2", .overview, 3),
-  ]
+  /// (file name, page, seconds to wait before capturing); `CORESCOPE_TOUR_PAGES=ports,logs`
+  /// (page slugs, as in corescope://open/<slug>) captures those pages instead.
+  private static let steps: [(String, Page, Double)] = {
+    let custom = (ProcessInfo.processInfo.environment["CORESCOPE_TOUR_PAGES"] ?? "").split(separator: ",")
+      .compactMap { slug in Page.allCases.first { $0.slug == slug.trimmingCharacters(in: .whitespaces) } }
+    if !custom.isEmpty { return custom.map { ($0.slug, $0, 6) } }
+    return [
+      ("overview", .overview, 3), ("processes", .processes, 3), ("agents", .agents, 4),
+      ("containers", .containers, 9), ("history", .history, 3), ("overview-2", .overview, 3),
+    ]
+  }()
   static func start() {
     guard let folder else { return }
     try? FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)

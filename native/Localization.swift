@@ -855,4 +855,169 @@ private let entries = """
   %@: o comando ao parar saiu com %@ ¦ %@: the stop command exited with %@ ¦ %@: el comando al detener salió con %@
   concluído ¦ completed ¦ completado
   %@ processos ¦ %@ processes ¦ %@ procesos
+  Abrir .corescope.yml ¦ Open .corescope.yml ¦ Abrir .corescope.yml
+  Definido no arquivo do projeto: edite o arquivo para mudar o perfil. ¦ Defined in the project file: edit the file to change the profile. ¦ Definido en el archivo del proyecto: edita el archivo para cambiar el perfil.
+  Logs ¦ Logs ¦ Logs
+  Procurando logs… ¦ Looking for logs… ¦ Buscando logs…
+  Nenhum log encontrado nos projetos conhecidos. ¦ No logs found in the known projects. ¦ No se encontraron logs en los proyectos conocidos.
+  Erros ¦ Errors ¦ Errores
+  Busca ¦ Search ¦ Búsqueda
+  Buscar nos logs do projeto ¦ Search the project's logs ¦ Buscar en los logs del proyecto
+  Erros recentes · %@ ¦ Recent errors · %@ ¦ Errores recientes · %@
+  todos os projetos ¦ all projects ¦ todos los proyectos
+  Escolha um log ¦ Choose a log ¦ Elige un log
+  Escolha um log à esquerda, ou clique em Erros num projeto. ¦ Choose a log on the left, or click Errors on a project. ¦ Elige un log a la izquierda, o pulsa Errores en un proyecto.
+  Nenhum erro recente. ¦ No recent errors. ¦ Ningún error reciente.
+  Nada encontrado. ¦ Nothing found. ¦ No se encontró nada.
+  Log não encontrado ¦ Log not found ¦ Log no encontrado
+  Nome de contêiner inválido ¦ Invalid container name ¦ Nombre de contenedor no válido
+  Fonte ausente ¦ Missing source ¦ Falta la fuente
+  Iniciar o contêiner %@ ¦ Start the %@ container ¦ Iniciar el contenedor %@
+  Política de reinício: o Docker sobe o contêiner de novo sozinho ¦ Restart policy: Docker brings the container back up by itself ¦ Política de reinicio: Docker vuelve a levantar el contenedor solo
+  imagem de %@ ¦ image from %@ ¦ imagen de %@
+  Mostrar parados ¦ Show stopped ¦ Mostrar detenidos
+  Sem projeto compose ¦ No compose project ¦ Sin proyecto compose
+  Iniciar todos ¦ Start all ¦ Iniciar todos
+  Parar todos ¦ Stop all ¦ Detener todos
+  Parar os contêineres de %@ ¦ Stop the containers of %@ ¦ Detener los contenedores de %@
+  Volumes ¦ Volumes ¦ Volúmenes
+  %@ sem nenhum contêiner (%@). Remover um volume apaga os dados dele; faça pelo Docker se tiver certeza. ¦ %@ not used by any container (%@). Removing a volume deletes its data; do it through Docker if you are sure. ¦ %@ sin ningún contenedor (%@). Eliminar un volumen borra sus datos; hazlo con Docker si estás seguro.
+  sem uso ¦ unused ¦ sin uso
+  %@ contêiner(es) ¦ %@ container(s) ¦ %@ contenedor(es)
+  Mostrar todos (%@) ¦ Show all (%@) ¦ Mostrar todos (%@)
+  Não foi possível ler ~/.claude/settings.json ¦ Could not read ~/.claude/settings.json ¦ No se pudo leer ~/.claude/settings.json
+  ~/.claude/settings.json não é um JSON válido; corrija o arquivo antes. ¦ ~/.claude/settings.json is not valid JSON; fix the file first. ¦ ~/.claude/settings.json no es un JSON válido; corrige el archivo antes.
+  Aguardando capacidade ¦ Waiting for capacity ¦ Esperando capacidad
+  O projeto pede que agentes esperem a máquina ter folga antes de comandos pesados (.corescope.yml › agents.wait_for_capacity). O comando começa sozinho quando a CPU e a memória normalizarem. ¦ The project asks agents to wait for the Mac to have room before heavy commands (.corescope.yml › agents.wait_for_capacity). The command starts by itself once CPU and memory are back to normal. ¦ El proyecto pide que los agentes esperen a que la máquina tenga margen antes de comandos pesados (.corescope.yml › agents.wait_for_capacity). El comando empieza solo cuando la CPU y la memoria se normalicen.
+  Claude Code espera a máquina ter folga antes de comandos pesados ¦ Claude Code waits for the Mac to have room before heavy commands ¦ Claude Code espera a que la máquina tenga margen antes de comandos pesados
+  Instala um hook em ~/.claude/settings.json (com backup) que roda corescope gate antes de cada comando: nos projetos cujo .corescope.yml define agents.wait_for_capacity, builds e testes esperam a CPU e a memória normalizarem. Nos outros não faz nada. Codex e outros agentes usam a ferramenta MCP wait_for_capacity. ¦ Installs a hook in ~/.claude/settings.json (with a backup) that runs corescope gate before each command: in projects whose .corescope.yml sets agents.wait_for_capacity, builds and tests wait for CPU and memory to settle. Elsewhere it does nothing. Codex and other agents use the MCP tool wait_for_capacity. ¦ Instala un hook en ~/.claude/settings.json (con copia de seguridad) que ejecuta corescope gate antes de cada comando: en los proyectos cuyo .corescope.yml define agents.wait_for_capacity, las compilaciones y pruebas esperan a que la CPU y la memoria se normalicen. En los demás no hace nada. Codex y otros agentes usan la herramienta MCP wait_for_capacity.
+  Modo economia para agentes ¦ Economy mode for agents ¦ Modo ahorro para agentes
+  Na bateria, os processos que sessões de agente iniciam e que estão usando CPU (builds, testes) rodam com prioridade de segundo plano do macOS, cedendo CPU e disco ao que você está fazendo. Servidores com porta aberta ficam como estão. Volta ao normal na tomada ou ao desligar. ¦ On battery, processes that agent sessions start and that are using CPU (builds, tests) run at macOS background priority, yielding CPU and disk to what you are doing. Servers with an open port are left as they are. Back to normal on AC power or when turned off. ¦ Con batería, los procesos que inician las sesiones de agente y que usan CPU (compilaciones, pruebas) se ejecutan con prioridad de segundo plano de macOS, cediendo CPU y disco a lo que estás haciendo. Los servidores con puerto abierto se quedan como están. Vuelve a la normalidad enchufado o al desactivarlo.
+  %@ processos de agentes em segundo plano agora ¦ %@ agent processes in the background now ¦ %@ procesos de agentes en segundo plano ahora
+  Worktrees ¦ Worktrees ¦ Worktrees
+  Bloqueado no git (git worktree lock) ¦ Locked in git (git worktree lock) ¦ Bloqueado en git (git worktree lock)
+  O git não conseguiu ler este worktree ¦ git could not read this worktree ¦ git no pudo leer este worktree
+  %@ alterações não commitadas ¦ %@ uncommitted changes ¦ %@ cambios sin confirmar
+  Sessões no mesmo diretório ¦ Sessions in the same folder ¦ Sesiones en la misma carpeta
+  Várias sessões de agente no mesmo diretório de trabalho podem sobrescrever os arquivos umas das outras e disputar portas e o servidor de dev. Dê a cada uma um git worktree próprio. ¦ Several agent sessions in one working tree can overwrite each other's files and fight over ports and the dev server. Give each its own git worktree. ¦ Varias sesiones de agente en el mismo árbol de trabajo pueden sobrescribir los archivos de las otras y disputarse puertos y el servidor de desarrollo. Da a cada una su propio git worktree.
+  Acessível pela rede ¦ Reachable from the network ¦ Accesible desde la red
+  Nada seu escuta além do localhost. ¦ Nothing of yours listens beyond localhost. ¦ Nada tuyo escucha más allá de localhost.
+  alto ¦ high ¦ alto
+  médio ¦ medium ¦ medio
+  baixo ¦ low ¦ bajo
+  Portas abertas em todas as interfaces (0.0.0.0) podem ser acessadas por outros na mesma rede: café, coworking, escritório. Bancos e caches costumam vir sem senha em desenvolvimento. ¦ Ports open on all interfaces (0.0.0.0) can be reached by others on the same network: cafés, coworking, offices. Databases and caches often have no password in development. ¦ Los puertos abiertos en todas las interfaces (0.0.0.0) pueden ser accedidos por otros en la misma red: cafés, coworking, oficinas. Las bases de datos y cachés suelen no tener contraseña en desarrollo.
+  Portas preferidas dos projetos ¦ Projects' preferred ports ¦ Puertos preferidos de los proyectos
+  Achar porta livre ¦ Find a free port ¦ Buscar puerto libre
+  Copiar ¦ Copy ¦ Copiar
+  Nenhum .corescope.yml com `ports:`. Declare as portas do projeto (web: 8000, vite: 5173) para ver conflitos aqui. ¦ No .corescope.yml with `ports:`. Declare the project's ports (web: 8000, vite: 5173) to see conflicts here. ¦ Ningún .corescope.yml con `ports:`. Declara los puertos del proyecto (web: 8000, vite: 5173) para ver conflictos aquí.
+  livre ¦ free ¦ libre
+  em uso pelo projeto ¦ in use by the project ¦ en uso por el proyecto
+  ocupada por %@ ¦ taken by %@ ¦ ocupado por %@
+  livre: :%@ ¦ free: :%@ ¦ libre: :%@
+  Disco %@ em %@%% ¦ Disk %@ at %@%% ¦ Disco %@ al %@%%
+  Carga %@ em %@ núcleos ¦ Load %@ on %@ cores ¦ Carga %@ en %@ núcleos
+  Serviços do systemd com falha: %@ ¦ Failed systemd units: %@ ¦ Servicios de systemd con fallo: %@
+  Contêiner %@ parou (%@) ¦ Container %@ stopped (%@) ¦ El contenedor %@ se detuvo (%@)
+  Contêiner %@ com falha no health check ¦ Container %@ is failing its health check ¦ El contenedor %@ falla su health check
+  %@ precisa de atenção ¦ %@ needs attention ¦ %@ necesita atención
+  Sem resposta em 30 s ¦ No answer in 30 s ¦ Sin respuesta en 30 s
+  Saiu com %@ ¦ Exited with %@ ¦ Salió con %@
+  Receitas ¦ Recipes ¦ Recetas
+  Comandos de leitura que rodam sob demanda (journal, df, contêineres…) ¦ Read-only commands that run on demand (journal, df, containers…) ¦ Comandos de lectura que se ejecutan a demanda (journal, df, contenedores…)
+  Swap ¦ Swap ¦ Swap
+  Discos ¦ Disks ¦ Discos
+  Sem discos além do /. ¦ No disks besides /. ¦ Sin discos además de /.
+  Nenhum contêiner (ou Docker indisponível). ¦ No containers (or Docker unavailable). ¦ Ningún contenedor (o Docker no disponible).
+  Receitas · %@ ¦ Recipes · %@ ¦ Recetas · %@
+  Fechar ¦ Close ¦ Cerrar
+  Rodar ¦ Run ¦ Ejecutar
+  Escolha uma receita. ¦ Choose a recipe. ¦ Elige una receta.
+  Comando, ex.: tail -n 100 /var/www/app/storage/logs/laravel.log ¦ Command, e.g. tail -n 100 /var/www/app/storage/logs/laravel.log ¦ Comando, p. ej. tail -n 100 /var/www/app/storage/logs/laravel.log
+  Rodam pelo seu ssh em BatchMode. As receitas prontas só leem; as suas são comandos seus — prefira comandos de leitura. Agentes podem rodar receitas pelo nome (MCP run_recipe), nunca comandos livres. ¦ They run through your ssh in BatchMode. Built-in recipes only read; yours are your own commands — prefer read-only ones. Agents can run recipes by name (MCP run_recipe), never free-form commands. ¦ Se ejecutan con tu ssh en BatchMode. Las recetas incluidas solo leen; las tuyas son comandos tuyos — prefiere comandos de lectura. Los agentes pueden ejecutar recetas por nombre (MCP run_recipe), nunca comandos libres.
+  Notificar quando uma máquina precisar de atenção ¦ Notify when a machine needs attention ¦ Notificar cuando una máquina necesite atención
+  24 h ¦ 24 h ¦ 24 h
+  Disponibilidade e incidentes ¦ Uptime and incidents ¦ Disponibilidad e incidentes
+  incidentes na semana ¦ incidents this week ¦ incidentes en la semana
+  Latência nas últimas 24 h ¦ Latency over the last 24 h ¦ Latencia en las últimas 24 h
+  Incidentes ¦ Incidents ¦ Incidentes
+  Nenhum incidente registrado. ¦ No incidents recorded. ¦ Ningún incidente registrado.
+  Guardado em blocos de 5 minutos por 7 dias (contagens e latência, nada mais). ¦ Kept in 5-minute buckets for 7 days (counts and latency, nothing else). ¦ Guardado en bloques de 5 minutos durante 7 días (conteos y latencia, nada más).
+  %@ hosts a cada 60 s, só com a página aberta ¦ %@ hosts every 60 s, only while the page is open ¦ %@ hosts cada 60 s, solo con la página abierta
+  %@ s ¦ %@ s ¦ %@ s
+  %@ verificações a cada 30 s ¦ %@ checks every 30 s ¦ %@ comprobaciones cada 30 s
+  1 verificação a cada 30 s ¦ 1 check every 30 s ¦ 1 comprobación cada 30 s
+  Acesso do MCP ao app ¦ MCP access to the app ¦ Acceso del MCP a la app
+  Agentes, sessões e limites ¦ Agents, sessions and limits ¦ Agentes, sesiones y límites
+  Ajudantes (MCP, gancho, status line) ¦ Helpers (MCP, hook, status line) ¦ Ayudantes (MCP, hook, status line)
+  App ¦ App ¦ App
+  Arquivos .corescope.yml ¦ .corescope.yml files ¦ Archivos .corescope.yml
+  Bancos locais ¦ Local databases ¦ Bases de datos locales
+  CPU agora ¦ CPU now ¦ CPU ahora
+  CPU em % de um núcleo. Cada recurso é medido no tempo de CPU das próprias threads do CoreScope, sem o primeiro minuto (arranque); ajudantes e processos iniciados aparecem à parte. A interface (janela, painel, barra de menus) fica no total do app. ¦ CPU as % of one core. Each feature is measured in CPU time on CoreScope's own threads, leaving out the first minute (startup); helpers and started processes are shown separately. The interface (window, panel, menu bar) is in the app total. ¦ CPU en % de un núcleo. Cada función se mide en tiempo de CPU de los propios hilos de CoreScope, sin el primer minuto (arranque); ayudantes y procesos iniciados aparecen aparte. La interfaz (ventana, panel, barra de menús) está en el total de la app.
+  Coletor (processos, portas, sensores) ¦ Collector (processes, ports, sensors) ¦ Recolector (procesos, puertos, sensores)
+  CoreScope ¦ CoreScope ¦ CoreScope
+  CoreScope %@ · %@ ¦ CoreScope %@ · %@ ¦ CoreScope %@ · %@
+  CoreScope está gastando mais do que um monitor deveria. Desligue o que não usa abaixo; os itens medidos como médio ou alto vêm primeiro. ¦ CoreScope is spending more than a monitor should. Turn off what you do not use below; items measured as medium or high come first. ¦ CoreScope está gastando más de lo que un monitor debería. Apaga lo que no uses abajo; los elementos medidos como medio o alto van primero.
+  Custo do CoreScope ¦ CoreScope's own cost ¦ Costo de CoreScope
+  Limites ao vivo do Codex ¦ Live Codex limits ¦ Límites en vivo de Codex
+  Modo economia ¦ Economy mode ¦ Modo ahorro
+  Máquinas (ssh) ¦ Machines (ssh) ¦ Máquinas (ssh)
+  Média 5 min ¦ 5-min average ¦ Media 5 min
+  Portas e exposição ¦ Ports and exposure ¦ Puertos y exposición
+  Processos iniciados pelo app ¦ Processes the app started ¦ Procesos iniciados por la app
+  Quanto o próprio CoreScope está gastando ¦ What CoreScope itself is spending ¦ Cuánto está gastando el propio CoreScope
+  Status line do Claude ¦ Claude status line ¦ Status line de Claude
+  a cada %@ s com janela ou painel visível, 10 s sem · %@ ms por passagem ¦ every %@ s with the window or panel visible, 10 s otherwise · %@ ms per pass ¦ cada %@ s con ventana o panel visible, 10 s sin ellos · %@ ms por pasada
+  a cada 15 s, só com a página aberta ¦ every 15 s, only while the page is open ¦ cada 15 s, solo con la página abierta
+  a cada 2 s, só com a página aberta ¦ every 2 s, only while the page is open ¦ cada 2 s, solo con la página abierta
+  a cada 20 s ¦ every 20 s ¦ cada 20 s
+  a cada 20 s, só arquivos novos ou alterados ¦ every 20 s, only new or changed files ¦ cada 20 s, solo archivos nuevos o cambiados
+  inicia o codex app-server a cada 5 min ¦ starts codex app-server every 5 min ¦ inicia codex app-server cada 5 min
+  mantém o coletor no intervalo rápido mesmo com a janela fechada ¦ keeps the collector at the fast interval even with the window closed ¦ mantiene el recolector en el intervalo rápido incluso con la ventana cerrada
+  relê a cada 60 s; procura pastas novas a cada 10 min ¦ re-reads every 60 s; looks for new folders every 10 min ¦ relee cada 60 s; busca carpetas nuevas cada 10 min
+  roda o corescope a cada atualização do status line do Claude ¦ runs corescope on every Claude status line update ¦ ejecuta corescope en cada actualización del status line de Claude
+  socket local parado até um agente pedir algo ¦ local socket, idle until an agent asks ¦ socket local, inactivo hasta que un agente pida algo
+  só enquanto uma tela com contêineres está aberta ¦ only while a screen showing containers is open ¦ solo mientras una pantalla con contenedores está abierta
+  só na bateria, a cada coleta ¦ on battery only, every sample ¦ solo con batería, en cada muestra
+  só quando você pede um escaneamento ¦ only when you ask for a scan ¦ solo cuando pides un escaneo
+  uma gravação por minuto, dentro do coletor; consultas da página à parte ¦ one write per minute, inside the collector; page queries separately ¦ una escritura por minuto, dentro del recolector; consultas de la página aparte
+  %@ minutos registrados entre %@ e %@. ¦ %@ minutes recorded between %@ and %@. ¦ %@ minutos registrados entre %@ y %@.
+  Abrir %@ ¦ Open %@ ¦ Abrir %@
+  Abrir Serviços ¦ Open Services ¦ Abrir Servicios
+  Abrir projeto %@ ¦ Open project %@ ¦ Abrir proyecto %@
+  CPU média de %@ (pico de %@ às %@). ¦ CPU averaged %@ (peak %@ at %@). ¦ CPU media de %@ (pico de %@ a las %@).
+  Escolha um momento para ver CPU, energia, memória e quem dominou nos 10 minutos em volta, comparados com a hora anterior. Também pelo ⌥⌘K, por corescope://happened?at=14:05 e pelo MCP (what_happened). ¦ Pick a moment to see CPU, power, memory and who dominated in the 10 minutes around it, against the hour before. Also from ⌥⌘K, corescope://happened?at=14:05 and MCP (what_happened). ¦ Elige un momento para ver CPU, energía, memoria y quién dominó en los 10 minutos alrededor, comparados con la hora anterior. También con ⌥⌘K, corescope://happened?at=14:05 y el MCP (what_happened).
+  Estado térmico chegou a crítico. ¦ Thermal state reached critical. ¦ El estado térmico llegó a crítico.
+  Estado térmico chegou a sério (com redução de desempenho). ¦ Thermal state reached serious (throttling). ¦ El estado térmico llegó a serio (con reducción de rendimiento).
+  Gravação em disco chegou a %@. ¦ Disk writes peaked at %@. ¦ La escritura en disco llegó a %@.
+  Iniciar o perfil %@? ¦ Start the %@ profile? ¦ ¿Iniciar el perfil %@?
+  Iniciar perfil %@ ¦ Start profile %@ ¦ Iniciar perfil %@
+  Maior energia ¦ Most power ¦ Mayor energía
+  Na hora anterior: %@. ¦ The hour before: %@. ¦ La hora anterior: %@.
+  Nada encontrado ¦ Nothing found ¦ Nada encontrado
+  Nada registrado entre %@ e %@: Mac em repouso, CoreScope fechado ou histórico desligado. ¦ Nothing recorded between %@ and %@: the Mac was asleep, CoreScope was closed or history was off. ¦ Nada registrado entre %@ y %@: Mac en reposo, CoreScope cerrado o historial apagado.
+  Nenhum perfil chamado %@. ¦ No profile named %@. ¦ Ningún perfil llamado %@.
+  O que aconteceu às %@ ¦ What happened at %@ ¦ Qué pasó a las %@
+  O que aconteceu às… ¦ What happened at… ¦ Qué pasó a las…
+  Parar perfil %@ ¦ Stop profile %@ ¦ Detener perfil %@
+  Pedido por um link corescope://. Os comandos vêm de %@: ¦ Asked by a corescope:// link. The commands come from %@: ¦ Pedido por un enlace corescope://. Los comandos vienen de %@:
+  Porta ou ação ¦ Port or action ¦ Puerto o acción
+  Pressão de memória chegou a atenção. ¦ Memory pressure reached warning. ¦ La presión de memoria llegó a advertencia.
+  Pressão de memória chegou a crítica. ¦ Memory pressure reached critical. ¦ La presión de memoria llegó a crítica.
+  Swap cresceu %@ (para %@). ¦ Swap grew %@ (to %@). ¦ El swap creció %@ (hasta %@).
+  Ver ¦ Show ¦ Ver
+  Verificar %@ ¦ Check %@ ¦ Comprobar %@
+  Verificar serviços ¦ Check services ¦ Comprobar servicios
+  ainda não verificado ¦ not checked yet ¦ aún no comprobado
+  Energia dos processos: média de %@ (pico de %@ às %@). ¦ Process power averaged %@ (peak %@ at %@). ¦ Energía de los procesos: media de %@ (pico de %@ a las %@).
+  Horário não reconhecido: use 14:05, 2:05 pm ou ontem 9:30 ¦ Time not recognized: use 14:05, 2:05 pm or yesterday 9:30 ¦ Hora no reconocida: usa 14:05, 2:05 pm o ayer 9:30
+  Ainda não medido. A primeira medição roda 3 minutos depois de abrir o app, ou agora pelo botão. ¦ Not measured yet. The first measurement runs 3 minutes after the app opens, or now with the button. ¦ Aún sin medir. La primera medición se hace 3 minutos después de abrir la app, o ahora con el botón.
+  Crescimento do disco ¦ Disk growth ¦ Crecimiento del disco
+  Espaço livre ¦ Free space ¦ Espacio libre
+  Medido em %@, comparado com %@. ¦ Measured %@, compared with %@. ¦ Medido el %@, comparado con %@.
+  Medir agora ¦ Measure now ¦ Medir ahora
+  O que cresceu hoje ¦ What grew today ¦ Qué creció hoy
+  Pastas que costumam encher o disco de quem desenvolve: caches, Xcode e simuladores, VMs de contêiner, lojas de pacotes, modelos, Downloads, Lixeira e dados de agentes. Medidas no máximo a cada 6 h em segundo plano (alguns segundos de disco); limpar continua com você, na Limpeza. Também: corescope disk-growth e MCP disk_growth. ¦ Folders that usually fill a developer's disk: caches, Xcode and simulators, container VMs, package stores, models, Downloads, Trash and agent data. Measured at most every 6 h in the background (a few seconds of disk); cleaning stays with you, in Cleanup. Also: corescope disk-growth and MCP disk_growth. ¦ Carpetas que suelen llenar el disco de quien desarrolla: cachés, Xcode y simuladores, VMs de contenedores, almacenes de paquetes, modelos, Descargas, Papelera y datos de agentes. Medidas como máximo cada 6 h en segundo plano (unos segundos de disco); limpiar sigue en tus manos, en Limpieza. También: corescope disk-growth y MCP disk_growth.
+  Primeira medição em %@: o crescimento aparece a partir da próxima. ¦ First measurement %@: growth shows from the next one. ¦ Primera medición el %@: el crecimiento aparece desde la próxima.
+  mede no máximo a cada 6 h, alguns segundos de disco ¦ measures at most every 6 h, a few seconds of disk ¦ mide como máximo cada 6 h, unos segundos de disco
   """

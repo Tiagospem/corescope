@@ -407,6 +407,129 @@ impl Reader {
     }
 }
 
+/// A named volume with what `/system/df` reports about it.
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct VolumeInfo {
+    pub name: String,
+    pub engine: &'static str,
+    /// Bytes on disk, when the engine measured it.
+    pub size: Option<u64>,
+    /// Containers using it (stopped ones included); 0 means unused.
+    pub containers: i64,
+    pub project: Option<String>,
+}
+/// Slower facts read on demand (a page asks every ~30 s, not every 5 s).
+#[derive(Debug, Default, Serialize)]
+pub struct Details {
+    pub volumes: Vec<VolumeInfo>,
+    /// Container id → restart policy name (`no`, `always`, `unless-stopped`, `on-failure`).
+    pub restart: HashMap<String, String>,
+    /// Image reference (`mysql:8.4`, or the short id) → creation time (seconds since 1970).
+    pub images: HashMap<String, f64>,
+}
+pub fn parse_volumes(body: &Value, engine: &'static str) -> Vec<VolumeInfo> {
+    body["Volumes"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|v| {
+            Some(VolumeInfo {
+                name: v["Name"].as_str()?.to_string(),
+                engine,
+                size: v["UsageData"]["Size"]
+                    .as_i64()
+                    .filter(|s| *s >= 0)
+                    .map(|s| s as u64),
+                containers: v["UsageData"]["RefCount"].as_i64().unwrap_or(-1),
+                project: v["Labels"]["com.docker.compose.project"]
+                    .as_str()
+                    .map(String::from),
+            })
+        })
+        .collect()
+}
+/// Reads volumes, image dates and (for containers not seen before) restart policies. Inspect
+/// carries the container's environment, so only the policy name is taken from it.
+pub fn details(known: &mut HashMap<String, String>) -> Details {
+    let home = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_default();
+    let host = std::env::var("DOCKER_HOST").ok();
+    let mut out = Details::default();
+    for socket in sockets(&home, host.as_deref()) {
+        let engine = engine_name(&socket.to_string_lossy());
+        if let Ok(r) = request(
+            &socket,
+            "GET",
+            "/system/df?type=volume",
+            Duration::from_secs(20),
+        ) && let Ok(body) = serde_json::from_slice::<Value>(&r.body)
+        {
+            out.volumes.extend(parse_volumes(&body, engine));
+        }
+        if let Ok(r) = request(&socket, "GET", "/images/json", Duration::from_secs(5)) {
+            for image in serde_json::from_slice::<Value>(&r.body)
+                .unwrap_or_default()
+                .as_array()
+                .into_iter()
+                .flatten()
+            {
+                let created = image["Created"].as_f64().unwrap_or(0.);
+                for tag in image["RepoTags"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str)
+                {
+                    out.images.insert(tag.to_string(), created);
+                }
+                if let Some(id) = image["Id"].as_str().and_then(|i| i.strip_prefix("sha256:")) {
+                    out.images.insert(id.chars().take(12).collect(), created);
+                }
+            }
+        }
+        let Ok(list) = request(
+            &socket,
+            "GET",
+            "/containers/json?all=1",
+            Duration::from_secs(3),
+        ) else {
+            continue;
+        };
+        for c in serde_json::from_slice::<Value>(&list.body)
+            .unwrap_or_default()
+            .as_array()
+            .into_iter()
+            .flatten()
+        {
+            let Some(id) = c["Id"].as_str().filter(|i| valid_id(i)) else {
+                continue;
+            };
+            if !known.contains_key(id) {
+                let path = format!("/containers/{id}/json");
+                let policy = request(&socket, "GET", &path, Duration::from_secs(3))
+                    .ok()
+                    .and_then(|r| serde_json::from_slice::<Value>(&r.body).ok())
+                    .and_then(|v| {
+                        v["HostConfig"]["RestartPolicy"]["Name"]
+                            .as_str()
+                            .map(String::from)
+                    })
+                    .map(|n| if n.is_empty() { "no".into() } else { n });
+                if let Some(policy) = policy {
+                    known.insert(id.to_string(), policy);
+                }
+            }
+            if let Some(p) = known.get(id) {
+                out.restart.insert(id.to_string(), p.clone());
+            }
+        }
+    }
+    out.volumes
+        .sort_by_key(|v| std::cmp::Reverse(v.size.unwrap_or(0)));
+    out
+}
+
 /// List filtered by id prefix; `id` is hex-validated, so it needs no further escaping.
 pub fn lookup_path(id: &str) -> String {
     format!("/containers/json?all=1&filters=%7B%22id%22%3A%5B%22{id}%22%5D%7D")
@@ -478,6 +601,16 @@ pub fn act(id: &str, action: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn volumes_from_system_df() {
+        let body = serde_json::json!({"Volumes": [
+            {"Name": "shop_db", "UsageData": {"Size": 2048, "RefCount": 1}, "Labels": {"com.docker.compose.project": "shop"}},
+            {"Name": "orphan", "UsageData": {"Size": -1, "RefCount": 0}, "Labels": null}
+        ]});
+        let v = parse_volumes(&body, "OrbStack");
+        assert_eq!(v[0].project.as_deref(), Some("shop"));
+        assert_eq!((v[1].size, v[1].containers), (None, 0));
+    }
     #[test]
     fn http_plain_and_chunked() {
         let r = parse_response(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n[1]")

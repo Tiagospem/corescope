@@ -11,7 +11,7 @@
 
 <p align="center">
   <img alt="macOS 14+" src="https://img.shields.io/badge/macOS-14%2B-black?logo=apple">
-  <img alt="Apple Silicon" src="https://img.shields.io/badge/Apple%20Silicon-native-3ddc84">
+  <img alt="Universal: Apple Silicon and Intel" src="https://img.shields.io/badge/universal-Apple%20Silicon%20%2B%20Intel-3ddc84">
   <img alt="Rust + SwiftUI" src="https://img.shields.io/badge/Rust%20%2B%20SwiftUI-native-orange">
   <img alt="Offline" src="https://img.shields.io/badge/network-none-blue">
   <img alt="MIT" src="https://img.shields.io/badge/license-MIT-lightgrey">
@@ -67,13 +67,86 @@ If you work with Claude Code, Codex, editors and terminals all day, your Mac fil
 
 A busy Claude Code session or Codex thread that has not written to its transcript for a while (10 min by default) gets a badge on the Agents page, and optionally a notification that opens it in Claude or Codex. CoreScope tells the cases apart by what the commands started in the current turn are doing: one using CPU is a **long command** (a build, a test run); one sitting idle is **waiting** — often a prompt asking for input; nothing running at all means the agent itself looks **stuck**. Servers it left listening and processes from earlier turns (MCP servers) are ignored. Only modification times are read, never transcript content.
 
+### 📄 Profiles as code
+
+Commit a `.corescope.yml` and the whole team gets the same environment. CoreScope finds it in the folders you and your agents work in, shows its profiles (read-only, marked with the file) and its Services checks, and agents can read or write it over MCP (`read_project_config`, `write_project_config`); `corescope config` validates it.
+
+```yaml
+name: Revamp
+
+profiles:
+  dev:
+    commands:
+      - name: web
+        run: php artisan serve --port 8000
+      - run: npm run dev
+    containers: [TO--mysql--26.7.0--3306, TO--redis--8.6.2--6379]
+  qa:
+    commands:
+      - name: env
+        run: make test-env-up
+        stop: make test-env-down
+
+ports:
+  web: 8000
+
+services:
+  - name: API
+    target: http://localhost:8000/up
+
+logs: [storage/logs/*.log]
+
+agents:
+  wait_for_capacity:
+    cpu_below: 70
+    memory: normal
+    max_wait_minutes: 30
+    heavy_commands: [php artisan test, npm run build]
+```
+
+The format is plain YAML (maps, lists, quoted or plain values, comments); anything fancier is rejected with the line number.
+
+### 📜 Logs
+
+Every log of every project in one place, for any stack: log files found in the usual folders (`storage/logs`, `log`, `logs`, `var/log`, `*.log` at the root) plus the `logs:` globs in `.corescope.yml`, the output of profile commands, and container logs. Tail one live, search a project, or see its recent errors — detected by the level each line declares, or by generic markers (`Exception`, `Traceback`, `panic`, `FATAL`…) — with their stack traces and repeats folded into a count. Agents get the same over MCP (`recent_errors` for a profile or project, `tail_log`, `search_logs`, `list_log_sources`), so they can debug without you pasting logs; and `corescope logs --errors` works in a terminal.
+
+### ⏸️ Agents wait for capacity
+
+When an agent starts a full test suite on a Mac that is already at 90% CPU, everything slows down and a ten-minute task takes hours. A project can opt in, in `.corescope.yml`:
+
+```yaml
+agents:
+  wait_for_capacity:
+    cpu_below: 70          # % of all cores
+    memory: normal         # or warning
+    max_wait_minutes: 30   # then run anyway
+    heavy_commands: [php artisan test, npm run build]   # empty = common builds and test suites
+```
+
+- **Claude Code** — *Settings › MCP server for agents › Claude Code waits…* installs a `PreToolUse` hook (`corescope gate`, with a backup of `~/.claude/settings.json`). Before a heavy command in such a project it waits until CPU and memory pressure are back under the limit (two good readings in a row), then lets it run. Other commands and other projects pass in a few milliseconds. It delays, it never blocks.
+- **Codex and other agents** — the MCP server tells them to call `wait_for_capacity` (and `system_capacity`) before heavy commands in those projects.
+- **You see it** — the Agents page lists who is waiting, for which command and why. `corescope wait` does the same for your own scripts.
+- **Economy mode** (Energy page): on battery, busy processes agent sessions start run at macOS background priority, so they yield CPU and disk to what you are doing; servers with open ports are left alone, and everything returns to normal on AC.
+
+### 🔌 Ports
+
+- **Reachable from the network**: everything of yours listening beyond `localhost` — processes and container ports published on `0.0.0.0` — ranked by risk: databases, caches and queues high (they often run without a password in development), dev servers medium, macOS services low; each with how to bind it to `127.0.0.1` (for compose, `"127.0.0.1:3306:3306"`).
+- **Projects' preferred ports**: the `ports:` of each `.corescope.yml` — free, in use by the project itself, or taken by something else (who holds it, and the next free port).
+- **Free port finder** and every listening server with its project, open-in-browser and terminate.
+- `corescope exposure`, `corescope ports --check`, and MCP `exposure_report` / `port_conflicts` (check before starting a server on a fixed port).
+
 ### 💚 Services
 
 Watch the things your work depends on: a local API's `/health`, a database port, a staging URL. Each check runs every 30 s while CoreScope is open — an HTTP GET (2xx/3xx up, 4xx answered with an error, 5xx or no answer down) or a TCP connect — with latency, a strip of the last 40 results, an Overview summary and optional notifications when a service goes down (two failures in a row) or comes back. Ports you have open right now are offered as one-click suggestions.
 
+Each check keeps a week of history in 5-minute buckets (counts and latency only): uptime over 24 h and 7 days next to it, and a sheet with incidents and the day's latency. MCP `list_services` includes uptime and recent incidents.
 ### ▶️ Profiles
 
 One click to bring a project's environment up or down. A profile is a folder, the commands you run there every day (`npm run dev`, `php artisan serve`, `cargo watch -x run`…) and the containers it needs. *Start* runs each command in your login shell inside the folder, in a session of its own, with output in `~/Library/Application Support/CoreScope/logs`, and starts the containers. Everything a command starts keeps that session, so servers it leaves running in the background still belong to the profile — after the shell exits and after CoreScope restarts — with their PIDs and ports on the card. Setup commands that exit (`make env-up`, `docker compose up -d`) count as done when they exit 0 (failed otherwise), and can have an *on stop* command (`make env-down`) that Stop runs. *Stop* (after confirmation) sends SIGTERM only to the processes in the sessions CoreScope started for that profile — identity-checked like every other termination — and stops its containers — only the ones a profile started, and never one another started profile still uses: shared containers (one database for several projects) stay up until the last profile using them stops, and the confirmation lists what stops and what stays. *Stop everything* is there when you want it all down.
+
+### 👥 Agents side by side
+
+The Agents page flags **sessions sharing one working tree** (Claude Code sessions and running Codex threads in the same folder): they can overwrite each other's files and fight over ports and dev servers, so each should get its own git worktree. `corescope agents` and MCP `list_agent_sessions` report the same, and `corescope worktrees` / MCP `list_worktrees` list the worktrees agents left, with branch, merged state, uncommitted changes and whether something is using them.
 
 ### 🗄️ Databases
 
@@ -81,7 +154,10 @@ The MySQL/MariaDB, PostgreSQL and Redis servers running on this Mac — as proce
 
 ### 🖥️ Machines
 
-Servers you reach over ssh — add an alias from `~/.ssh/config` (offered as suggestions) or `user@host` — with OS, uptime, load against cores, memory, root disk, the top processes and running containers, refreshed every 60 s while the page is open. CoreScope runs **your own `ssh` in BatchMode** with a fixed, read-only script (`uname`, load, memory, `df`, `ps`, `docker ps`) piped to `sh -s`: keys and agent stay with ssh, nothing prompts for a password, and a host whose key is unknown fails instead of being accepted. Only `Host` names are read from your ssh config.
+Servers you reach over ssh — add an alias from `~/.ssh/config` (offered as suggestions) or `user@host` — refreshed every 60 s while the page is open: distribution, uptime, load against cores, memory and swap, every disk, top processes by CPU and by memory, failed systemd units and the containers with their state. CoreScope runs **your own `ssh` in BatchMode** with a fixed, read-only script piped to `sh -s`: keys and agent stay with ssh, nothing prompts for a password, and a host whose key is unknown fails instead of being accepted. Only `Host` names are read from your ssh config.
+
+- **Alerts** on the card (and optional notifications): a disk above 90%, load sustained above 1.5× the cores, failed systemd units, a container that stopped or fails its health check.
+- **Recipes**: commands that run on demand — built-in read-only ones (journal, failed units, `df`, memory, containers, top, listening ports, nginx errors) and your own. Agents run them by name over MCP (`list_recipes`, `run_recipe`), never free-form commands.
 
 ### 🔋 Energy
 
@@ -92,7 +168,13 @@ Battery level, charging state and time left, the watts each process draws right 
 <img src="docs/screenshots/history.jpg" alt="History page: CPU, memory, disk and network over the last hour, thermal and memory pressure, and the processes that dominated" width="900">
 
 - Answers *“what made my Mac slow yesterday at 3 pm?”*: 1 h, 24 h and 7 d views of CPU (mean and peak), memory and swap, disk, network, thermal state and memory pressure, with gaps where nothing was recorded.
-- Click any chart to see **the processes that dominated that moment** (top CPU and memory, with project and “via Claude Code”-style origin); step back period by period or jump to a date.
+- Click any chart to see **the processes that dominated that moment** (top CPU, memory and power, with project and “via Claude Code”-style origin); step back period by period or jump to a date.
+- **What happened at 2:05 pm?** Pick a moment (or type `14:05` in ⌥⌘K, open `corescope://happened?at=14:05`, run `corescope happened 14:05`, or let an agent call `what_happened`): CPU and process power in the 10 minutes around it against the hour before, memory, swap growth, pressure, thermal state, disk writes and who dominated.
+- Since 0.5 History also records total process power and the 10 processes drawing the most each minute (older files are upgraded in place; earlier minutes keep no power).
+
+### 💾 What grew today
+
+The Storage page measures the folders that usually fill a developer's disk — caches, Xcode DerivedData and simulators, Docker/OrbStack/Colima VMs, npm/pnpm/Yarn/Bun/Cargo/Go/Gradle/Maven/Composer stores, `~/.cache`, model folders (Ollama, LM Studio, Hugging Face), Downloads, Trash and Claude/Codex data (symlinked ones too) — at most every 6 hours in the background and on demand, and shows what grew since the last measurement before today, with free space. `corescope disk-growth [--measure]` and MCP `disk_growth` give the same; cleaning stays in Cleanup.
 
 ### 🐳 Containers
 
@@ -102,6 +184,9 @@ Battery level, charging state and time left, the watts each process draws right 
 - **Listening servers name the container**: ports that OrbStack Helper or `com.docker.backend` hold for a container show up as *container &lt;name&gt;* instead of the VM helper.
 - **Stop / Restart** in place with the same click-to-arm, click-to-confirm button used for processes.
 - Read from the engine's **local Unix socket** only (`~/.orbstack/run/docker.sock`, `~/.docker/run/docker.sock`, Colima, `/var/run/docker.sock` or a `unix://` `DOCKER_HOST`), at most every 5 s and only while a container view is on screen.
+- **Grouped by compose project**, with *Start all* / *Stop all*, a start button for stopped containers, the restart policy (`unless-stopped`, `always`…) and how old each image is.
+- **Volumes** with their size and how many containers use them; unused ones are flagged (CoreScope only shows them — removing a volume deletes its data).
+- **Agents too**: MCP `list_containers`, `container_logs` and `container_action` (start/stop/restart). Stopping a container a started profile uses is refused with the profile's name unless the agent passes `force` after asking you. `corescope containers` prints the same in a terminal.
 
 ### 🧹 Cleanup
 
@@ -110,6 +195,7 @@ Finds reclaimable developer space and shows what each item is, where it is, its 
 - **Projects:** `node_modules` (next to a `package.json`) and Rust `target/` (with Cargo's `CACHEDIR.TAG`), in the folders you add and in the folders holding the projects your agents, editors and terminals are working in.
 - **Xcode:** DerivedData per project, device support files, Simulator caches.
 - **Package caches:** Homebrew, npm, Yarn, pnpm, Bun, Cargo, pip, uv, Go, Gradle, Composer, CocoaPods.
+- **Git worktrees** that agents leave behind (Claude Code's `.claude/worktrees`, Codex, Conductor, Cursor, or any `git worktree add`), with agent, branch and whether it is merged. One with uncommitted changes, a git lock or any process inside (a terminal included) is locked; a clean one goes to the Trash and `git worktree prune` drops git's record of it — the branch stays.
 - **Docker:** dangling images, images no container uses, unused build cache (through the engine's own API).
 
 Nothing is scanned until you press *Scan*: the last result is kept in `~/Library/Application Support/CoreScope/cleanup-cache.json` (paths, sizes and dates) and the page says when it may be out of date (older than 6 hours, or the folder list changed). Select items (or *Unused 30+ days*) and confirm: folders go to the **Trash**, so they can be recovered until you empty it. Anything a process is using — a dev server in the project, `cargo`, Xcode, an agent working there — is locked, and every folder is re-checked by the core right before it moves: still a real folder (no symlinks), still one of the kinds above, still unused. Docker data is removed by Docker and pulled again when needed.
@@ -137,8 +223,24 @@ Nothing is scanned until you press *Scan*: the last result is kept in `~/Library
   - macOS **memory pressure** reaches *warning* or *critical*, naming the biggest consumer.
 
   At most one notification per process identity (PID + start time) per hour. Protected processes and other users' processes never notify. Rules run on the snapshots CoreScope already collects — no extra timer or sampling.
-- **Port lookup in the menu bar:** type a port (e.g. `3000`) to see which of your processes listens on it — name, project, origin — with *open `localhost:port`* and ✕. An empty result reads *Free*.
+- **Port lookup and quick actions in the menu bar:** type a port (e.g. `3000`) to see which of your processes listens on it — name, project, origin — with *open `localhost:port`* and ✕ (an empty result reads *Free*); type words to start or stop a profile, check a service, open a project folder or any page, pause sampling, or `14:05` for what happened then. Return runs the first match.
+- **Profiles and Services in the menu bar:** start or stop up to five profiles and see every service check as a coloured dot, without opening the window.
 - **Global shortcut ⌥⌘K** (configurable in Settings → Port shortcut) opens the menu bar popover with the port field focused. It is registered with Carbon's `RegisterEventHotKey`, so it needs **no Accessibility or Input Monitoring permission**: the app receives only that one key combination, never other keystrokes. (macOS 27 no longer exposes a public way to open a `MenuBarExtra` window, so there the shortcut shows the same menu in a standard popover anchored to the status item.)
+
+### 🔗 `corescope://` links, Shortcuts and Raycast
+
+CoreScope registers the `corescope://` URL scheme, so Shortcuts (*Open URLs*), Raycast quicklinks, Alfred, scripts (`open "corescope://…"`) and bookmarks can drive it:
+
+| Link | Does |
+| --- | --- |
+| `corescope://open/ports` | Opens a page (`overview`, `processes`, `agents`, `containers`, `history`, `storage`, `cleanup`, `services`, `profiles`, `databases`, `machines`, `energy`, `logs`, `ports`, `sensors`, `settings`) |
+| `corescope://profile/start?name=Revamp%20Test` | Starts a profile (`stop`, `toggle` too). A profile from a `.corescope.yml` asks first, showing its commands, so a web page cannot run a cloned project's commands |
+| `corescope://lookup?port=8000` | Opens the port lookup with that port |
+| `corescope://services/check` | Runs every service check now |
+| `corescope://happened?at=14:05` | History's *What happened at…* for that moment |
+| `corescope://palette` | Opens ⌥⌘K |
+
+For scripts that need an answer rather than an action, use the command line below (`--json`).
 
 ### ⌨️ Command line
 
@@ -155,6 +257,12 @@ corescope kill 4242 --tree         # stop a process and everything it started
 corescope space                    # reclaimable node_modules, target/, Xcode, caches, Docker
 corescope db                       # local MySQL/PostgreSQL/Redis: sizes, connections, slow queries
 corescope power                    # battery, watts per process and per agent session
+corescope config                   # validate this project's .corescope.yml
+corescope logs --errors            # this project's recent errors, with traces
+corescope wait                     # wait until the Mac has room (the project's rule or flags)
+corescope exposure                 # what listens beyond localhost, riskiest first
+corescope happened "2:05 pm"       # what the Mac was doing then (needs History on)
+corescope disk-growth --measure    # which usual folders grew today
 ```
 
 Termination follows the app's rules: only your own processes, never system services or the command's own ancestors (an agent cannot stop its own session), identity revalidated right before each signal, and no signal without `--yes` when there is no terminal to confirm in.
@@ -171,6 +279,15 @@ Off by default. *Settings → MCP server for agents → Enable* registers `cores
 | `list_my_processes` | What the calling agent session started, including servers it detached |
 | `power_usage` | Battery, total watts, top processes and agent sessions by power |
 | `list_databases` | Local MySQL/PostgreSQL/Redis status (read-only, no passwords) |
+| `list_recipes` / `run_recipe` | Read-only commands on a machine, run by name over your ssh |
+| `exposure_report` / `port_conflicts` | What listens beyond localhost (risk and fix); projects' preferred ports and who holds them |
+| `list_worktrees` | Git worktrees agents left: branch, merged, uncommitted changes, in use |
+| `system_capacity` / `wait_for_capacity` | Whether the Mac has room for heavy work under the project's rule; wait until it does |
+| `list_containers` / `container_logs` / `container_action` | Containers with project, ports, restart policy and volumes; logs; start/stop/restart under the profiles' sharing rules |
+| `recent_errors` / `search_logs` / `tail_log` / `list_log_sources` | A profile's or project's logs: errors with traces and counts, search, tail |
+| `read_project_config` / `write_project_config` | The project's `.corescope.yml`, parsed and validated / written as commented YAML |
+| `what_happened` | What the Mac was doing around a moment (History): CPU and power against the hour before, swap, pressure, thermal, who dominated, in plain English |
+| `disk_growth` | Which usual folders grew today, and free space |
 | `list_dev_space` | Reclaimable space (read-only; cleaning stays in the app, with your confirmation) |
 | `stop_port` / `stop_process` | Stop a process (or a port's owner), **only if this agent session started it** |
 
@@ -182,7 +299,8 @@ With *Agents can use the app through MCP* (on by default once the server is regi
 | `list_services` / `add_service` / `remove_service` / `check_services` | Services health checks |
 | `list_machines` / `add_machine` / `remove_machine` / `refresh_machines` | SSH machines |
 | `cleanup_status` / `scan_dev_space` / `clean_dev_space` | Cleanup: cached result, a new scan, and moving items from the latest scan to the Trash |
-| `get_settings` / `set_setting` | Notification toggles, thresholds and cleanup folders (nothing that reaches outside the Mac) |
+| `get_settings` / `set_setting` | Notification toggles, thresholds, cleanup folders, collector interval and the floating panel (nothing that reaches outside the Mac) |
+| `corescope_cost` | What CoreScope itself spends (app, helpers, children) and each feature's measured CPU, to tell you what to turn off |
 | `list_stuck_agents` | Busy sessions and whether they look stuck |
 
 Tools that stop, delete or clean are marked destructive, so Claude Code and Codex ask before running them; the app applies the same rules as its own buttons (Trash only, re-verification, shared containers, identity checks).
@@ -199,9 +317,9 @@ The server finds its agent session from its own parent chain. A process counts a
 
 ## Install
 
-### Download (Apple Silicon)
+### Download (Apple Silicon and Intel)
 
-1. Download `CoreScope-<version>-macos-arm64.dmg` from the [latest release](https://github.com/Tiagospem/corescope/releases/latest).
+1. Download `CoreScope-<version>-macos-universal.dmg` from the [latest release](https://github.com/Tiagospem/corescope/releases/latest).
 2. Open the DMG and drag **CoreScope** to **Applications**.
 3. First launch: the app is open source and signed ad hoc, **not notarized by Apple**, so macOS blocks it the first time. Open it once, then go to **System Settings → Privacy & Security** and click **Open Anyway**. Alternatively, in Terminal:
 
@@ -213,7 +331,7 @@ Each release lists SHA-256 checksums (`SHA256SUMS.txt`) so you can verify the do
 
 ### Build from source
 
-**Requirements:** macOS 14 or later · Xcode Command Line Tools (Swift 6) · Rust/Cargo. Developed and validated on Apple Silicon (MacBook Air M4, macOS 27); Intel Macs are untested.
+**Requirements:** macOS 14 or later · Xcode Command Line Tools (Swift 6) · Rust/Cargo. Developed and validated on Apple Silicon (MacBook Air M4, macOS 27). Releases are universal (`UNIVERSAL=1 ./scripts/build.sh`, needs `rustup target add x86_64-apple-darwin`); the Intel slice is built and checked but not yet run on an Intel Mac — reports welcome.
 
 ```bash
 xcode-select --install                                           # Swift toolchain, if needed
@@ -258,6 +376,15 @@ A monitor shouldn't be what slows your Mac down. Measured on a MacBook Air M4 wi
 
 Sampling pauses during sleep and slows down in Low Power Mode.
 
+CoreScope also shows what **it** costs, so turning everything on never goes unnoticed: the footer
+reads its own CPU and memory, and *Settings › CoreScope's own cost* breaks it down — the app, its
+helpers (MCP servers, the gate hook, the status line), processes it started (ssh, codex
+app-server), and every background feature with whether it is on, how often it works and the CPU
+time it actually spent in CoreScope's threads over the last 5 minutes (startup excluded), with the
+switches that change it. Past 2 % of a core in the background (6 % with the window open, which
+draws on its own) or 500 MB it says so. Agents read the same with
+`corescope_cost`.
+
 ## How it works
 
 | Directory | Role |
@@ -285,15 +412,15 @@ The screenshots and GIF in this README were generated by `scripts/readme-media.s
 
 ## Roadmap
 
-### Shipped in 0.4.0
+### Shipped in 0.5.0
 
-The `corescope` command line, the MCP server (now able to drive the whole app), Cleanup, stuck-agent detection, Services, Profiles, Databases, Machines and Energy. See the [changelog](CHANGELOG.md).
+Profiles as code (`.corescope.yml`), the Logs and Ports pages, container control through MCP, agents that wait for capacity, worktrees and agent conflicts, richer Machines with recipes, Services history, CoreScope's own cost, *What happened at…*, *What grew today*, quick actions, `corescope://` links and a universal build. 0.4.0 brought the command line, the MCP server, Cleanup, stuck-agent detection, Services, Profiles, Databases, Machines and Energy. See the [changelog](CHANGELOG.md).
 
 ### Backlog
 
 - **More agents with titles and status:** Cursor, Gemini CLI and Aider sessions with the same title, working/idle state, project and actions that Claude Code and Codex already have.
 - **Windows and Linux versions:** the Rust core is portable in spirit, but process, port and disk readers are macOS-specific (libproc, IOKit) and the app is SwiftUI. A multi-platform build needs per-OS readers (e.g. `/proc` on Linux, Toolhelp/IP Helper on Windows) and a cross-platform UI.
-- Notarized releases and a universal (Intel) build.
+- Notarized releases.
 - Validation on Intel Macs and macOS 14.
 
 ## Security

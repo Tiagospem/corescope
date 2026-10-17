@@ -116,16 +116,22 @@ enum ControlAPI {
   static func handle(_ op: String, _ args: [String: Any], reply: @escaping Reply) {
     switch op {
     case "ping": reply(["ok": true, "version": Bundle.main.infoDictionary?["CFBundleShortVersionString"] ?? ""])
-    case "profiles.list": reply(["profiles": ProfileStore.shared.profiles.map(profileJSON)])
+    case "profiles.list":
+      ProjectFileStore.shared.refresh {
+        reply(["profiles": ProfileStore.shared.allProfiles.map(profileJSON)])
+      }
     case "profiles.create": createProfile(args, reply)
     case "profiles.delete": withProfile(args, reply) { p in
+        if let source = p.source {
+          return reply(["error": "\(p.name) is defined in \(source); edit that file (write_project_config)"])
+        }
         ProfileStore.shared.profiles.removeAll { $0.id == p.id }
         reply(["deleted": p.name, "note": "Only the settings were deleted; nothing running was stopped."])
       }
     case "profiles.start": withProfile(args, reply) { p in
         ProfileStore.shared.start(p) { errors in
           DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-            var out = profileJSON(ProfileStore.shared.profiles.first { $0.id == p.id } ?? p)
+            var out = profileJSON(ProfileStore.shared.allProfiles.first { $0.id == p.id } ?? p)
             out["errors"] = errors
             reply(out)
           }
@@ -155,7 +161,86 @@ enum ControlAPI {
         reply(["profile": p.name, "logs": logs])
       }
 
-    case "services.list": reply(["services": HealthStore.shared.checks.map(serviceJSON)])
+    case "projects.refresh":
+      if let folder = args["folder"] as? String, FileManager.default.fileExists(atPath: folder) {
+        ProjectFileStore.shared.remember(folder)
+      }
+      ProjectFileStore.shared.refresh {
+        reply(["projects": ProjectFileStore.shared.files.map { f -> [String: Any] in
+          ["folder": f.folder, "file": f.file, "valid": f.error == nil, "error": f.error ?? NSNull()]
+        }])
+      }
+    case "logs.sources":
+      LogsStore.shared.refresh {
+        let sources = LogsStore.shared.sources(project: logScope(args))
+        reply(["sources": sources.map { ["name": $0.name, "kind": $0.kind, "project": $0.project ?? "", "path_or_container": $0.target] }])
+      }
+    case "logs.tail":
+      LogsStore.shared.refresh {
+        let key = (args["source"] as? String ?? "").lowercased()
+        guard let source = LogsStore.shared.sources.first(where: { $0.name.lowercased() == key || $0.target.lowercased() == key })
+        else { return reply(["error": "no such log; list_log_sources shows the names"]) }
+        LogsStore.shared.tail(source, lines: min(max(args["lines"] as? Int ?? 100, 1), 1000)) { result in
+          switch result {
+          case .success(let lines): reply(["source": source.name, "lines": lines])
+          case .failure(let e): reply(["error": e.localizedDescription])
+          }
+        }
+      }
+    case "logs.errors", "logs.search":
+      LogsStore.shared.refresh {
+        let scope = logScope(args)
+        let sources = LogsStore.shared.sources(project: scope)
+        guard !sources.isEmpty else {
+          return reply(["error": "no logs found\(scope.map { " for \($0)" } ?? ""); list_log_sources shows what is known"])
+        }
+        let encode: ([LogEntry]) -> [[String: Any]] = { list in
+          list.map { ["source": $0.source, "level": $0.level, "message": $0.text, "trace": $0.context, "times": $0.count] }
+        }
+        if op == "logs.search" {
+          guard let q = args["query"] as? String, !q.isEmpty else { return reply(["error": "query is required"]) }
+          LogsStore.shared.search(sources, query: q) { reply(["matches": encode($0)]) }
+        } else {
+          LogsStore.shared.errors(sources, limit: min(max(args["limit"] as? Int ?? 20, 1), 100), warnings: args["warnings"] as? Bool ?? false) {
+            entries, problems in
+            reply(["errors": encode(entries), "unreadable": problems, "sources_checked": sources.map(\.name)])
+          }
+        }
+      }
+    case "containers.action":
+      let name = args["name"] as? String ?? ""
+      let action = args["action"] as? String ?? ""
+      guard ["start", "stop", "restart"].contains(action) else {
+        return reply(["error": "action must be start, stop or restart"])
+      }
+      if action != "start", args["force"] as? Bool != true {
+        let users = ProfileStore.shared.allProfiles.filter {
+          ProfileStore.shared.active.contains($0.id) && $0.containers.contains(name)
+        }
+        if !users.isEmpty {
+          return reply([
+            "error": "\(name) is used by the started profile(s) \(users.map(\.name).joined(separator: ", ")); "
+              + "use stop_profile, or ask the user and pass force: true",
+          ])
+        }
+      }
+      DispatchQueue.global(qos: .userInitiated).async {
+        var all: [ContainerItem] = []
+        if let pointer = cs_containers(0) {
+          let data = Data(bytes: pointer, count: strlen(pointer))
+          cs_free(pointer)
+          all = (try? JSONDecoder().decode(ContainerReport.self, from: data))?.containers ?? []
+        }
+        DispatchQueue.main.async {
+          guard let container = all.first(where: { $0.name == name }) else {
+            return reply(["error": "no container named \(name); list_containers shows the names"])
+          }
+          ContainerStore.shared.perform(container, action: action) { error in
+            reply(error.map { ["error": $0] } ?? ["container": name, "action": action, "done": true])
+          }
+        }
+      }
+    case "services.list": reply(["services": HealthStore.shared.allChecks.map(serviceJSON)])
     case "services.add":
       guard let target = args["target"] as? String, HealthTarget(target) != nil else {
         return reply(["error": "target must be a URL (http/https), host:port or a local port"])
@@ -166,12 +251,15 @@ enum ControlAPI {
       DispatchQueue.main.asyncAfter(deadline: .now() + 6) { reply(serviceJSON(check)) }
     case "services.remove":
       guard let check = findService(args) else { return reply(["error": "no such service"]) }
+      if let source = check.source {
+        return reply(["error": "\(check.name) is defined in \(source); edit that file (write_project_config)"])
+      }
       HealthStore.shared.checks.removeAll { $0.id == check.id }
       reply(["removed": check.name])
     case "services.check":
       HealthStore.shared.runAll()
       DispatchQueue.main.asyncAfter(deadline: .now() + 6) {
-        reply(["services": HealthStore.shared.checks.map(serviceJSON)])
+        reply(["services": HealthStore.shared.allChecks.map(serviceJSON)])
       }
 
     case "machines.list": reply(["machines": MachineStore.shared.hosts.map(machineJSON)])
@@ -188,6 +276,27 @@ enum ControlAPI {
       }
       MachineStore.shared.hosts.removeAll { $0 == host }
       reply(["removed": host])
+    case "machines.recipes":
+      guard let host = args["host"] as? String, MachineStore.shared.hosts.contains(host) else {
+        return reply(["error": "no such machine; list_machines shows the hosts"])
+      }
+      reply(["host": host, "recipes": MachineStore.shared.recipes(host).map { ["name": $0.name, "command": $0.command] }])
+    case "machines.run":
+      guard let host = args["host"] as? String, MachineStore.shared.hosts.contains(host) else {
+        return reply(["error": "no such machine; list_machines shows the hosts"])
+      }
+      let name = args["recipe"] as? String ?? ""
+      guard let recipe = MachineStore.shared.recipes(host).first(where: { $0.name == name }) else {
+        return reply(["error": "no recipe named \(name); list_recipes shows them (agents cannot run free-form commands)"])
+      }
+      DispatchQueue.global(qos: .userInitiated).async {
+        let (out, error) = MachineStore.shared.run(recipe, on: host)
+        DispatchQueue.main.async {
+          var r: [String: Any] = ["host": host, "recipe": name, "output": out]
+          if let error { r["error_note"] = error }
+          reply(r)
+        }
+      }
     case "machines.refresh":
       MachineStore.shared.refreshAll()
       waitForMachines(reply) { ["machines": MachineStore.shared.hosts.map(machineJSON)] }
@@ -211,6 +320,7 @@ enum ControlAPI {
         ])
       }
 
+    case "app.cost": reply(SelfCost.current().json())
     case "settings.get": reply(["settings": AgentSettings.read()])
     case "settings.set":
       guard let key = args["key"] as? String else { return reply(["error": "key is required"]) }
@@ -244,11 +354,22 @@ enum ControlAPI {
     }
   }
 
+  /// `profile` (its project) or `project`, matched to the names Logs uses.
+  private static func logScope(_ args: [String: Any]) -> String? {
+    if let name = args["profile"] as? String, let p = findProfile(["name": name]) {
+      return LogsStore.shared.projects().first { $0.folder == p.folder }?.name ?? p.name
+    }
+    return (args["project"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+  }
+
   // MARK: profiles
 
   private static func findProfile(_ args: [String: Any]) -> EnvProfile? {
     let key = (args["name"] as? String ?? args["id"] as? String ?? "").lowercased()
-    return ProfileStore.shared.profiles.first { $0.name.lowercased() == key || $0.id.uuidString.lowercased() == key }
+    let normalized = key.replacingOccurrences(of: " / ", with: "/")
+    return ProfileStore.shared.allProfiles.first {
+      $0.name.lowercased() == normalized || $0.id.uuidString.lowercased() == normalized
+    }
   }
   private static func withProfile(_ args: [String: Any], _ reply: @escaping Reply, _ body: (EnvProfile) -> Void) {
     guard let p = findProfile(args) else {
@@ -291,9 +412,10 @@ enum ControlAPI {
   }
   private static func profileJSON(_ p: EnvProfile) -> [String: Any] {
     let store = ProfileStore.shared
-    let containers = ContainerStore.shared.report?.containers ?? []
+    let containers = ContainerStore.shared.report?.containers ?? currentContainers()
     return [
       "id": p.id.uuidString, "name": p.name, "folder": p.folder, "active": store.active.contains(p.id),
+      "defined_in": p.source ?? "CoreScope app",
       "commands": p.commands.map { c -> [String: Any] in
         var row: [String: Any] = ["name": c.name, "command": c.command, "running": false]
         if let stop = c.stopCommand { row["stop_command"] = stop }
@@ -318,19 +440,32 @@ enum ControlAPI {
     ]
   }
 
+  /// A direct read when no page keeps the container list fresh (local socket, fast).
+  private static func currentContainers() -> [ContainerItem] {
+    guard let pointer = cs_containers(0) else { return [] }
+    defer { cs_free(pointer) }
+    let data = Data(bytes: pointer, count: strlen(pointer))
+    return (try? JSONDecoder().decode(ContainerReport.self, from: data))?.containers ?? []
+  }
+
   // MARK: services, machines, cleanup
 
   private static func findService(_ args: [String: Any]) -> HealthCheck? {
     let key = (args["name"] as? String ?? args["target"] as? String ?? "").lowercased()
-    return HealthStore.shared.checks.first { $0.name.lowercased() == key || $0.target.lowercased() == key }
+    return HealthStore.shared.allChecks.first { $0.name.lowercased() == key || $0.target.lowercased() == key }
   }
   private static func serviceJSON(_ c: HealthCheck) -> [String: Any] {
-    var row: [String: Any] = ["name": c.name, "target": c.target]
+    var row: [String: Any] = ["name": c.name, "target": c.target, "defined_in": c.source ?? "CoreScope app"]
     if let r = HealthStore.shared.results[c.id] {
       row["status"] = ["up", "answered with an error", "down"][r.level.rawValue]
       row["detail"] = r.detail
       row["latency_ms"] = r.latency.map { ($0 * 10).rounded() / 10 } ?? NSNull()
       row["checked_at"] = ISO8601DateFormatter().string(from: r.at)
+      row["uptime_24h_percent"] = HealthStore.shared.uptime(c.id, hours: 24).map { ($0 * 1000).rounded() / 10 } ?? NSNull()
+      row["uptime_7d_percent"] = HealthStore.shared.uptime(c.id, hours: 168).map { ($0 * 1000).rounded() / 10 } ?? NSNull()
+      row["incidents_7d"] = HealthStore.shared.incidents(c.id).prefix(10).map {
+        ["start": ISO8601DateFormatter().string(from: $0.start), "minutes": Int($0.end.timeIntervalSince($0.start) / 60)]
+      }
     } else {
       row["status"] = "not checked yet"
     }
@@ -351,9 +486,17 @@ enum ControlAPI {
       row["disk_total"] = s.diskTotal ?? NSNull()
       row["disk_used"] = s.diskUsed ?? NSNull()
       row["containers"] = s.containers ?? NSNull()
+      row["os_name"] = s.osName
+      row["swap_total"] = s.swapTotal ?? NSNull()
+      row["swap_free"] = s.swapFree ?? NSNull()
+      row["disks"] = s.disks.map { ["mount": $0.mount, "total": $0.total, "used": $0.used] }
+      row["failed_units"] = s.failedUnits
+      row["container_list"] = s.containerList.map { ["name": $0.name, "state": $0.state, "status": $0.status] }
+      row["top_memory"] = s.memoryProcesses.map { ["name": $0.name, "cpu_percent": $0.cpu, "memory_percent": $0.memory] }
       row["top_processes"] = s.processes.map { ["name": $0.name, "cpu_percent": $0.cpu, "memory_percent": $0.memory] }
     }
     row["read_at"] = ISO8601DateFormatter().string(from: state.at)
+    row["alerts"] = state.alerts.map(\.text)
     return row
   }
   private static func waitForMachines(_ reply: @escaping Reply, attempts: Int = 0, _ value: @escaping () -> [String: Any]) {
@@ -373,6 +516,7 @@ enum ControlAPI {
           "id": i.id, "kind": i.kind, "group": i.group, "name": i.name, "path": i.path, "bytes": i.bytes,
           "modified": i.modified > 0 ? ISO8601DateFormatter().string(from: Date(timeIntervalSince1970: i.modified)) : NSNull(),
           "in_use_by": i.busy ?? NSNull(), "removed_by": i.isDocker ? "docker (permanent)" : "trash (recoverable)",
+          "detail": i.detail ?? NSNull(),
         ]
       },
     ]
@@ -397,11 +541,13 @@ enum AgentSettings {
     "notify_orphans": \.notifyOrphans, "notify_heavy_processes": \.notifyHeavy,
     "notify_memory_pressure": \.notifyPressure, "notify_stuck_agents": \.notifyStalls,
     "notify_service_down": \.notifyServiceDown, "notify_agent_battery_drain": \.notifyAgentDrain,
+    "economy_mode_on_battery": \.economyMode, "notify_machine_alerts": \.notifyMachines,
+    "floating_panel": \.panelVisible,
   ]
   private static let numbers: [String: (ReferenceWritableKeyPath<Preferences, Double>, ClosedRange<Double>)] = [
     "stuck_agent_minutes": (\.stallMinutes, 1...240), "agent_drain_watts": (\.drainWatts, 0.5...50),
     "heavy_memory_gb": (\.notifyMemoryGB, 0.5...64), "heavy_cpu_percent": (\.notifyCPU, 50...1600),
-    "heavy_sustain_seconds": (\.notifySustain, 15...3600),
+    "heavy_sustain_seconds": (\.notifySustain, 15...3600), "collector_interval_seconds": (\.interval, 2...10),
   ]
   static func read() -> [String: Any] {
     let p = Preferences.shared
@@ -422,6 +568,12 @@ enum AgentSettings {
     if let (path, range) = numbers[key] {
       guard let v = (value as? NSNumber)?.doubleValue, range.contains(v) else {
         return "\(key) takes a number between \(range.lowerBound) and \(range.upperBound)"
+      }
+      if key == "collector_interval_seconds" {
+        guard [2, 3, 5, 10].contains(v) else { return "collector_interval_seconds takes 2, 3, 5 or 10" }
+        p[keyPath: path] = v
+        Monitor.shared.refresh()
+        return nil
       }
       p[keyPath: path] = v
       return nil

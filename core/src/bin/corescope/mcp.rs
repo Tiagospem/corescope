@@ -5,7 +5,10 @@
 //! it (its nearest ancestor that is a Claude Code / Codex / … session) and only signals that
 //! session's descendants — never other sessions, other users, system services, the agent itself
 //! or the server's own ancestors. Identity is revalidated by the core right before each signal.
-use crate::{agents, databases, free_port, orphans, ports, power, sample, space, subtree, top};
+use crate::{
+    agents, containers, databases, free_port, orphans, ports, power, project_config, sample, space,
+    subtree, top,
+};
 use corescope::{Process, Snapshot, cs_is_same, signal_process};
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
@@ -69,10 +72,15 @@ fn initialize(params: &Value) -> Value {
         "protocolVersion": version,
         "capabilities": {"tools": {"listChanged": false}},
         "serverInfo": {"name": "corescope", "title": "CoreScope", "version": env!("CARGO_PKG_VERSION")},
-        "instructions": "Local view of this Mac's processes, listening ports and resources. Use \
-    find_free_port before starting a dev server, list_ports to see what is running where, and \
-    stop_port / stop_process to clean up servers you started in this session. Stopping is limited \
-    to processes this agent session started."
+        "instructions": "CoreScope: this Mac's processes, ports, resources, projects and services. \
+    Before starting a dev server use find_free_port (and the project's preferred ports from \
+    read_project_config); to debug a failing app use recent_errors instead of asking for logs; to \
+    run or stop an environment use the project's profiles (list_profiles, start_profile). \
+    IMPORTANT: when the project's .corescope.yml has agents.wait_for_capacity, call \
+    wait_for_capacity before heavy commands (builds, test suites, docker builds) and repeat until \
+    it answers ready: true or the project's max_wait passes — the Mac is shared and an \
+    overloaded machine turns a task into hours. Stopping processes is limited to what this agent \
+    session started; ask the user before destructive actions."
     })
 }
 
@@ -84,7 +92,8 @@ fn tool(name: &str, description: &str, properties: Value, required: &[&str]) -> 
                            "destructiveHint": destructive, "openWorldHint": false}})
 }
 /// Tools that stop, delete or remove things; hosts ask the user before running them.
-const DESTRUCTIVE: [&str; 7] = [
+const DESTRUCTIVE: [&str; 8] = [
+    "container_action",
     "stop_port",
     "stop_process",
     "stop_profile",
@@ -94,7 +103,8 @@ const DESTRUCTIVE: [&str; 7] = [
     "remove_machine",
 ];
 /// Tools that change state without destroying anything.
-const CHANGES: [&str; 6] = [
+const CHANGES: [&str; 7] = [
+    "write_project_config",
     "create_profile",
     "start_profile",
     "add_service",
@@ -172,6 +182,47 @@ fn app_tools() -> Vec<(
             vec!["name"],
         ),
         (
+            "list_log_sources",
+            "logs.sources",
+            "Logs CoreScope can read, by project: project log files (storage/logs, log, logs, var/log, \
+          *.log and .corescope.yml globs), profile command output and container logs.",
+            json!({"project": {"type": "string"}, "profile": {"type": "string"}}),
+            vec![],
+        ),
+        (
+            "tail_log",
+            "logs.tail",
+            "The last lines of one log (name or path from list_log_sources).",
+            json!({"source": {"type": "string"}, "lines": {"type": "integer", "minimum": 1, "maximum": 1000}}),
+            vec!["source"],
+        ),
+        (
+            "recent_errors",
+            "logs.errors",
+            "The latest errors (warnings too, if asked) across a profile's or project's logs, with \
+          stack traces and repeat counts. Use this to debug a failing app instead of asking for logs.",
+            json!({"profile": {"type": "string"}, "project": {"type": "string"},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 100}, "warnings": {"type": "boolean"}}),
+            vec![],
+        ),
+        (
+            "search_logs",
+            "logs.search",
+            "Lines containing `query` (case-insensitive) across a profile's or project's logs.",
+            json!({"query": {"type": "string"}, "profile": {"type": "string"}, "project": {"type": "string"}}),
+            vec!["query"],
+        ),
+        (
+            "container_action",
+            "containers.action",
+            "Start, stop or restart a container by name. Stopping or restarting one that a started \
+          profile uses is refused with the profile's name (use stop_profile, or pass force: true \
+          after the user agrees). Ask the user before stopping anything.",
+            json!({"name": {"type": "string"}, "action": {"type": "string", "enum": ["start", "stop", "restart"]},
+                "force": {"type": "boolean"}}),
+            vec!["name", "action"],
+        ),
+        (
             "list_services",
             "services.list",
             "Services health checks (CoreScope › Services): target, up/down, HTTP status or TCP result, latency.",
@@ -224,6 +275,22 @@ fn app_tools() -> Vec<(
             vec!["host"],
         ),
         (
+            "list_recipes",
+            "machines.recipes",
+            "Read-only commands that can run on a machine (journal, failed systemd units, disk, memory, \
+          containers, top, listening ports, nginx errors, plus the user's own).",
+            json!({"host": {"type": "string"}}),
+            vec!["host"],
+        ),
+        (
+            "run_recipe",
+            "machines.run",
+            "Run one recipe by name on a machine over the user's ssh and return its output (up to \
+          128 KB). Only named recipes: free-form commands are not possible.",
+            json!({"host": {"type": "string"}, "recipe": {"type": "string"}}),
+            vec!["host", "recipe"],
+        ),
+        (
             "refresh_machines",
             "machines.refresh",
             "Read every machine again and return the results.",
@@ -253,6 +320,13 @@ fn app_tools() -> Vec<(
           Confirm the list and sizes with the user before calling.",
             json!({"ids": {"type": "array", "items": {"type": "string"}}}),
             vec!["ids"],
+        ),
+        (
+            "corescope_cost",
+            "app.cost",
+            "What CoreScope itself costs right now: the app, its helpers (MCP servers like this one, the gate hook, the status line) and processes it started, in CPU (% of one core, now and 5-minute average), memory and watts, plus each background feature with whether it is on, how often it works and its measured CPU. Use it to tell the user what to turn off when the monitor spends too much.",
+            json!({}),
+            vec![],
         ),
         (
             "get_settings",
@@ -378,6 +452,103 @@ fn core_tools() -> Vec<Value> {
             &[],
         ),
         tool(
+            "disk_growth",
+            "Which of the usual space-hungry folders grew today (caches, Xcode DerivedData and \
+             simulators, Docker/OrbStack VMs, npm/pnpm/Cargo/Go/Gradle stores, model files, \
+             Downloads, Trash, Claude/Codex data): size now, change since the last measurement \
+             before today, and free space change. measure: true measures now (takes seconds); \
+             otherwise the last saved measurement is used. Read-only; cleaning stays with the user.",
+            json!({"measure": {"type": "boolean", "description": "measure now (default false)"}}),
+            &[],
+        ),
+        tool(
+            "what_happened",
+            "What the Mac was doing around a moment, from CoreScope's local History (when the user \
+             turned it on): CPU and process power against the hour before, memory, swap growth, \
+             memory pressure, thermal state, disk writes, and the processes that dominated CPU, \
+             memory and power (with project folder and the agent or app that started them), plus \
+             plain-English findings. Use it for questions like 'why was my Mac slow at 2:05?'.",
+            json!({
+                "at": {"type": "string", "description": "14:05, 2:05 pm, yesterday 9:30, 2026-10-17 14:05 or epoch seconds (local time)"},
+                "minutes": {"type": "integer", "minimum": 2, "maximum": 120, "description": "window centred on `at` (default 10)"}
+            }),
+            &["at"],
+        ),
+        tool(
+            "system_capacity",
+            "Whether the Mac has room for heavy work now: CPU and memory pressure against the \
+             project's .corescope.yml agents.wait_for_capacity rule (or a default 70% CPU, normal \
+             memory), the reasons when not, and the project's heavy command list.",
+            json!({"folder": {"type": "string", "description": "project folder; default: this session's"}}),
+            &[],
+        ),
+        tool(
+            "wait_for_capacity",
+            "Waits (up to `seconds`, default 45) until the Mac has room under the project's rule, \
+             then answers ready: true. If it answers ready: false, call it again until ready or the \
+             project's max_wait_minutes (also returned) passes — then proceed and tell the user.",
+            json!({"folder": {"type": "string"}, "seconds": {"type": "integer", "minimum": 5, "maximum": 55}}),
+            &[],
+        ),
+        tool(
+            "exposure_report",
+            "What listens beyond localhost (your processes and containers), riskiest first: \
+             databases and caches reachable from the network, dev servers, macOS services; with how \
+             to bind each to 127.0.0.1.",
+            json!({}),
+            &[],
+        ),
+        tool(
+            "port_conflicts",
+            "Projects' preferred ports (.corescope.yml › ports): free, held by the project itself, \
+             or taken by something else — with who holds it and a free alternative. Check before \
+             starting a server on a fixed port.",
+            json!({"folders": {"type": "array", "items": {"type": "string"}}}),
+            &[],
+        ),
+        tool(
+            "list_worktrees",
+            "Git worktrees agents left behind (Claude Code .claude/worktrees, Codex, Conductor, \
+             Cursor or any `git worktree add`) in the known project folders: branch, merged or not, \
+             uncommitted changes, last commit and whether a process uses it. Clean ones can be \
+             removed with scan_dev_space + clean_dev_space (to the Trash).",
+            json!({"folders": {"type": "array", "items": {"type": "string"}}}),
+            &[],
+        ),
+        tool(
+            "list_containers",
+            "Docker containers on this Mac (OrbStack, Docker Desktop, Colima): state, health, \
+             compose project and service, published ports, restart policy; plus named volumes with \
+             their size and how many containers use them.",
+            json!({}),
+            &[],
+        ),
+        tool(
+            "container_logs",
+            "The last lines of a container's logs (stdout and stderr, with timestamps).",
+            json!({"name": {"type": "string"}, "lines": {"type": "integer", "minimum": 1, "maximum": 3000}}),
+            &["name"],
+        ),
+        tool(
+            "read_project_config",
+            "The project's .corescope.yml (profiles, ports, services, logs, agent capacity rules), \
+             parsed and validated, from `folder` or its nearest parent. Use it to learn how the \
+             project is run before starting servers or heavy work.",
+            json!({"folder": {"type": "string", "description": "absolute path; default: this session's folder"}}),
+            &[],
+        ),
+        tool(
+            "write_project_config",
+            "Create or replace a project's .corescope.yml from a JSON config (validated; written as \
+             commented YAML the team can commit). Shape: {name?, profiles: {NAME: {commands: [{name?, \
+             run, stop?}], containers?: [names]}}, ports?: {role: port}, services?: [{name?, target}], \
+             logs?: [globs relative to the project], agents?: {wait_for_capacity: {cpu_below?, memory?: \
+             normal|warning, max_wait_minutes?, heavy_commands: [prefixes]}}}. Read the project's \
+             scripts first and confirm with the user before writing.",
+            json!({"folder": {"type": "string"}, "config": {"type": "object"}}),
+            &["folder", "config"],
+        ),
+        tool(
             "list_databases",
             "Local MySQL/MariaDB, PostgreSQL and Redis servers (processes and containers): \
              version, size per database, connections, slow and long-running queries. \
@@ -445,6 +616,106 @@ fn call(params: &Value) -> Value {
         "list_agent_sessions" => text(agents(&sample(true)), false),
         "list_orphans" => text(orphans(&sample(false)), false),
         "list_databases" => text(databases(&sample(false)), false),
+        "list_containers" => text(containers(), false),
+        "exposure_report" => text(crate::exposure(), false),
+        "port_conflicts" => {
+            let folders: Vec<std::path::PathBuf> = args["folders"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .map(Into::into)
+                .collect();
+            text(crate::port_claims(&folders), false)
+        }
+        "list_worktrees" => {
+            let folders: Vec<std::path::PathBuf> = args["folders"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .map(Into::into)
+                .collect();
+            text(crate::worktrees(&folders), false)
+        }
+        "disk_growth" => match corescope::disk_growth(args["measure"].as_bool() == Some(true)) {
+            Ok(r) => text(json!(r), false),
+            Err(e) => text(json!({"error": e}), true),
+        },
+        "what_happened" => match crate::happened(
+            args["at"].as_str().unwrap_or(""),
+            args["minutes"].as_i64().unwrap_or(10),
+        ) {
+            Ok(v) => text(v, false),
+            Err(e) => text(json!({"error": e}), true),
+        },
+        "system_capacity" | "wait_for_capacity" => {
+            let folder = args["folder"]
+                .as_str()
+                .map(std::path::PathBuf::from)
+                .or_else(|| session(&sample(false)).map(|s| std::path::PathBuf::from(&s.cwd)))
+                .unwrap_or_default();
+            let rule = crate::capacity_spec(&folder);
+            let spec = rule.clone().unwrap_or_default();
+            if name == "system_capacity" {
+                let reading = corescope::capacity::reading(&sample(true));
+                let blockers = corescope::capacity::blockers(&spec, &reading);
+                return text(
+                    json!({"ready": blockers.is_empty(), "blockers": blockers, "reading": reading,
+                           "rule": rule, "rule_source": if rule.is_some() { "project .corescope.yml" } else { "default (no project rule)" }}),
+                    false,
+                );
+            }
+            let seconds = args["seconds"].as_u64().unwrap_or(45).clamp(5, 55);
+            let mut out = crate::wait_for_room(&spec, Some(Duration::from_secs(seconds)), |_| {});
+            out["max_wait_minutes"] = json!(spec.max_wait_minutes);
+            text(out, false)
+        }
+        "container_logs" => {
+            let name = args["name"].as_str().unwrap_or("");
+            let source = corescope::logs::Source {
+                kind: "container".into(),
+                name: name.into(),
+                project: None,
+                target: name.into(),
+            };
+            let lines = args["lines"].as_u64().unwrap_or(200).clamp(1, 3000) as usize;
+            match corescope::logs::tail(&source, lines) {
+                Ok(l) => text(json!({"container": name, "lines": l}), false),
+                Err(e) => text(json!({"error": crate::english(&e)}), true),
+            }
+        }
+        "read_project_config" => {
+            let folder = args["folder"]
+                .as_str()
+                .map(std::path::PathBuf::from)
+                .or_else(|| session(&sample(false)).map(|s| std::path::PathBuf::from(&s.cwd)))
+                .unwrap_or_default();
+            match project_config(&folder) {
+                Ok(v) => text(v, false),
+                Err(e) => text(json!({"error": e}), true),
+            }
+        }
+        "write_project_config" => {
+            let folder = std::path::PathBuf::from(args["folder"].as_str().unwrap_or(""));
+            let config = serde_json::from_value::<corescope::projectconfig::ProjectConfig>(
+                args["config"].clone(),
+            );
+            match config
+                .map_err(|e| e.to_string())
+                .and_then(|c| corescope::projectconfig::write(&folder, &c))
+            {
+                Ok(file) => {
+                    // Let the app pick it up now rather than at its next scan.
+                    let _ = app("projects.refresh", &json!({"folder": folder}));
+                    text(
+                        json!({"written": file, "note": "Commit it so the team shares the profiles."}),
+                        false,
+                    )
+                }
+                Err(e) => text(json!({"error": e}), true),
+            }
+        }
         "power_usage" => text(power(&sample(true)), false),
         "list_dev_space" => {
             let folders: Vec<std::path::PathBuf> = args["folders"]

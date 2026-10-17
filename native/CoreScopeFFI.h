@@ -16,6 +16,19 @@ char *cs_dev_space_verify(const char *path);
 char *cs_dev_space_docker(const char *socket, const char *kind);
 // Local MySQL/PostgreSQL/Redis, read-only and without passwords: [Database].
 char *cs_databases(void);
+// .corescope.yml files found under {"roots":[...],"auto":bool}: [{folder,file,config,error}].
+char *cs_project_configs(const char *request);
+// Logs: {"op":"files"|"tail"|"errors"|"search", folders|source|sources, lines, limit, warnings, query}.
+char *cs_logs(const char *request);
+// Volumes, restart policies and image dates from the local Docker engines.
+char *cs_docker_details(void);
+// Darwin background priority on/off for a same-user process (identity revalidated).
+char *cs_background(int32_t pid, uint64_t start, int32_t on);
+// Ports reachable beyond localhost, riskiest first: [{port,owner,pid,container,project,kind,risk,advice}].
+char *cs_exposure(void);
+// Projects' preferred ports: {"projects":[{name,folder,ports:{role:port}}]} → [PortClaim].
+char *cs_port_claims(const char *request);
 void cs_free(char *pointer);
 
 int32_t cs_is_same(int32_t pid, uint64_t start);
+char *cs_disk_growth(const char *request);

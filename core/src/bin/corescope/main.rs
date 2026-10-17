@@ -24,8 +24,27 @@ USAGE:
                                         package caches, unused Docker data (read-only; delete
                                         from the CoreScope app, which moves folders to the Trash)
   corescope power                       battery, total power, top processes and agent sessions by watts
+  corescope worktrees [FOLDER...]       git worktrees agents left (Claude Code, Codex, …): branch,
+                                        merged, uncommitted changes, last commit, in use
+  corescope exposure                    what listens beyond localhost (processes and containers), by risk
+  corescope ports --check [FOLDER...]   projects' preferred ports (.corescope.yml): free, ours or taken
+  corescope containers                  containers (state, ports, compose project, health), volumes
+  corescope logs [FOLDER] [--errors] [--search TEXT] [-n N]
+                                        the project's log files: tail, errors with traces, or search
+  corescope wait [FOLDER] [--cpu-below N] [--memory normal|warning] [--max-wait MIN]
+                                        wait until the Mac has room (the project's .corescope.yml
+                                        agents.wait_for_capacity, or the flags), then exit 0
+  corescope gate                        Claude Code PreToolUse hook: holds heavy Bash commands until
+                                        there is room, in projects that enable it
+  corescope config [FOLDER]             validate and show the project's .corescope.yml (default: here)
   corescope db                          local MySQL/PostgreSQL/Redis: size, connections, slow
                                         and long-running queries (no passwords used or read)
+  corescope happened TIME [--minutes N] what the Mac was doing around TIME (14:05, 2:05 pm,
+                                        yesterday 9:30, 2026-10-17 14:05): CPU, power, memory,
+                                        swap, thermal and who dominated (needs History on)
+  corescope disk-growth [--measure]     which usual folders grew today (caches, Xcode, simulators,
+                                        container VMs, package stores, models, Downloads, Trash);
+                                        --measure measures now (seconds) before reporting
   corescope mcp                         run the local MCP server on stdio
 
 OPTIONS:
@@ -56,7 +75,12 @@ fn main() {
             println!("{HELP}");
             0
         }
+        Some("ports") if flag("--check") => {
+            let folders: Vec<std::path::PathBuf> = positional[1..].iter().map(Into::into).collect();
+            print(json_out, port_claims(&folders))
+        }
         Some("ports") => print(json_out, ports(&sample(false))),
+        Some("exposure") => print(json_out, exposure()),
         Some("free-port") => {
             let from = positional
                 .get(1)
@@ -115,7 +139,101 @@ fn main() {
             print(json_out, space(&folders, !flag("--no-docker")))
         }
         Some("db") => print(json_out, databases(&sample(false))),
+        Some("logs") => {
+            let folder = positional
+                .get(1)
+                .filter(|p| !p.is_empty())
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+            let query = args
+                .iter()
+                .position(|a| a == "--search")
+                .and_then(|i| args.get(i + 1))
+                .cloned();
+            print(
+                json_out,
+                logs(
+                    &folder,
+                    flag("--errors"),
+                    query.as_deref(),
+                    number("-n").unwrap_or(40),
+                ),
+            )
+        }
+        Some("containers") => print(json_out, containers()),
+        Some("worktrees") => {
+            let folders: Vec<std::path::PathBuf> = positional[1..].iter().map(Into::into).collect();
+            print(json_out, worktrees(&folders))
+        }
+        Some("gate") => gate(),
+        Some("wait") => {
+            let folder = positional
+                .get(1)
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+            let value = |name: &str| {
+                args.iter()
+                    .position(|a| a == name)
+                    .and_then(|i| args.get(i + 1))
+                    .cloned()
+            };
+            let mut spec = capacity_spec(&folder).unwrap_or_default();
+            if let Some(v) = value("--cpu-below").and_then(|v| v.parse().ok()) {
+                spec.cpu_below = v;
+            }
+            if let Some(v) = value("--memory") {
+                spec.memory = v;
+            }
+            if let Some(v) = value("--max-wait").and_then(|v| v.parse().ok()) {
+                spec.max_wait_minutes = v;
+            }
+            let outcome = wait_for_room(&spec, None, |line| eprintln!("corescope: {line}"));
+            print(json_out, outcome)
+        }
+        Some("config") => {
+            let folder = positional
+                .get(1)
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+            match project_config(&folder) {
+                Ok(v) if json_out => print(true, v),
+                Ok(v) => {
+                    println!("{}: valid", v["file"].as_str().unwrap_or(""));
+                    0
+                }
+                Err(e) => fail(json_out, &e),
+            }
+        }
         Some("power") => print(json_out, power(&sample(true))),
+        Some("disk-growth") => match corescope::disk_growth(flag("--measure")) {
+            Ok(r) if json_out => print(true, json!(r)),
+            Ok(r) => {
+                println!("{}", growth_text(&r));
+                0
+            }
+            Err(e) => fail(json_out, &e),
+        },
+        Some("happened") => {
+            let skip = args.iter().position(|a| a == "--minutes").map(|i| i + 1);
+            let when = args
+                .iter()
+                .enumerate()
+                .skip(1)
+                .filter(|(i, a)| !a.starts_with('-') && Some(*i) != skip)
+                .map(|(_, a)| a.as_str())
+                .collect::<Vec<_>>()
+                .join(" ");
+            match happened(&when, number("--minutes").unwrap_or(10) as i64) {
+                Ok(v) if json_out => print(true, v),
+                Ok(v) => {
+                    for line in v["findings"].as_array().into_iter().flatten() {
+                        println!("{}", line.as_str().unwrap_or(""));
+                    }
+                    0
+                }
+                Err(e) => fail(json_out, &e),
+            }
+        }
         Some("mcp") => mcp::serve(),
         Some(other) => fail(
             json_out,
@@ -123,6 +241,71 @@ fn main() {
         ),
     };
     std::process::exit(code);
+}
+
+/// The disk growth report as lines for people.
+pub fn growth_text(r: &corescope::diskgrowth::Report) -> String {
+    let gb = |b: i64| format!("{:+.2} GB", b as f64 / 1_073_741_824.);
+    let size = |b: u64| format!("{:.1} GB", b as f64 / 1_073_741_824.);
+    let Some(at) = r.measured_at else {
+        return "Nothing measured yet: run `corescope disk-growth --measure`.".into();
+    };
+    let mut out = vec![match r.baseline_at {
+        Some(b) => format!(
+            "Measured {} against {}.",
+            corescope::local_format(at),
+            corescope::local_format(b)
+        ),
+        None => format!(
+            "Measured {} (first measurement: growth shows from the next one).",
+            corescope::local_format(at)
+        ),
+    }];
+    if let Some(free) = r.free {
+        let change = r
+            .free_change
+            .map(|c| format!(" ({})", gb(c)))
+            .unwrap_or_default();
+        out.push(format!("Free space: {}{change}.", size(free)));
+    }
+    out.push(format!(
+        "{:<20} {:>10} {:>11}  PATH",
+        "FOLDER", "SIZE", "CHANGE"
+    ));
+    for g in &r.folders {
+        out.push(format!(
+            "{:<20} {:>10} {:>11}  {}",
+            g.label,
+            size(g.bytes),
+            g.change.map(gb).unwrap_or_else(|| "—".into()),
+            g.path
+        ));
+    }
+    out.join("\n")
+}
+
+/// History around a moment, with findings; the per-minute points are left out.
+pub fn happened(when: &str, minutes: i64) -> Result<Value, String> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let at = corescope::parse_moment(when, now).ok_or_else(|| {
+        format!("could not read the time {when:?}: use 14:05, 2:05 pm, yesterday 9:30 or 2026-10-17 14:05")
+    })?;
+    let h = corescope::history::happened(&corescope::history::default_path(), at, minutes)?;
+    let findings = corescope::history::findings(&h);
+    let mut v = serde_json::to_value(&h).map_err(|e| e.to_string())?;
+    if let Some(o) = v.as_object_mut() {
+        o.remove("points");
+        for k in ["at", "from", "to", "cpu_max_at", "power_max_at"] {
+            if let Some(t) = o.get(k).and_then(Value::as_i64) {
+                o.insert(format!("{k}_local"), json!(corescope::local_format(t)));
+            }
+        }
+    }
+    v["findings"] = json!(findings);
+    Ok(v)
 }
 
 /// One sample gives ports, folders and origins; CPU needs a second one a moment later.
@@ -226,7 +409,25 @@ pub fn agents(snapshot: &Snapshot) -> Value {
             })
         })
         .collect();
-    json!({"agents": sessions})
+    // Sessions working in the same working tree can fight over files, ports and dev servers.
+    let mut trees: HashMap<String, Vec<i32>> = HashMap::new();
+    for s in &sessions {
+        if let (Some(cwd), Some(pid)) = (s["cwd"].as_str(), s["pid"].as_i64())
+            && let Some(top) = corescope::worktrees::toplevel(std::path::Path::new(cwd))
+        {
+            trees
+                .entry(top.to_string_lossy().into())
+                .or_default()
+                .push(pid as i32);
+        }
+    }
+    let conflicts: Vec<Value> = trees
+        .into_iter()
+        .filter(|(_, pids)| pids.len() > 1)
+        .map(|(tree, pids)| json!({"working_tree": tree, "session_pids": pids,
+            "note": "several agent sessions in one working tree: they can overwrite each other's files and fight over ports; give each its own git worktree"}))
+        .collect();
+    json!({"agents": sessions, "conflicts": conflicts})
 }
 
 pub fn orphans(snapshot: &Snapshot) -> Value {
@@ -285,6 +486,241 @@ pub fn top(snapshot: &Snapshot, by: &str, count: usize) -> Value {
            "processes": rows.iter().take(count).map(|p| process_json(p)).collect::<Vec<_>>()})
 }
 
+/// Linked git worktrees under the folders (or the suggested project folders and the projects
+/// agents work in) with what decides whether they can go.
+pub fn worktrees(folders: &[std::path::PathBuf]) -> Value {
+    use corescope::worktrees as w;
+    let home: std::path::PathBuf = std::env::var_os("HOME").map(Into::into).unwrap_or_default();
+    let snapshot = sample(false);
+    let roots = devspace::normalize(if folders.is_empty() {
+        devspace::auto_roots(&home, &snapshot.processes)
+    } else {
+        folders.to_vec()
+    });
+    let rows: Vec<Value> = devspace::worktree_paths(&roots, &snapshot.processes)
+        .into_iter()
+        .map(|path| {
+            let repo = w::main_repo(&path).unwrap_or_default();
+            let info = w::list(&repo).into_iter().find(|x| std::path::Path::new(&x.path) == path);
+            let branch = info.as_ref().and_then(|i| i.branch.clone());
+            let user = snapshot
+                .processes
+                .iter()
+                .find(|p| !p.cwd.is_empty() && std::path::Path::new(&p.cwd).starts_with(&path))
+                .map(|p| format!("{} (PID {})", p.name, p.pid));
+            json!({"path": path, "repo": repo, "branch": branch, "agent": info.as_ref().and_then(|i| i.agent),
+                   "merged": branch.as_deref().and_then(|b| w::merged(&repo, b)),
+                   "uncommitted_changes": w::dirty(&path), "locked": info.as_ref().map(|i| i.locked),
+                   "last_commit": w::last_commit(&path), "in_use_by": user})
+        })
+        .collect();
+    json!({"worktrees": rows, "note": "Remove clean, unused ones from CoreScope › Cleanup (to the Trash) or with clean_dev_space."})
+}
+
+/// Listening ports reachable from the network, riskiest first, with advice.
+pub fn exposure() -> Value {
+    let snapshot = sample(false);
+    let list = corescope::containers::Reader::default()
+        .read(false)
+        .containers;
+    let rows = corescope::exposure::exposures(&snapshot, &list, project);
+    json!({"exposed": rows, "note": "Only your own processes' ports are visible; ports bound to 127.0.0.1 are not listed."})
+}
+
+/// Each known project's preferred ports (.corescope.yml › ports): free, held by the project, or
+/// taken by something else (with who and a free alternative).
+pub fn port_claims(folders: &[std::path::PathBuf]) -> Value {
+    let home: std::path::PathBuf = std::env::var_os("HOME").map(Into::into).unwrap_or_default();
+    let snapshot = sample(false);
+    let roots = devspace::normalize(if folders.is_empty() {
+        devspace::auto_roots(&home, &snapshot.processes)
+    } else {
+        folders.to_vec()
+    });
+    let projects: Vec<corescope::exposure::ProjectPorts> =
+        corescope::projectconfig::discover(&roots)
+            .iter()
+            .filter_map(|f| corescope::projectconfig::load(f))
+            .filter_map(|found| {
+                let c = found.config?;
+                let name = c
+                    .name
+                    .clone()
+                    .unwrap_or_else(|| found.folder.rsplit('/').next().unwrap_or("").to_string());
+                (!c.ports.is_empty())
+                    .then(|| (name, found.folder.clone(), c.ports.into_iter().collect()))
+            })
+            .collect();
+    let list = corescope::containers::Reader::default()
+        .read(false)
+        .containers;
+    let claims = corescope::exposure::claims(&snapshot, &list, &projects, |from| {
+        free_port(from, &snapshot)["free_port"]
+            .as_u64()
+            .map(|p| p as u16)
+    });
+    json!({"port_claims": claims, "projects_checked": projects.len()})
+}
+
+/// Containers of every local engine with their compose project, plus volumes and restart policies.
+pub fn containers() -> Value {
+    let report = corescope::containers::Reader::default().read(false);
+    let details = corescope::containers::details(&mut HashMap::new());
+    let rows: Vec<Value> = report
+        .containers
+        .iter()
+        .map(|c| {
+            json!({"name": c.name, "image": c.image, "state": c.state, "status": c.status, "health": c.health,
+                   "project": c.project, "service": c.service, "engine": c.engine,
+                   "ports": c.ports.iter().map(|p| json!({"host": p.host, "container": p.container, "exposed": p.exposed})).collect::<Vec<_>>(),
+                   "restart_policy": details.restart.get(&c.id)})
+        })
+        .collect();
+    json!({"containers": rows, "volumes": details.volumes})
+}
+
+/// Log files of a project folder (plus its .corescope.yml `logs:` globs): their tails, the recent
+/// errors with their traces, or lines matching a search.
+pub fn logs(folder: &std::path::Path, errors: bool, query: Option<&str>, count: usize) -> Value {
+    use corescope::logs as l;
+    let globs = project_config(folder)
+        .ok()
+        .and_then(|v| serde_json::from_value::<Vec<String>>(v["config"]["logs"].clone()).ok())
+        .unwrap_or_default();
+    let sources: Vec<l::Source> = l::project_files(folder, &globs)
+        .into_iter()
+        .map(|p| l::Source {
+            kind: "file".into(),
+            name: p
+                .strip_prefix(folder)
+                .unwrap_or(&p)
+                .to_string_lossy()
+                .into(),
+            project: None,
+            target: p.to_string_lossy().into(),
+        })
+        .collect();
+    if let Some(q) = query {
+        return json!({"log_lines": l::search(&sources, q, count)});
+    }
+    if errors {
+        return json!({"log_lines": l::errors(&sources, count, false).0});
+    }
+    let tails: Vec<Value> = sources
+        .iter()
+        .map(|s| json!({"source": s.name, "lines": l::tail(s, count).unwrap_or_default()}))
+        .collect();
+    json!({"log_sources": sources.iter().map(|s| &s.name).collect::<Vec<_>>(), "tails": tails})
+}
+
+/// The capacity rule of the project around `folder`, if it has one.
+pub fn capacity_spec(folder: &std::path::Path) -> Option<corescope::projectconfig::CapacitySpec> {
+    let v = project_config(folder).ok()?;
+    serde_json::from_value(v["config"]["agents"]["wait_for_capacity"].clone()).ok()
+}
+
+/// Samples until the rule is met twice in a row (10 s apart), or `limit` passes. An immediate
+/// pass needs one reading. Returns what happened, never fails: on timeout the caller proceeds.
+pub fn wait_for_room(
+    spec: &corescope::projectconfig::CapacitySpec,
+    limit: Option<Duration>,
+    mut say: impl FnMut(&str),
+) -> Value {
+    let started = std::time::Instant::now();
+    let limit = limit.unwrap_or(Duration::from_secs_f64(spec.max_wait_minutes.max(0.) * 60.));
+    let mut good = 0;
+    let mut waited = false;
+    loop {
+        let reading = corescope::capacity::reading(&sample(true));
+        let blockers = corescope::capacity::blockers(spec, &reading);
+        if blockers.is_empty() {
+            good += 1;
+            if !waited || good >= 2 {
+                return json!({"ready": true, "waited_seconds": started.elapsed().as_secs(), "reading": reading});
+            }
+        } else {
+            good = 0;
+            if !waited {
+                say(&format!("waiting for room: {}", blockers.join(", ")));
+            }
+            waited = true;
+            if started.elapsed() + Duration::from_millis(900) >= limit {
+                return json!({"ready": false, "gave_up_after_seconds": started.elapsed().as_secs(),
+                              "blockers": blockers, "reading": reading});
+            }
+        }
+        // Never past the limit: the last check lands on it.
+        let left = limit.saturating_sub(started.elapsed());
+        std::thread::sleep(Duration::from_secs(10).min(left.max(Duration::from_millis(200))));
+    }
+}
+
+/// Claude Code PreToolUse hook. Reads the tool call on stdin; for a heavy Bash command in a project
+/// whose .corescope.yml enables `agents.wait_for_capacity`, waits for room (recording the wait so
+/// CoreScope can show it). Always exits 0: it delays, it never blocks a command.
+fn gate() -> i32 {
+    use std::io::Read;
+    let mut input = String::new();
+    let _ = std::io::stdin().take(1 << 20).read_to_string(&mut input);
+    let call: Value = serde_json::from_str(&input).unwrap_or_default();
+    if call["tool_name"].as_str() != Some("Bash") {
+        return 0;
+    }
+    let command = call["tool_input"]["command"].as_str().unwrap_or("");
+    let folder = call["cwd"]
+        .as_str()
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+    let Some(spec) = capacity_spec(&folder) else {
+        return 0;
+    };
+    let defaults: Vec<String> = corescope::capacity::DEFAULT_HEAVY
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let prefixes = if spec.heavy_commands.is_empty() {
+        &defaults
+    } else {
+        &spec.heavy_commands
+    };
+    let Some(heavy) = corescope::capacity::heavy(command, prefixes) else {
+        return 0;
+    };
+    // Visible to CoreScope while it lasts: who waits, for what, why.
+    let dir = std::path::PathBuf::from(std::env::var_os("HOME").unwrap_or_default())
+        .join("Library/Application Support/CoreScope/gates");
+    let _ = std::fs::create_dir_all(&dir);
+    let file = dir.join(format!("{}.json", std::process::id()));
+    let agent = std::os::unix::process::parent_id();
+    let limit = Duration::from_secs_f64((spec.max_wait_minutes.clamp(0., 55.)) * 60.);
+    let outcome = wait_for_room(&spec, Some(limit), |reason| {
+        let note = json!({"agent_pid": agent, "folder": folder, "command": heavy, "reason": reason,
+                          "since": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)});
+        let _ = std::fs::write(&file, note.to_string());
+        eprintln!("CoreScope: {reason}; `{heavy}` will start when the Mac has room");
+    });
+    let _ = std::fs::remove_file(&file);
+    if outcome["ready"] == false {
+        eprintln!(
+            "CoreScope: still busy after the project's maximum wait; running `{heavy}` anyway"
+        );
+    }
+    0
+}
+
+/// The project file in `folder` (or the nearest parent with one), parsed and validated.
+pub fn project_config(folder: &std::path::Path) -> Result<Value, String> {
+    let dir = folder
+        .ancestors()
+        .find(|a| corescope::projectconfig::file_in(a).is_some())
+        .ok_or_else(|| format!("no .corescope.yml in {} or its parents", folder.display()))?;
+    let found = corescope::projectconfig::load(dir).ok_or("no .corescope.yml")?;
+    match found.error {
+        Some(e) => Err(format!("{}: {e}", found.file)),
+        None => Ok(json!({"folder": found.folder, "file": found.file, "config": found.config})),
+    }
+}
+
 /// Local databases found among processes and containers, probed read-only.
 pub fn databases(snapshot: &Snapshot) -> Value {
     let containers = corescope::containers::Reader::default()
@@ -318,7 +754,7 @@ pub fn space(folders: &[std::path::PathBuf], docker: bool) -> Value {
 }
 
 /// Core messages are Portuguese (the app translates them); the CLI speaks English.
-fn english(error: &str) -> String {
+pub fn english(error: &str) -> String {
     let table = [
         ("Pertence a outro usuário", "belongs to another user"),
         ("Serviço essencial protegido", "protected system service"),
@@ -468,6 +904,149 @@ fn print(json_out: bool, value: Value) -> i32 {
                     ""
                 }
             );
+        }
+    } else if let Some(ready) = value["ready"].as_bool() {
+        println!(
+            "{}",
+            if ready {
+                format!("ready (waited {}s)", num(&value["waited_seconds"]))
+            } else {
+                format!(
+                    "still busy after {}s: {}",
+                    num(&value["gave_up_after_seconds"]),
+                    value["blockers"]
+                        .as_array()
+                        .map(|b| b.iter().map(text).collect::<Vec<_>>().join(", "))
+                        .unwrap_or_default()
+                )
+            }
+        );
+    } else if let Some(rows) = value["exposed"].as_array() {
+        if rows.is_empty() {
+            println!("nothing of yours listens beyond localhost");
+        }
+        for r in rows {
+            println!(
+                "{:<7} :{:<6} {:<34} {}",
+                text(&r["risk"]).to_uppercase(),
+                num(&r["port"]),
+                text(&r["owner"]),
+                text(&r["advice"])
+            );
+        }
+    } else if let Some(rows) = value["port_claims"].as_array() {
+        if rows.is_empty() {
+            println!("no .corescope.yml with `ports:` found");
+        }
+        for r in rows {
+            println!(
+                "{:<20} {:<10} :{:<6} {:<6} {}{}",
+                text(&r["project"]),
+                text(&r["role"]),
+                num(&r["port"]),
+                text(&r["state"]),
+                text(&r["held_by"]).replace('—', ""),
+                r["suggestion"]
+                    .as_u64()
+                    .map(|p| format!("  → try :{p}"))
+                    .unwrap_or_default()
+            );
+        }
+    } else if let Some(rows) = value["worktrees"].as_array() {
+        println!(
+            "{:<44} {:<34} {:<12} {:>7}  IN USE",
+            "WORKTREE", "BRANCH", "MERGED", "CHANGES"
+        );
+        for r in rows {
+            let path = r["path"].as_str().unwrap_or("");
+            let short = path
+                .rsplit('/')
+                .take(3)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect::<Vec<_>>()
+                .join("/");
+            println!(
+                "{:<44} {:<34} {:<12} {:>7}  {}",
+                short,
+                text(&r["branch"]),
+                match r["merged"].as_bool() {
+                    Some(true) => "merged",
+                    Some(false) => "not merged",
+                    None => "?",
+                },
+                num(&r["uncommitted_changes"]),
+                text(&r["in_use_by"])
+            );
+        }
+    } else if let Some(rows) = value["containers"].as_array() {
+        println!(
+            "{:<34} {:<10} {:<18} {:<16} PORTS",
+            "CONTAINER", "STATE", "PROJECT", "RESTART"
+        );
+        for r in rows {
+            println!(
+                "{:<34} {:<10} {:<18} {:<16} {}",
+                text(&r["name"]),
+                text(&r["state"]),
+                text(&r["project"]),
+                text(&r["restart_policy"]),
+                r["ports"]
+                    .as_array()
+                    .map(|a| a
+                        .iter()
+                        .map(|p| format!(":{}", num(&p["host"])))
+                        .collect::<Vec<_>>()
+                        .join(" "))
+                    .unwrap_or_default()
+            );
+        }
+        let vols = value["volumes"].as_array().cloned().unwrap_or_default();
+        if !vols.is_empty() {
+            println!("\n{:<44} {:>10}  USED BY", "VOLUME", "SIZE");
+            for v in vols {
+                println!(
+                    "{:<44} {:>10}  {}",
+                    text(&v["name"]),
+                    v["size"]
+                        .as_f64()
+                        .map(|b| format!("{:.0} MB", b / 1_048_576.))
+                        .unwrap_or("—".into()),
+                    match v["containers"].as_i64() {
+                        Some(0) => "nothing (unused)".into(),
+                        Some(n) if n > 0 => format!("{n} container(s)"),
+                        _ => "?".into(),
+                    }
+                );
+            }
+        }
+    } else if let Some(rows) = value["log_lines"].as_array() {
+        if rows.is_empty() {
+            println!("nothing found");
+        }
+        for r in rows {
+            let times = r["count"]
+                .as_u64()
+                .filter(|c| *c > 1)
+                .map(|c| format!(" (×{c})"))
+                .unwrap_or_default();
+            println!("[{}]{times} {}", text(&r["source"]), text(&r["text"]));
+            for c in r["context"].as_array().into_iter().flatten() {
+                println!("    {}", text(c));
+            }
+        }
+    } else if let Some(tails) = value["tails"].as_array() {
+        if tails.is_empty() {
+            println!(
+                "no log files found (looked in the project root, storage/logs, log, logs, var/log, tmp/logs)"
+            );
+        }
+        for t in tails {
+            println!("==> {} <==", text(&t["source"]));
+            for line in t["lines"].as_array().into_iter().flatten() {
+                println!("{}", text(line));
+            }
         }
     } else if value.get("total_watts").is_some() {
         if let Some(b) = value["battery"].as_object() {

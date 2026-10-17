@@ -49,6 +49,8 @@ final class DatabaseStore: ObservableObject {
     guard !loading else { return }
     loading = true
     queue.async {
+      let cost = CostMeter.begin()
+      defer { CostMeter.end("databases", cost) }
       let result: Result<[DatabaseItem], Error> = Result {
         guard let pointer = cs_databases() else {
           throw NSError(domain: "CoreScope", code: 1, userInfo: [NSLocalizedDescriptionKey: L("O núcleo não retornou dados")])
@@ -168,7 +170,7 @@ private struct DatabaseCard: View {
               .lineLimit(1)
             Text(q.query).font(.system(.caption, design: .monospaced)).lineLimit(2).textSelection(.enabled)
             Spacer(minLength: 0)
-            Text("#\(q.id)").font(.caption2).foregroundStyle(.tertiary)
+            Text(verbatim: "#\(q.id)").font(.caption2).foregroundStyle(.tertiary)
           }
         }
       }

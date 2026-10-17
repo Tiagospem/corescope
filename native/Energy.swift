@@ -16,6 +16,16 @@ struct EnergyView: View {
           ProgressView(L("Lendo processos…")).frame(maxWidth: .infinity, minHeight: 240)
         }
         Card {
+          Toggle(L("Modo economia para agentes"), isOn: $prefs.economyMode)
+          Text(
+            L("Na bateria, os processos que sessões de agente iniciam e que estão usando CPU (builds, testes) rodam com prioridade de segundo plano do macOS, cedendo CPU e disco ao que você está fazendo. Servidores com porta aberta ficam como estão. Volta ao normal na tomada ou ao desligar.")
+          ).font(.caption).foregroundStyle(.secondary)
+          if !EconomyWatch.shared.throttled.isEmpty {
+            Label(L("%@ processos de agentes em segundo plano agora", "\(EconomyWatch.shared.throttled.count)"), systemImage: "leaf")
+              .font(.caption).foregroundStyle(Tint.brand)
+          }
+        }
+        Card {
           Toggle(L("Notificar quando um agente gastar bateria"), isOn: $prefs.notifyAgentDrain)
             .onChange(of: prefs.notifyAgentDrain) { _, on in if on { Notifier.shared.activate() } }
           LabeledContent(L("Acima de")) {
