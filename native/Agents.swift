@@ -241,7 +241,7 @@ final class AgentStore: ObservableObject {
       else { continue }
       if Demo.enabled {
         meta.name = Demo.sessionTitle(meta.pid)
-        meta.cwd = meta.cwd.map(Demo.path)
+        meta.cwd = meta.cwd.map { Demo.path($0) }
       }
       out[meta.pid] = meta
     }

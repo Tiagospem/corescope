@@ -14,25 +14,17 @@ enum Demo {
     "Refactor auth middleware", "Fix flaky e2e tests", "Add dark mode to the dashboard",
     "Migrate API to Postgres 17", "Investigate memory leak in worker", "Ship onboarding flow",
   ]
-  private static func pick(_ list: [String], _ key: String) -> String {
-    list[Int(key.utf8.reduce(UInt32(7)) { $0 &* 31 &+ UInt32($1) } % UInt32(list.count))]
-  }
-  static func sessionTitle(_ pid: Int32) -> String { pick(titles, String(pid)) }
-  /// Home becomes /Users/dev; work folders elsewhere become ~/code/<fake project>.
-  static func path(_ value: String) -> String {
-    guard !value.isEmpty else { return value }
-    var out = value.replacingOccurrences(of: home, with: "/Users/dev")
-    if out.hasPrefix("/Volumes/") {
-      let name = (out as NSString).lastPathComponent
-      out = "/Users/dev/code/" + pick(projects, name)
-    }
-    return out.replacingOccurrences(of: user, with: "dev")
+  static func sessionTitle(_ pid: Int32) -> String { demoPick(titles, String(pid)) }
+  /// System paths stay readable; home and other folders become /Users/dev/code/<fake project>.
+  static func path(_ value: String, executable: Bool = false) -> String {
+    demoPath(value, home: home, projects: projects, executable: executable)
+      .replacingOccurrences(of: user, with: "dev")
   }
   /// Compose projects get a fake name; container and image names that embed it follow it.
   static func container(_ c: ContainerItem) -> ContainerItem {
     var c = c
     if let project = c.project {
-      let fake = pick(projects, project)
+      let fake = demoPick(projects, project)
       c.name = c.name.replacingOccurrences(of: project, with: fake)
       // Compose names built images <project>-<service>; registry names stay as they are.
       c.image = c.image.replacingOccurrences(of: project, with: fake)
@@ -44,7 +36,8 @@ enum Demo {
     var s = snapshot
     for i in s.processes.indices {
       s.processes[i].user = s.processes[i].user == user ? "dev" : s.processes[i].user
-      s.processes[i].path = path(s.processes[i].path)
+      s.processes[i].signalPath = s.processes[i].path
+      s.processes[i].path = path(s.processes[i].path, executable: true)
       s.processes[i].cwd = path(s.processes[i].cwd)
       s.processes[i].orphan_parent = nil
     }

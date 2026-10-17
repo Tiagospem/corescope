@@ -44,8 +44,28 @@ import Foundation
     // A port two containers publish stays unattributed; repeats of one owner do not count.
     let owners = uniqueOwners([(8080, "a"), (8080, "b"), (5432, "db"), (5432, "db"), (6379, "r")])
     precondition(owners == [5432: "db", 6379: "r"])
+
+    // Demo mode never shows a real folder name, but keeps system paths readable.
+    let fakes = ["acme-api", "web-dashboard", "mobile-app"]
+    func demo(_ path: String, executable: Bool = false) -> String {
+      demoPath(path, home: "/Users/me", projects: fakes, executable: executable)
+    }
+    let work = demo("/Users/me/code/client-x")
+    precondition(work.hasPrefix("/Users/dev/code/") && !work.contains("client-x"))
+    precondition(fakes.contains(projectName(work, home: demoHome) ?? ""))
+    precondition(demo("/Users/me/other/client-x") == work && demo("/Volumes/Work/client-x") == work)
+    precondition(demo("/System/Volumes/Data/Users/me/code/client-x") == work)
+    let binary = demo("/Users/me/code/client-x/target/debug/server", executable: true)
+    precondition(binary.hasPrefix("/Users/dev/code/") && binary.hasSuffix("/server") && !binary.contains("client-x"))
+    let derived = demo("/Users/me/Library/Developer/Xcode/DerivedData/ClientX-abc")
+    precondition(!derived.contains("ClientX") && projectName(derived, home: demoHome) == nil)
+    precondition(demo("/Users/me") == demoHome && projectName(demoHome, home: demoHome) == nil)
+    for system in ["/", "/usr/bin/python3", "/Applications/Xcode.app/Contents/MacOS/Xcode", "/private/tmp/x"] {
+      precondition(demo(system, executable: true) == system)
+    }
+    precondition(demo("") == "")
     print(
-      "18 native assertions passed: descendants, cycle, ordering, off-screen recovery, negative-origin monitor, forest roots, flatten, collapse, totals, ancestors, filter, formatting, container ports, shared ports"
+      "20 native assertions passed: descendants, cycle, ordering, off-screen recovery, negative-origin monitor, forest roots, flatten, collapse, totals, ancestors, filter, formatting, container ports, shared ports, demo paths"
     )
   }
 }
