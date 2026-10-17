@@ -18,6 +18,8 @@ char *cs_dev_space_docker(const char *socket, const char *kind);
 char *cs_databases(void);
 // .corescope.yml files found under {"roots":[...],"auto":bool}: [{folder,file,config,error}].
 char *cs_project_configs(const char *request);
+// Logs: {"op":"files"|"tail"|"errors"|"search", folders|source|sources, lines, limit, warnings, query}.
+char *cs_logs(const char *request);
 void cs_free(char *pointer);
 
 int32_t cs_is_same(int32_t pid, uint64_t start);

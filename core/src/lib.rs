@@ -3,6 +3,7 @@ pub mod containers;
 pub mod databases;
 pub mod devspace;
 pub mod history;
+pub mod logs;
 mod os;
 pub mod projectconfig;
 mod sqlite;
@@ -1591,6 +1592,84 @@ pub unsafe extern "C" fn cs_project_configs(request: *const c_char) -> *mut c_ch
             .filter_map(|f| projectconfig::load(f))
             .collect();
         json(Ok(found))
+    })
+}
+
+#[derive(Deserialize)]
+struct LogsRequest {
+    op: String,
+    #[serde(default)]
+    folders: Vec<LogFolder>,
+    #[serde(default)]
+    sources: Vec<logs::Source>,
+    source: Option<logs::Source>,
+    #[serde(default)]
+    lines: usize,
+    #[serde(default)]
+    limit: usize,
+    #[serde(default)]
+    warnings: bool,
+    #[serde(default)]
+    query: String,
+}
+#[derive(Deserialize)]
+struct LogFolder {
+    folder: String,
+    project: Option<String>,
+    #[serde(default)]
+    globs: Vec<String>,
+}
+/// Logs: `files` (log files of project folders), `tail`, `errors` and `search` over sources.
+///
+/// # Safety
+/// `request` is a valid NUL-terminated UTF-8 JSON pointer for the duration of this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cs_logs(request: *const c_char) -> *mut c_char {
+    response(|| {
+        if request.is_null() {
+            return Err("Consulta ausente".into());
+        }
+        let bytes = unsafe { CStr::from_ptr(request) }.to_bytes();
+        let r: LogsRequest = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
+        match r.op.as_str() {
+            "files" => {
+                let mut out = vec![];
+                for f in &r.folders {
+                    let root = std::path::Path::new(&f.folder);
+                    for p in logs::project_files(root, &f.globs) {
+                        let name = p
+                            .strip_prefix(root)
+                            .unwrap_or(&p)
+                            .to_string_lossy()
+                            .to_string();
+                        out.push(logs::Source {
+                            kind: "file".into(),
+                            name,
+                            project: f.project.clone(),
+                            target: p.to_string_lossy().into(),
+                        });
+                    }
+                }
+                json(Ok(out))
+            }
+            "tail" => {
+                let source = r.source.ok_or("Fonte ausente")?;
+                json(logs::tail(&source, r.lines.clamp(1, 5000)))
+            }
+            "errors" => {
+                let (entries, problems) =
+                    logs::errors(&r.sources, r.limit.clamp(1, 200), r.warnings);
+                json(Ok(
+                    serde_json::json!({"entries": entries, "problems": problems}),
+                ))
+            }
+            "search" => json(Ok(logs::search(
+                &r.sources,
+                &r.query,
+                r.limit.clamp(1, 500),
+            ))),
+            _ => Err("Operação desconhecida".into()),
+        }
     })
 }
 

@@ -176,6 +176,37 @@ fn app_tools() -> Vec<(
             vec!["name"],
         ),
         (
+            "list_log_sources",
+            "logs.sources",
+            "Logs CoreScope can read, by project: project log files (storage/logs, log, logs, var/log, \
+          *.log and .corescope.yml globs), profile command output and container logs.",
+            json!({"project": {"type": "string"}, "profile": {"type": "string"}}),
+            vec![],
+        ),
+        (
+            "tail_log",
+            "logs.tail",
+            "The last lines of one log (name or path from list_log_sources).",
+            json!({"source": {"type": "string"}, "lines": {"type": "integer", "minimum": 1, "maximum": 1000}}),
+            vec!["source"],
+        ),
+        (
+            "recent_errors",
+            "logs.errors",
+            "The latest errors (warnings too, if asked) across a profile's or project's logs, with \
+          stack traces and repeat counts. Use this to debug a failing app instead of asking for logs.",
+            json!({"profile": {"type": "string"}, "project": {"type": "string"},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 100}, "warnings": {"type": "boolean"}}),
+            vec![],
+        ),
+        (
+            "search_logs",
+            "logs.search",
+            "Lines containing `query` (case-insensitive) across a profile's or project's logs.",
+            json!({"query": {"type": "string"}, "profile": {"type": "string"}, "project": {"type": "string"}}),
+            vec!["query"],
+        ),
+        (
             "list_services",
             "services.list",
             "Services health checks (CoreScope › Services): target, up/down, HTTP status or TCP result, latency.",

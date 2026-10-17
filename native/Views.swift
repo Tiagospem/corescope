@@ -55,6 +55,7 @@ enum Page: String, CaseIterable, Identifiable {
   case databases = "Bancos"
   case machines = "Máquinas"
   case energy = "Energia"
+  case logs = "Logs"
   case sensors = "Sensores"
   case settings = "Ajustes"
   var id: String { rawValue }
@@ -73,6 +74,7 @@ enum Page: String, CaseIterable, Identifiable {
     case .databases: "cylinder.split.1x2"
     case .machines: "server.rack"
     case .energy: "bolt.batteryblock"
+    case .logs: "text.alignleft"
     case .sensors: "thermometer.medium"
     case .settings: "gearshape"
     }
@@ -138,6 +140,7 @@ struct MainView: View {
           case .databases: DatabasesView()
           case .machines: MachinesView()
           case .energy: EnergyView()
+          case .logs: LogsView()
           case .sensors: SensorsView()
           case .settings: PreferencesView()
           }

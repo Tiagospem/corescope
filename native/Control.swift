@@ -170,6 +170,43 @@ enum ControlAPI {
           ["folder": f.folder, "file": f.file, "valid": f.error == nil, "error": f.error ?? NSNull()]
         }])
       }
+    case "logs.sources":
+      LogsStore.shared.refresh {
+        let sources = LogsStore.shared.sources(project: logScope(args))
+        reply(["sources": sources.map { ["name": $0.name, "kind": $0.kind, "project": $0.project ?? "", "path_or_container": $0.target] }])
+      }
+    case "logs.tail":
+      LogsStore.shared.refresh {
+        let key = (args["source"] as? String ?? "").lowercased()
+        guard let source = LogsStore.shared.sources.first(where: { $0.name.lowercased() == key || $0.target.lowercased() == key })
+        else { return reply(["error": "no such log; list_log_sources shows the names"]) }
+        LogsStore.shared.tail(source, lines: min(max(args["lines"] as? Int ?? 100, 1), 1000)) { result in
+          switch result {
+          case .success(let lines): reply(["source": source.name, "lines": lines])
+          case .failure(let e): reply(["error": e.localizedDescription])
+          }
+        }
+      }
+    case "logs.errors", "logs.search":
+      LogsStore.shared.refresh {
+        let scope = logScope(args)
+        let sources = LogsStore.shared.sources(project: scope)
+        guard !sources.isEmpty else {
+          return reply(["error": "no logs found\(scope.map { " for \($0)" } ?? ""); list_log_sources shows what is known"])
+        }
+        let encode: ([LogEntry]) -> [[String: Any]] = { list in
+          list.map { ["source": $0.source, "level": $0.level, "message": $0.text, "trace": $0.context, "times": $0.count] }
+        }
+        if op == "logs.search" {
+          guard let q = args["query"] as? String, !q.isEmpty else { return reply(["error": "query is required"]) }
+          LogsStore.shared.search(sources, query: q) { reply(["matches": encode($0)]) }
+        } else {
+          LogsStore.shared.errors(sources, limit: min(max(args["limit"] as? Int ?? 20, 1), 100), warnings: args["warnings"] as? Bool ?? false) {
+            entries, problems in
+            reply(["errors": encode(entries), "unreadable": problems, "sources_checked": sources.map(\.name)])
+          }
+        }
+      }
     case "services.list": reply(["services": HealthStore.shared.allChecks.map(serviceJSON)])
     case "services.add":
       guard let target = args["target"] as? String, HealthTarget(target) != nil else {
@@ -260,6 +297,14 @@ enum ControlAPI {
 
     default: reply(["error": "unknown operation \(op)"])
     }
+  }
+
+  /// `profile` (its project) or `project`, matched to the names Logs uses.
+  private static func logScope(_ args: [String: Any]) -> String? {
+    if let name = args["profile"] as? String, let p = findProfile(["name": name]) {
+      return LogsStore.shared.projects().first { $0.folder == p.folder }?.name ?? p.name
+    }
+    return (args["project"] as? String).flatMap { $0.isEmpty ? nil : $0 }
   }
 
   // MARK: profiles

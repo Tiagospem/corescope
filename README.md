@@ -106,6 +106,10 @@ agents:
 
 The format is plain YAML (maps, lists, quoted or plain values, comments); anything fancier is rejected with the line number.
 
+### 📜 Logs
+
+Every log of every project in one place, for any stack: log files found in the usual folders (`storage/logs`, `log`, `logs`, `var/log`, `*.log` at the root) plus the `logs:` globs in `.corescope.yml`, the output of profile commands, and container logs. Tail one live, search a project, or see its recent errors — detected by the level each line declares, or by generic markers (`Exception`, `Traceback`, `panic`, `FATAL`…) — with their stack traces and repeats folded into a count. Agents get the same over MCP (`recent_errors` for a profile or project, `tail_log`, `search_logs`, `list_log_sources`), so they can debug without you pasting logs; and `corescope logs --errors` works in a terminal.
+
 ### 💚 Services
 
 Watch the things your work depends on: a local API's `/health`, a database port, a staging URL. Each check runs every 30 s while CoreScope is open — an HTTP GET (2xx/3xx up, 4xx answered with an error, 5xx or no answer down) or a TCP connect — with latency, a strip of the last 40 results, an Overview summary and optional notifications when a service goes down (two failures in a row) or comes back. Ports you have open right now are offered as one-click suggestions.
@@ -195,6 +199,7 @@ corescope space                    # reclaimable node_modules, target/, Xcode, c
 corescope db                       # local MySQL/PostgreSQL/Redis: sizes, connections, slow queries
 corescope power                    # battery, watts per process and per agent session
 corescope config                   # validate this project's .corescope.yml
+corescope logs --errors            # this project's recent errors, with traces
 ```
 
 Termination follows the app's rules: only your own processes, never system services or the command's own ancestors (an agent cannot stop its own session), identity revalidated right before each signal, and no signal without `--yes` when there is no terminal to confirm in.
@@ -211,6 +216,7 @@ Off by default. *Settings → MCP server for agents → Enable* registers `cores
 | `list_my_processes` | What the calling agent session started, including servers it detached |
 | `power_usage` | Battery, total watts, top processes and agent sessions by power |
 | `list_databases` | Local MySQL/PostgreSQL/Redis status (read-only, no passwords) |
+| `recent_errors` / `search_logs` / `tail_log` / `list_log_sources` | A profile's or project's logs: errors with traces and counts, search, tail |
 | `read_project_config` / `write_project_config` | The project's `.corescope.yml`, parsed and validated / written as commented YAML |
 | `list_dev_space` | Reclaimable space (read-only; cleaning stays in the app, with your confirmation) |
 | `stop_port` / `stop_process` | Stop a process (or a port's owner), **only if this agent session started it** |

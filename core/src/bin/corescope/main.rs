@@ -24,6 +24,8 @@ USAGE:
                                         package caches, unused Docker data (read-only; delete
                                         from the CoreScope app, which moves folders to the Trash)
   corescope power                       battery, total power, top processes and agent sessions by watts
+  corescope logs [FOLDER] [--errors] [--search TEXT] [-n N]
+                                        the project's log files: tail, errors with traces, or search
   corescope config [FOLDER]             validate and show the project's .corescope.yml (default: here)
   corescope db                          local MySQL/PostgreSQL/Redis: size, connections, slow
                                         and long-running queries (no passwords used or read)
@@ -116,6 +118,27 @@ fn main() {
             print(json_out, space(&folders, !flag("--no-docker")))
         }
         Some("db") => print(json_out, databases(&sample(false))),
+        Some("logs") => {
+            let folder = positional
+                .get(1)
+                .filter(|p| !p.is_empty())
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+            let query = args
+                .iter()
+                .position(|a| a == "--search")
+                .and_then(|i| args.get(i + 1))
+                .cloned();
+            print(
+                json_out,
+                logs(
+                    &folder,
+                    flag("--errors"),
+                    query.as_deref(),
+                    number("-n").unwrap_or(40),
+                ),
+            )
+        }
         Some("config") => {
             let folder = positional
                 .get(1)
@@ -298,6 +321,40 @@ pub fn top(snapshot: &Snapshot, by: &str, count: usize) -> Value {
     rows.sort_by(|a, b| key(b).total_cmp(&key(a)));
     json!({"by": by,
            "processes": rows.iter().take(count).map(|p| process_json(p)).collect::<Vec<_>>()})
+}
+
+/// Log files of a project folder (plus its .corescope.yml `logs:` globs): their tails, the recent
+/// errors with their traces, or lines matching a search.
+pub fn logs(folder: &std::path::Path, errors: bool, query: Option<&str>, count: usize) -> Value {
+    use corescope::logs as l;
+    let globs = project_config(folder)
+        .ok()
+        .and_then(|v| serde_json::from_value::<Vec<String>>(v["config"]["logs"].clone()).ok())
+        .unwrap_or_default();
+    let sources: Vec<l::Source> = l::project_files(folder, &globs)
+        .into_iter()
+        .map(|p| l::Source {
+            kind: "file".into(),
+            name: p
+                .strip_prefix(folder)
+                .unwrap_or(&p)
+                .to_string_lossy()
+                .into(),
+            project: None,
+            target: p.to_string_lossy().into(),
+        })
+        .collect();
+    if let Some(q) = query {
+        return json!({"log_lines": l::search(&sources, q, count)});
+    }
+    if errors {
+        return json!({"log_lines": l::errors(&sources, count, false).0});
+    }
+    let tails: Vec<Value> = sources
+        .iter()
+        .map(|s| json!({"source": s.name, "lines": l::tail(s, count).unwrap_or_default()}))
+        .collect();
+    json!({"log_sources": sources.iter().map(|s| &s.name).collect::<Vec<_>>(), "tails": tails})
 }
 
 /// The project file in `folder` (or the nearest parent with one), parsed and validated.
@@ -496,6 +553,33 @@ fn print(json_out: bool, value: Value) -> i32 {
                     ""
                 }
             );
+        }
+    } else if let Some(rows) = value["log_lines"].as_array() {
+        if rows.is_empty() {
+            println!("nothing found");
+        }
+        for r in rows {
+            let times = r["count"]
+                .as_u64()
+                .filter(|c| *c > 1)
+                .map(|c| format!(" (×{c})"))
+                .unwrap_or_default();
+            println!("[{}]{times} {}", text(&r["source"]), text(&r["text"]));
+            for c in r["context"].as_array().into_iter().flatten() {
+                println!("    {}", text(c));
+            }
+        }
+    } else if let Some(tails) = value["tails"].as_array() {
+        if tails.is_empty() {
+            println!(
+                "no log files found (looked in the project root, storage/logs, log, logs, var/log, tmp/logs)"
+            );
+        }
+        for t in tails {
+            println!("==> {} <==", text(&t["source"]));
+            for line in t["lines"].as_array().into_iter().flatten() {
+                println!("{}", text(line));
+            }
         }
     } else if value.get("total_watts").is_some() {
         if let Some(b) = value["battery"].as_object() {

@@ -857,4 +857,19 @@ private let entries = """
   %@ processos ¦ %@ processes ¦ %@ procesos
   Abrir .corescope.yml ¦ Open .corescope.yml ¦ Abrir .corescope.yml
   Definido no arquivo do projeto: edite o arquivo para mudar o perfil. ¦ Defined in the project file: edit the file to change the profile. ¦ Definido en el archivo del proyecto: edita el archivo para cambiar el perfil.
+  Logs ¦ Logs ¦ Logs
+  Procurando logs… ¦ Looking for logs… ¦ Buscando logs…
+  Nenhum log encontrado nos projetos conhecidos. ¦ No logs found in the known projects. ¦ No se encontraron logs en los proyectos conocidos.
+  Erros ¦ Errors ¦ Errores
+  Busca ¦ Search ¦ Búsqueda
+  Buscar nos logs do projeto ¦ Search the project's logs ¦ Buscar en los logs del proyecto
+  Erros recentes · %@ ¦ Recent errors · %@ ¦ Errores recientes · %@
+  todos os projetos ¦ all projects ¦ todos los proyectos
+  Escolha um log ¦ Choose a log ¦ Elige un log
+  Escolha um log à esquerda, ou clique em Erros num projeto. ¦ Choose a log on the left, or click Errors on a project. ¦ Elige un log a la izquierda, o pulsa Errores en un proyecto.
+  Nenhum erro recente. ¦ No recent errors. ¦ Ningún error reciente.
+  Nada encontrado. ¦ Nothing found. ¦ No se encontró nada.
+  Log não encontrado ¦ Log not found ¦ Log no encontrado
+  Nome de contêiner inválido ¦ Invalid container name ¦ Nombre de contenedor no válido
+  Fonte ausente ¦ Missing source ¦ Falta la fuente
   """

@@ -15,6 +15,10 @@ section as the GitHub release notes.
   containers; preferred ports; Services checks; log globs; agent capacity rules) is found
   automatically and shown read-only in Profiles and Services. `corescope config` validates it;
   MCP `read_project_config` / `write_project_config` let agents read and write it.
+- **Logs page**: project log files (conventional folders, `*.log`, `.corescope.yml` globs),
+  profile command output and container logs, by project; live tail, search, and recent errors by
+  declared level or generic markers, with stack traces and repeats counted. `corescope logs` and
+  MCP `recent_errors`, `search_logs`, `tail_log`, `list_log_sources`.
 
 ## [0.4.0] - 2026-10-17
 
