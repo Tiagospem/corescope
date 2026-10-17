@@ -275,7 +275,10 @@ final class ProfileStore: ObservableObject {
     posix_spawn_file_actions_adddup2(&actions, 1, 2)
     posix_spawn_file_actions_addchdir_np(&actions, profile.folder)
     // A login, interactive shell sees the same PATH as the user's terminal (nvm, asdf, Homebrew).
-    let argv = [shell, "-l", "-i", "-c", command.command].map { strdup($0) } + [nil]
+    // Explicit types: older compilers infer the literal as C strings and reject the Strings.
+    let words: [String] = [shell, "-l", "-i", "-c", command.command]
+    var argv: [UnsafeMutablePointer<CChar>?] = words.map { strdup($0) }
+    argv.append(nil)
     defer { argv.forEach { free($0) } }
     var pid: pid_t = 0
     let spawned = posix_spawn(&pid, shell, &actions, &attr, argv, environ)
