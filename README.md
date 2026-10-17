@@ -155,10 +155,10 @@ The Swift UI calls the Rust core over a small C ABI that returns one JSON snapsh
 ./scripts/test.sh     # cargo fmt --check, cargo test, clippy -D warnings, native logic tests
 ./scripts/build.sh    # release build into build/CoreScope.app
 ./scripts/package.sh  # DMG + zip + SHA-256 checksums into dist/ (release artifacts)
-open --env CORESCOPE_DEMO=1 build/CoreScope.app   # demo mode: live metrics, anonymized user, home and session titles (quit with ⌘Q first)
+open --env CORESCOPE_DEMO=1 build/CoreScope.app   # demo mode: live metrics, anonymized user, folders, projects and session titles (quit with ⌘Q first)
 ```
 
-The screenshots in this README were taken in demo mode. Demo mode doesn't rename folders under your home, so check captures before sharing them (see [CONTRIBUTING.md](CONTRIBUTING.md)).
+The screenshots in this README were taken in demo mode. It replaces every folder outside system locations with a fake project, but process names stay real, so check captures before sharing them (see [CONTRIBUTING.md](CONTRIBUTING.md)).
 
 ## Roadmap
 

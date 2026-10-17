@@ -105,7 +105,7 @@ struct ProcessItem: Decodable, Identifiable {
   var bundlePath: String? {
     path.range(of: ".app/").map { String(path[..<$0.lowerBound]) + ".app" }
   }
-  var project: String? { projectName(cwd) }
+  var project: String? { projectName(cwd, home: Demo.enabled ? demoHome : NSHomeDirectory()) }
   var shortCwd: String { abbreviateHome(cwd) }
   var portsLabel: String { ports.map { ":\($0.port)" }.joined(separator: " ") }
 }
