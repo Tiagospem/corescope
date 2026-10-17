@@ -51,6 +51,21 @@ Metas propostas para aceitação, não requisitos medidos previamente nem promes
 - Histórico limitado por quantidade/tempo: testes passam; não substituem um ensaio prolongado de estabilidade de memória.
 - Energia em watts/joules ou Energy Impact: **indisponível**. Campos brutos de energia não foram interpretados sem unidade/contrato confiável. Não há conclusão sobre autonomia da bateria.
 
+## Uso de tokens dos agentes (2026-10-16)
+
+MacBook Air M4, máquina carregada (load average ~70, várias sessões de agente compilando). Página Agentes aberta, mesma cópia renomeada (`local.corescope.tokenstest`) para baseline (`a854cec`) e build novo, uma instância por vez.
+
+| Medida | Baseline | Com tokens |
+|---|---|---|
+| Footprint médio, janela aberta (120 s / 60 s) | 72,8 MiB e 81,0 MiB em duas rodadas | 82,3 MiB e 83,0 MiB |
+| Heap vivo (`heap`, todas as zonas) | 54,7 MB | 57,2 MB (+2,5 MB) |
+| CPU de um núcleo, janela aberta | 3,4 % | 4,6–4,8 % |
+
+- O ruído do footprint entre rodadas do mesmo build (~8 MiB) é maior que a diferença; o heap vivo é a comparação mais confiável. Os dados de tokens em si somam ~30 KB (buckets por dia de ~180 arquivos); o resto da diferença são as views SwiftUI do novo card e das linhas por sessão.
+- Primeira leitura (só ao abrir a página Agentes): 315–330 transcrições, 2,7 GB, ~4,5–4,8 s de CPU uma única vez, pico de footprint do leitor isolado 7 MB (buffer reutilizável; linhas longas sem uso, como `compacted` de 23 MB do Codex, são puladas sem buffer).
+- Passe incremental a cada 20 s: ~12 ms de CPU (stat de ~315 arquivos + só os bytes novos, ~80 KB no teste) ≈ 0,06 % de um núcleo.
+- A diferença de CPU com a janela aberta não foi isolada do ruído da máquina; o passe incremental medido isoladamente é desprezível.
+
 ## Reproduzir
 
 ```sh

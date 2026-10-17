@@ -122,8 +122,8 @@ final class HistoryStore: ObservableObject {
         switch result {
         case .success(var t):
           if Demo.enabled {
-            for i in t.cpu.indices { t.cpu[i].cwd = Demo.path(t.cpu[i].cwd); t.cpu[i].path = Demo.path(t.cpu[i].path) }
-            for i in t.memory.indices { t.memory[i].cwd = Demo.path(t.memory[i].cwd); t.memory[i].path = Demo.path(t.memory[i].path) }
+            for i in t.cpu.indices { t.cpu[i].cwd = Demo.path(t.cpu[i].cwd); t.cpu[i].path = Demo.path(t.cpu[i].path, executable: true) }
+            for i in t.memory.indices { t.memory[i].cwd = Demo.path(t.memory[i].cwd); t.memory[i].path = Demo.path(t.memory[i].path, executable: true) }
           }
           self.top = t
         case .failure(let e): self.error = e.localizedDescription

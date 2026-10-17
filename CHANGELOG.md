@@ -20,8 +20,14 @@ section as the GitHub release notes.
 - **CPU per core** grouped into performance (P) and efficiency (E) cores.
 - **Memory breakdown** like Activity Monitor (app memory, wired, compressed, cached files,
   swap) and memory pressure % next to the macOS pressure events.
+- **Token usage** on the Agents page, counted from the agents' local transcripts
+  (`~/.claude/projects`, `~/.codex/sessions`): input, output and prompt-cache tokens and
+  the model on each session card, plus today / last-7-days totals per agent and project.
+  Tokens only, no dollar estimates; message content is never retained.
 
 ### Fixed
+- Only one CoreScope runs at a time: launching another copy brings the running one
+  forward instead of adding a second menu bar item.
 - Reading mounted volumes no longer risks a crash when two samples run at once
   (`getmntinfo` shares one buffer per process; now `getmntinfo_r_np`).
 
