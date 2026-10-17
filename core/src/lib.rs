@@ -1760,6 +1760,127 @@ mod tests {
         assert_eq!(history::info(&path).unwrap().minutes, 0);
     }
     #[test]
+    fn history_merges_restarts_within_a_minute() {
+        let path = temp_db("restart");
+        let base = 1_800_000_000.;
+        let mut first = history::Recorder::new(&path);
+        first.add(
+            base,
+            7,
+            history::System {
+                cpu: Some(20.),
+                ..Default::default()
+            },
+            [1, 2].into_iter().map(|pid| history::Proc {
+                key: (pid, 1),
+                name: "same",
+                path: "/bin/same",
+                cwd: "/tmp",
+                origin: "",
+                cpu: Some(60.),
+                memory: Some(10. * pid as f64),
+            }),
+        );
+        first.flush(7);
+
+        let mut restarted = history::Recorder::new(&path);
+        restarted.add(
+            base + 20.,
+            7,
+            history::System {
+                cpu: Some(40.),
+                ..Default::default()
+            },
+            [history::Proc {
+                key: (3, 1),
+                name: "same",
+                path: "/bin/same",
+                cwd: "/tmp",
+                origin: "",
+                cpu: Some(60.),
+                memory: Some(40.),
+            }],
+        );
+        restarted.flush(7);
+
+        let series = history::series(&path, base as i64, base as i64 + 60, 60).unwrap();
+        assert_eq!(series.points[0].samples, 2);
+        assert_eq!(series.points[0].cpu, Some(30.));
+        assert_eq!(series.points[0].cpu_max, Some(40.));
+        assert_eq!(series.points[0].cpu_count, 1);
+        let top = history::top(&path, base as i64, base as i64 + 60).unwrap();
+        assert_eq!(top.minutes, 1);
+        assert_eq!(top.cpu.len(), 1);
+        assert_eq!(top.cpu[0].cpu, 90.);
+        assert_eq!(top.cpu[0].cpu_peak, 90.);
+        assert_eq!(top.memory[0].memory, 40.);
+        restarted.delete().unwrap();
+    }
+    #[test]
+    fn history_reports_metric_specific_minute_counts() {
+        let path = temp_db("metric-counts");
+        let base = 1_800_000_000.;
+        let mut r = history::Recorder::new(&path);
+        for (offset, cpu, memory) in [
+            (0., Some(100.), Some(10.)),
+            (60., None, Some(20.)),
+            (120., None, Some(30.)),
+        ] {
+            r.add(
+                base + offset,
+                7,
+                history::System {
+                    cpu,
+                    memory,
+                    ..Default::default()
+                },
+                std::iter::empty(),
+            );
+        }
+        r.flush(7);
+
+        let series = history::series(&path, base as i64, base as i64 + 180, 300).unwrap();
+        assert_eq!(series.points[0].cpu_count, 1);
+        assert_eq!(series.points[0].memory_count, 3);
+        assert_eq!(series.points[0].cpu, Some(100.));
+        assert_eq!(series.points[0].memory, Some(20.));
+        r.delete().unwrap();
+    }
+    #[test]
+    fn history_upgrades_existing_schema_without_losing_samples() {
+        let path = temp_db("schema-upgrade");
+        let db = crate::sqlite::Db::open(&path, false).unwrap();
+        db.exec(
+            "CREATE TABLE minutes(at INTEGER PRIMARY KEY, samples INTEGER NOT NULL,
+             cpu REAL, cpu_max REAL, memory REAL, swap REAL, disk_read REAL, disk_write REAL,
+             net_in REAL, net_out REAL, thermal INTEGER, pressure INTEGER, pressure_pct REAL);
+             INSERT INTO minutes VALUES(1800000000,2,20,30,100,0,1,2,3,4,0,0,25);
+             PRAGMA user_version=1;",
+        )
+        .unwrap();
+        drop(db);
+
+        let mut r = history::Recorder::new(&path);
+        r.add(
+            1_800_000_000.,
+            7,
+            history::System {
+                cpu: Some(60.),
+                ..Default::default()
+            },
+            std::iter::empty(),
+        );
+        r.flush(7);
+
+        let point = &history::series(&path, 1_800_000_000, 1_800_000_060, 60)
+            .unwrap()
+            .points[0];
+        assert_eq!(point.samples, 3);
+        assert_eq!(point.cpu, Some(100. / 3.));
+        assert_eq!(point.cpu_count, 1);
+        r.delete().unwrap();
+    }
+    #[test]
     fn history_retention_purges_old_minutes() {
         let path = temp_db("retention");
         let mut r = history::Recorder::new(&path);

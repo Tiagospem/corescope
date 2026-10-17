@@ -6,13 +6,19 @@ struct HistoryBucket: Decodable {
   let at: Double
   let samples: Int
   let cpu: Double?
+  let cpu_count: Int
   let cpu_max: Double?
   let memory: Double?
+  let memory_count: Int
   let swap: Double?
   let disk_read: Double?
+  let disk_read_count: Int
   let disk_write: Double?
+  let disk_write_count: Int
   let net_in: Double?
+  let net_in_count: Int
   let net_out: Double?
+  let net_out_count: Int
   let thermal: Int?
   let pressure: Int?
   let pressure_pct: Double?
@@ -73,6 +79,7 @@ final class HistoryStore: ObservableObject {
   @Published var error: String?
   private let queue = DispatchQueue(label: "app.corescope.history", qos: .utility)
   private var generation = 0
+  private var topGeneration = 0
   static func call(_ request: [String: Any]) throws -> Data {
     let json = String(data: try JSONSerialization.data(withJSONObject: request), encoding: .utf8) ?? "{}"
     guard let pointer = json.withCString({ cs_history($0) }) else {
@@ -89,7 +96,7 @@ final class HistoryStore: ObservableObject {
   }
   /// Writes the minute in progress; used on quit.
   static func flush() { _ = try? call(["op": "flush"]) }
-  func load(range: HistoryRange, end: Date) {
+  func load(range: HistoryRange, end: Date, completion: @escaping (HistorySeries?) -> Void) {
     let to = (end.timeIntervalSince1970 / range.bucket).rounded(.up) * range.bucket
     let from = to - range.span
     generation += 1
@@ -107,18 +114,24 @@ final class HistoryStore: ObservableObject {
           self.series = s
           self.info = s.info
           self.error = nil
-        case .failure(let e): self.error = e.localizedDescription
+          completion(s)
+        case .failure(let e):
+          self.error = e.localizedDescription
+          completion(nil)
         }
       }
     }
   }
   func loadTop(from: Double, to: Double) {
+    topGeneration += 1
+    let current = topGeneration
     queue.async {
       let result = Result {
         try JSONDecoder().decode(
           HistoryTop.self, from: Self.call(["op": "top", "from": Int(from), "to": Int(to)]))
       }
       DispatchQueue.main.async {
+        guard current == self.topGeneration else { return }
         switch result {
         case .success(var t):
           if Demo.enabled {
@@ -187,9 +200,23 @@ struct HistoryView: View {
     .onReceive(tick) { _ in if end == nil { reload(keepSelection: true) } }
   }
   private func reload(keepSelection: Bool = false) {
+    let selectedAt: Double? = keepSelection ? selected.flatMap { i in
+      store.series.flatMap { $0.points.indices.contains(i) ? $0.points[i].at : nil }
+    } : nil
     if !keepSelection { selected = nil }
-    store.load(range: range, end: end ?? Date())
-    loadTop()
+    store.load(range: range, end: end ?? Date()) { series in
+      guard let series else {
+        self.selected = nil
+        self.loadTop()
+        return
+      }
+      if let selectedAt {
+        self.selected = series.points.firstIndex { $0.at == selectedAt }
+      } else if keepSelection {
+        self.selected = nil
+      }
+      self.loadTop()
+    }
   }
   private func loadTop() {
     let to = ((end ?? Date()).timeIntervalSince1970 / range.bucket).rounded(.up) * range.bucket
@@ -246,30 +273,38 @@ struct HistoryView: View {
     ) {
       HistoryChart(
         title: L("CPU"), symbol: "cpu", value: summary(
-          p, \.cpu, \.cpu_max, format: { String(format: "%.0f%%", $0) }, labels: ("", L("pico")), secondIsPeak: true),
+          p, \.cpu, \.cpu_max, \.cpu_count, \.cpu_count,
+          format: { String(format: "%.0f%%", $0) }, labels: ("", L("pico")), secondIsPeak: true),
         series: [
           ChartSeries(values: p.map(\.cpu_max), color: Tint.cpu.opacity(0.45), name: L("pico"), format: percent),
           ChartSeries(values: p.map(\.cpu), color: Tint.cpu, name: L("média"), format: percent),
-        ], ceiling: 100, legend: [("média", Tint.cpu), ("pico", Tint.cpu.opacity(0.45))], selected: $selected)
+        ], ceiling: 100, legend: [("média", Tint.cpu), ("pico", Tint.cpu.opacity(0.45))],
+        selected: $selected, times: p.map(\.at), bucket: s.bucket)
       HistoryChart(
         title: L("Memória"), symbol: "memorychip", value: summary(
-          p, \.memory, \.swap, format: formatBytes, labels: ("", L("swap")), secondIsPeak: true),
+          p, \.memory, \.swap, \.memory_count, \.memory_count,
+          format: formatBytes, labels: ("", L("swap")), secondIsPeak: true),
         series: [
           ChartSeries(values: p.map(\.memory), color: Tint.memory, name: L("usada"), format: formatBytes),
           ChartSeries(values: p.map(\.swap), color: .orange, name: L("swap"), format: formatBytes),
-        ], ceiling: physical, legend: [("usada", Tint.memory), ("swap", .orange)], selected: $selected)
+        ], ceiling: physical, legend: [("usada", Tint.memory), ("swap", .orange)],
+        selected: $selected, times: p.map(\.at), bucket: s.bucket)
       HistoryChart(
         title: L("Disco"), symbol: "internaldrive", value: summary(
-          p, \.disk_read, \.disk_write, format: formatRate, labels: ("↓", "↑"), secondIsPeak: false),
+          p, \.disk_read, \.disk_write, \.disk_read_count, \.disk_write_count,
+          format: formatRate, labels: ("↓", "↑"), secondIsPeak: false),
         series: [
           .diskRead(p.map(\.disk_read)), .diskWrite(p.map(\.disk_write)),
-        ], legend: [("leitura", Tint.diskRead), ("escrita", Tint.diskWrite)], selected: $selected)
+        ], legend: [("leitura", Tint.diskRead), ("escrita", Tint.diskWrite)],
+        selected: $selected, times: p.map(\.at), bucket: s.bucket)
       HistoryChart(
         title: L("Rede"), symbol: "arrow.up.arrow.down", value: summary(
-          p, \.net_in, \.net_out, format: formatRate, labels: ("↓", "↑"), secondIsPeak: false),
+          p, \.net_in, \.net_out, \.net_in_count, \.net_out_count,
+          format: formatRate, labels: ("↓", "↑"), secondIsPeak: false),
         series: [
           .netIn(p.map(\.net_in)), .netOut(p.map(\.net_out)),
-        ], legend: [("entrada", Tint.netIn), ("saída", Tint.netOut)], selected: $selected)
+        ], legend: [("entrada", Tint.netIn), ("saída", Tint.netOut)],
+        selected: $selected, times: p.map(\.at), bucket: s.bucket)
     }
     StateStrips(points: p, selected: $selected)
   }
@@ -277,7 +312,8 @@ struct HistoryView: View {
   /// mean (rates) or maximum (peaks, swap) of the second.
   private func summary(
     _ points: [HistoryBucket], _ first: KeyPath<HistoryBucket, Double?>,
-    _ second: KeyPath<HistoryBucket, Double?>, format: @escaping (Double) -> String, labels: (String, String),
+    _ second: KeyPath<HistoryBucket, Double?>, _ firstCount: KeyPath<HistoryBucket, Int>,
+    _ secondCount: KeyPath<HistoryBucket, Int>, format: @escaping (Double) -> String, labels: (String, String),
     secondIsPeak: Bool
   ) -> String {
     let label = { (text: String, value: Double) in text.isEmpty ? format(value) : text + " " + format(value) }
@@ -286,12 +322,16 @@ struct HistoryView: View {
       let parts = [b[keyPath: first].map { label(labels.0, $0) }, b[keyPath: second].map { label(labels.1, $0) }]
       return parts.compactMap { $0 }.joined(separator: " · ").nonEmpty ?? L("Sem dados")
     }
-    func mean(_ key: KeyPath<HistoryBucket, Double?>) -> Double? {
-      let values = points.compactMap { $0[keyPath: key] }
-      return values.isEmpty ? nil : values.reduce(0, +) / Double(values.count)
+    func mean(_ key: KeyPath<HistoryBucket, Double?>, count: KeyPath<HistoryBucket, Int>) -> Double? {
+      let values = points.compactMap { point -> (Double, Int)? in
+        guard let value = point[keyPath: key], point[keyPath: count] > 0 else { return nil }
+        return (value, point[keyPath: count])
+      }
+      let total = values.reduce(0) { $0 + $1.1 }
+      return total == 0 ? nil : values.reduce(0) { $0 + $1.0 * Double($1.1) } / Double(total)
     }
-    guard let a = mean(first) else { return L("Sem dados") }
-    let b = secondIsPeak ? points.compactMap { $0[keyPath: second] }.max() : mean(second)
+    guard let a = mean(first, count: firstCount) else { return L("Sem dados") }
+    let b = secondIsPeak ? points.compactMap { $0[keyPath: second] }.max() : mean(second, count: secondCount)
     return [L("média %@", label(labels.0, a)), b.map { (secondIsPeak ? L("máx. %@", label(labels.1, $0)) : label(labels.1, $0)) }]
       .compactMap { $0 }.joined(separator: " · ")
   }
@@ -363,6 +403,8 @@ private struct HistoryChart: View {
   var ceiling: Double? = nil
   var legend: [(String, Color)] = []
   @Binding var selected: Int?
+  let times: [Double]
+  let bucket: Double
   var body: some View {
     let count = series.first?.values.count ?? 0
     Card {
@@ -384,13 +426,29 @@ private struct HistoryChart: View {
       AreaChart(series: series, ceiling: ceiling, capacity: max(2, count), title: title)
         .frame(height: 96)
         .overlay { SelectionLayer(count: count, selected: $selected) }
-        // VoiceOver: swipe up/down moves the selected moment, like dragging across the chart.
+        .accessibilityElement()
+        .accessibilityLabel(title)
+        .accessibilityValue(selectedInterval)
         .accessibilityAdjustableAction { direction in
-          guard count > 0 else { return }
-          let current = selected ?? count - 1
-          selected = direction == .increment ? min(count - 1, current + 1) : max(0, current - 1)
+          moveSelection(direction == .increment ? 1 : -1)
         }
+        .focusable()
+        .onKeyPress(.leftArrow) { moveSelection(-1) }
+        .onKeyPress(.rightArrow) { moveSelection(1) }
     }
+  }
+  private var selectedInterval: String {
+    guard let selected, times.indices.contains(selected) else { return L("Nenhum intervalo selecionado") }
+    let start = Date(timeIntervalSince1970: times[selected])
+    let end = start.addingTimeInterval(bucket)
+    return "\(start.formatted(date: .complete, time: .shortened)) – \(end.formatted(date: .complete, time: .shortened))"
+  }
+  private func moveSelection(_ direction: Int) -> KeyPress.Result {
+    let count = times.count
+    guard count > 0 else { return .ignored }
+    let current = selected ?? (direction > 0 ? -1 : count)
+    selected = min(count - 1, max(0, current + direction))
+    return .handled
   }
 }
 private struct SelectionLayer: View {

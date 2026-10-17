@@ -225,6 +225,7 @@ private let entries = """
   Mover %@ para a esquerda ¦ Move %@ left ¦ Mover %@ a la izquierda
   Médio ¦ Medium ¦ Mediano
   Nenhum ¦ None ¦ Ninguno
+  Nenhum intervalo selecionado ¦ No interval selected ¦ Ningún intervalo seleccionado
   Nenhum processo ¦ No process ¦ Ningún proceso
   Nenhum processo elegível para encerrar. ¦ No eligible process to terminate. ¦ Ningún proceso elegible para finalizar.
   Nenhum runtime de desenvolvimento rodando sem pai. ¦ No development runtime running without a parent. ¦ Ningún runtime de desarrollo ejecutándose sin padre.

@@ -11,12 +11,15 @@ PRAGMA journal_mode=WAL;
 PRAGMA synchronous=NORMAL;
 CREATE TABLE IF NOT EXISTS minutes(at INTEGER PRIMARY KEY, samples INTEGER NOT NULL,
  cpu REAL, cpu_max REAL, memory REAL, swap REAL, disk_read REAL, disk_write REAL,
- net_in REAL, net_out REAL, thermal INTEGER, pressure INTEGER, pressure_pct REAL);
+ net_in REAL, net_out REAL, thermal INTEGER, pressure INTEGER, pressure_pct REAL,
+ cpu_n INTEGER NOT NULL DEFAULT 0, memory_n INTEGER NOT NULL DEFAULT 0,
+ disk_read_n INTEGER NOT NULL DEFAULT 0, disk_write_n INTEGER NOT NULL DEFAULT 0,
+ net_in_n INTEGER NOT NULL DEFAULT 0, net_out_n INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS procs(id INTEGER PRIMARY KEY, name TEXT NOT NULL, path TEXT NOT NULL,
  cwd TEXT NOT NULL, origin TEXT NOT NULL, UNIQUE(name, path, cwd, origin));
 CREATE TABLE IF NOT EXISTS top(at INTEGER NOT NULL, kind INTEGER NOT NULL, rank INTEGER NOT NULL,
  proc INTEGER NOT NULL, cpu REAL, memory REAL, PRIMARY KEY(at, kind, rank)) WITHOUT ROWID;
-PRAGMA user_version=1;";
+";
 
 /// `~/Library/Application Support/CoreScope/history.sqlite`.
 pub fn default_path() -> String {
@@ -73,6 +76,9 @@ impl Mean {
     fn get(&self) -> Option<f64> {
         (self.n > 0).then(|| self.sum / self.n as f64)
     }
+    fn count(&self) -> i64 {
+        self.n as i64
+    }
 }
 fn max<T: PartialOrd + Copy>(a: Option<T>, b: Option<T>) -> Option<T> {
     match (a, b) {
@@ -80,6 +86,10 @@ fn max<T: PartialOrd + Copy>(a: Option<T>, b: Option<T>) -> Option<T> {
         (x, None) => x,
         (None, y) => y,
     }
+}
+fn weighted_mean(a: Option<f64>, a_n: i64, b: Option<f64>, b_n: i64) -> Option<f64> {
+    let n = a_n + b_n;
+    (n > 0).then(|| (a.unwrap_or(0.) * a_n as f64 + b.unwrap_or(0.) * b_n as f64) / n as f64)
 }
 struct ProcAcc {
     name: String,
@@ -235,7 +245,36 @@ impl Recorder {
                 std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
             }
             let db = Db::open(&self.path, false)?;
+            let version = {
+                let mut s = db.prepare("PRAGMA user_version")?;
+                s.step()?;
+                s.int(0).unwrap_or(0)
+            };
             db.exec(SCHEMA)?;
+            if version == 1 {
+                db.exec("BEGIN IMMEDIATE")?;
+                if let Err(e) = db.exec(
+                    "ALTER TABLE minutes ADD COLUMN cpu_n INTEGER NOT NULL DEFAULT 0;
+                     ALTER TABLE minutes ADD COLUMN memory_n INTEGER NOT NULL DEFAULT 0;
+                     ALTER TABLE minutes ADD COLUMN disk_read_n INTEGER NOT NULL DEFAULT 0;
+                     ALTER TABLE minutes ADD COLUMN disk_write_n INTEGER NOT NULL DEFAULT 0;
+                     ALTER TABLE minutes ADD COLUMN net_in_n INTEGER NOT NULL DEFAULT 0;
+                     ALTER TABLE minutes ADD COLUMN net_out_n INTEGER NOT NULL DEFAULT 0;
+                     UPDATE minutes SET cpu_n=CASE WHEN cpu IS NULL THEN 0 ELSE samples END,
+                      memory_n=CASE WHEN memory IS NULL THEN 0 ELSE samples END,
+                      disk_read_n=CASE WHEN disk_read IS NULL THEN 0 ELSE samples END,
+                      disk_write_n=CASE WHEN disk_write IS NULL THEN 0 ELSE samples END,
+                      net_in_n=CASE WHEN net_in IS NULL THEN 0 ELSE samples END,
+                      net_out_n=CASE WHEN net_out IS NULL THEN 0 ELSE samples END;
+                     PRAGMA user_version=2;",
+                ) {
+                    let _ = db.exec("ROLLBACK");
+                    return Err(e);
+                }
+                db.exec("COMMIT")?;
+            } else if version < 2 {
+                db.exec("PRAGMA user_version=2")?;
+            }
             self.db = Some(db);
         }
         Ok(self.db.as_ref().expect("opened above"))
@@ -249,32 +288,121 @@ impl Recorder {
         let db = self.open()?;
         db.exec("BEGIN IMMEDIATE")?;
         let result = (|| {
-            db.prepare("INSERT OR REPLACE INTO minutes VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)")?
-                .run(&[
-                    Value::Int(m.at),
-                    Value::Int(m.samples as i64),
-                    Value::Real(m.cpu.get()),
-                    Value::Real(m.cpu_max),
-                    Value::Real(m.memory.get()),
-                    Value::Real(m.swap),
-                    Value::Real(m.disk_read.get()),
-                    Value::Real(m.disk_write.get()),
-                    Value::Real(m.net_in.get()),
-                    Value::Real(m.net_out.get()),
-                    m.thermal.map_or(Value::Real(None), Value::Int),
-                    m.pressure.map_or(Value::Real(None), Value::Int),
-                    Value::Real(m.pressure_pct),
-                ])?;
+            let old = {
+                let mut s = db.prepare(
+                    "SELECT samples,cpu,cpu_n,cpu_max,memory,memory_n,swap,disk_read,disk_read_n,
+                     disk_write,disk_write_n,net_in,net_in_n,net_out,net_out_n,thermal,pressure,
+                     pressure_pct FROM minutes WHERE at=?",
+                )?;
+                s.bind(&[Value::Int(m.at)])?;
+                if s.step()? {
+                    Some(Bucket {
+                        at: m.at,
+                        samples: s.int(0).unwrap_or(0),
+                        cpu: s.real(1),
+                        cpu_count: s.int(2).unwrap_or(0),
+                        cpu_max: s.real(3),
+                        memory: s.real(4),
+                        memory_count: s.int(5).unwrap_or(0),
+                        swap: s.real(6),
+                        disk_read: s.real(7),
+                        disk_read_count: s.int(8).unwrap_or(0),
+                        disk_write: s.real(9),
+                        disk_write_count: s.int(10).unwrap_or(0),
+                        net_in: s.real(11),
+                        net_in_count: s.int(12).unwrap_or(0),
+                        net_out: s.real(13),
+                        net_out_count: s.int(14).unwrap_or(0),
+                        thermal: s.int(15),
+                        pressure: s.int(16),
+                        pressure_pct: s.real(17),
+                    })
+                } else {
+                    None
+                }
+            };
+            let old = old.unwrap_or_default();
+            let samples = old.samples + m.samples as i64;
+            let cpu_n = old.cpu_count + m.cpu.count();
+            let memory_n = old.memory_count + m.memory.count();
+            let disk_read_n = old.disk_read_count + m.disk_read.count();
+            let disk_write_n = old.disk_write_count + m.disk_write.count();
+            let net_in_n = old.net_in_count + m.net_in.count();
+            let net_out_n = old.net_out_count + m.net_out.count();
+            let cpu = weighted_mean(old.cpu, old.cpu_count, m.cpu.get(), m.cpu.count());
+            let memory = weighted_mean(
+                old.memory,
+                old.memory_count,
+                m.memory.get(),
+                m.memory.count(),
+            );
+            let disk_read = weighted_mean(
+                old.disk_read,
+                old.disk_read_count,
+                m.disk_read.get(),
+                m.disk_read.count(),
+            );
+            let disk_write = weighted_mean(
+                old.disk_write,
+                old.disk_write_count,
+                m.disk_write.get(),
+                m.disk_write.count(),
+            );
+            let net_in = weighted_mean(
+                old.net_in,
+                old.net_in_count,
+                m.net_in.get(),
+                m.net_in.count(),
+            );
+            let net_out = weighted_mean(
+                old.net_out,
+                old.net_out_count,
+                m.net_out.get(),
+                m.net_out.count(),
+            );
+            db.prepare(
+                "INSERT OR REPLACE INTO minutes VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            )?
+            .run(&[
+                Value::Int(m.at),
+                Value::Int(samples),
+                Value::Real(cpu),
+                Value::Real(max(old.cpu_max, m.cpu_max)),
+                Value::Real(memory),
+                Value::Real(max(old.swap, m.swap)),
+                Value::Real(disk_read),
+                Value::Real(disk_write),
+                Value::Real(net_in),
+                Value::Real(net_out),
+                max(old.thermal, m.thermal).map_or(Value::Real(None), Value::Int),
+                max(old.pressure, m.pressure).map_or(Value::Real(None), Value::Int),
+                Value::Real(max(old.pressure_pct, m.pressure_pct)),
+                Value::Int(cpu_n),
+                Value::Int(memory_n),
+                Value::Int(disk_read_n),
+                Value::Int(disk_write_n),
+                Value::Int(net_in_n),
+                Value::Int(net_out_n),
+            ])?;
             let mut insert =
                 db.prepare("INSERT OR IGNORE INTO procs(name,path,cwd,origin) VALUES(?,?,?,?)")?;
             let mut find =
                 db.prepare("SELECT id FROM procs WHERE name=? AND path=? AND cwd=? AND origin=?")?;
             let mut top = db.prepare("INSERT OR REPLACE INTO top VALUES(?,?,?,?,?,?)")?;
-            db.prepare("DELETE FROM top WHERE at=?")?
-                .run(&[Value::Int(m.at)])?;
             let n = m.samples.max(1) as f64;
             for kind in [0, 1] {
-                for (rank, (p, _)) in m.ranked(kind == 1).into_iter().enumerate() {
+                let mut candidates = HashMap::<i64, (f64, f64)>::new();
+                let mut previous =
+                    db.prepare("SELECT proc,cpu,memory FROM top WHERE at=? AND kind=?")?;
+                previous.bind(&[Value::Int(m.at), Value::Int(kind)])?;
+                while previous.step()? {
+                    let id = previous.int(0).unwrap_or(0);
+                    let entry = candidates.entry(id).or_default();
+                    entry.0 += previous.real(1).unwrap_or(0.);
+                    entry.1 = entry.1.max(previous.real(2).unwrap_or(0.));
+                }
+                let mut current = HashMap::<i64, (f64, f64)>::new();
+                for (p, _) in m.ranked(kind == 1) {
                     let key = [
                         Value::Text(&p.name),
                         Value::Text(&p.path),
@@ -285,13 +413,40 @@ impl Recorder {
                     find.bind(&key)?;
                     let id = if find.step()? { find.int(0) } else { None }
                         .ok_or("Processo não registrado")?;
+                    let entry = current.entry(id).or_default();
+                    entry.0 += p.cpu / n;
+                    entry.1 = entry.1.max(p.memory);
+                }
+                for (id, (cpu, memory)) in current {
+                    let old_cpu = candidates.get(&id).map_or(0., |v| v.0);
+                    let old_memory = candidates.get(&id).map_or(0., |v| v.1);
+                    candidates.insert(
+                        id,
+                        (
+                            weighted_mean(Some(old_cpu), old.samples, Some(cpu), m.samples as i64)
+                                .unwrap_or(0.),
+                            old_memory.max(memory),
+                        ),
+                    );
+                }
+                let mut ranked: Vec<_> = candidates.into_iter().collect();
+                ranked.sort_by(|a, b| {
+                    let score = if kind == 0 { 0 } else { 1 };
+                    let av = if score == 0 { a.1.0 } else { a.1.1 };
+                    let bv = if score == 0 { b.1.0 } else { b.1.1 };
+                    bv.total_cmp(&av)
+                });
+                ranked.truncate(TOP);
+                db.prepare("DELETE FROM top WHERE at=? AND kind=?")?
+                    .run(&[Value::Int(m.at), Value::Int(kind)])?;
+                for (rank, (id, (cpu, memory))) in ranked.into_iter().enumerate() {
                     top.run(&[
                         Value::Int(m.at),
                         Value::Int(kind),
                         Value::Int(rank as i64),
                         Value::Int(id),
-                        Value::Real(Some(p.cpu / n)),
-                        Value::Real(Some(p.memory)),
+                        Value::Real(Some(cpu)),
+                        Value::Real(Some(memory)),
                     ])?;
                 }
             }
@@ -338,13 +493,19 @@ pub struct Bucket {
     pub at: i64,
     pub samples: i64,
     pub cpu: Option<f64>,
+    pub cpu_count: i64,
     pub cpu_max: Option<f64>,
     pub memory: Option<f64>,
+    pub memory_count: i64,
     pub swap: Option<f64>,
     pub disk_read: Option<f64>,
+    pub disk_read_count: i64,
     pub disk_write: Option<f64>,
+    pub disk_write_count: i64,
     pub net_in: Option<f64>,
+    pub net_in_count: i64,
     pub net_out: Option<f64>,
+    pub net_out_count: i64,
     pub thermal: Option<i64>,
     pub pressure: Option<i64>,
     pub pressure_pct: Option<f64>,
@@ -418,9 +579,10 @@ pub fn series(path: &str, from: i64, to: i64, bucket: i64) -> Result<Series, Str
     let info = info(path)?;
     if let Some(db) = reader(path)? {
         let mut s = db.prepare(
-            "SELECT (at-?1)/?2, sum(samples), avg(cpu), max(cpu_max), avg(memory), max(swap),
-             avg(disk_read), avg(disk_write), avg(net_in), avg(net_out), max(thermal),
-             max(pressure), max(pressure_pct)
+            "SELECT (at-?1)/?2, sum(samples), avg(cpu), count(cpu), max(cpu_max), avg(memory),
+             count(memory), max(swap), avg(disk_read), count(disk_read), avg(disk_write),
+             count(disk_write), avg(net_in), count(net_in), avg(net_out), count(net_out),
+             max(thermal), max(pressure), max(pressure_pct)
              FROM minutes WHERE at>=?1 AND at<?3 GROUP BY 1",
         )?;
         s.bind(&[Value::Int(from), Value::Int(bucket), Value::Int(to)])?;
@@ -430,16 +592,22 @@ pub fn series(path: &str, from: i64, to: i64, bucket: i64) -> Result<Series, Str
             };
             p.samples = s.int(1).unwrap_or(0);
             p.cpu = s.real(2);
-            p.cpu_max = s.real(3);
-            p.memory = s.real(4);
-            p.swap = s.real(5);
-            p.disk_read = s.real(6);
-            p.disk_write = s.real(7);
-            p.net_in = s.real(8);
-            p.net_out = s.real(9);
-            p.thermal = s.int(10);
-            p.pressure = s.int(11);
-            p.pressure_pct = s.real(12);
+            p.cpu_count = s.int(3).unwrap_or(0);
+            p.cpu_max = s.real(4);
+            p.memory = s.real(5);
+            p.memory_count = s.int(6).unwrap_or(0);
+            p.swap = s.real(7);
+            p.disk_read = s.real(8);
+            p.disk_read_count = s.int(9).unwrap_or(0);
+            p.disk_write = s.real(10);
+            p.disk_write_count = s.int(11).unwrap_or(0);
+            p.net_in = s.real(12);
+            p.net_in_count = s.int(13).unwrap_or(0);
+            p.net_out = s.real(14);
+            p.net_out_count = s.int(15).unwrap_or(0);
+            p.thermal = s.int(16);
+            p.pressure = s.int(17);
+            p.pressure_pct = s.real(18);
         }
     }
     Ok(Series {
