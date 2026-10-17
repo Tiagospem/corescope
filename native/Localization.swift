@@ -629,4 +629,10 @@ private let entries = """
   Roda dentro do app do Codex ¦ Runs inside the Codex app ¦ Se ejecuta dentro de la app de Codex
   Abrir no Codex ¦ Open in Codex ¦ Abrir en Codex
   Abre esta conversa no app do Codex ¦ Opens this conversation in the Codex app ¦ Abre esta conversación en la app de Codex
+  Linha de comando ¦ Command line ¦ Línea de comandos
+  Comando corescope ¦ corescope command ¦ Comando corescope
+  Instalado em ~/.local/bin ¦ Installed in ~/.local/bin ¦ Instalado en ~/.local/bin
+  Remover ¦ Remove ¦ Quitar
+  Instalar ¦ Install ¦ Instalar
+  corescope ports · free-port · kill-port 3000 · agents · orphans · top · kill PID --tree. Todos aceitam --json. Se o terminal não encontrar o comando, adicione ~/.local/bin ao PATH. ¦ corescope ports · free-port · kill-port 3000 · agents · orphans · top · kill PID --tree. All accept --json. If your terminal can't find the command, add ~/.local/bin to PATH. ¦ corescope ports · free-port · kill-port 3000 · agents · orphans · top · kill PID --tree. Todos aceptan --json. Si el terminal no encuentra el comando, añade ~/.local/bin al PATH.
   """

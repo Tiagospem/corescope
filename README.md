@@ -105,6 +105,22 @@ If you work with Claude Code, Codex, editors and terminals all day, your Mac fil
 - **Port lookup in the menu bar:** type a port (e.g. `3000`) to see which of your processes listens on it — name, project, origin — with *open `localhost:port`* and ✕. An empty result reads *Free*.
 - **Global shortcut ⌥⌘K** (configurable in Settings → Port shortcut) opens the menu bar popover with the port field focused. It is registered with Carbon's `RegisterEventHotKey`, so it needs **no Accessibility or Input Monitoring permission**: the app receives only that one key combination, never other keystrokes. (macOS 27 no longer exposes a public way to open a `MenuBarExtra` window, so there the shortcut shows the same menu in a standard popover anchored to the status item.)
 
+### ⌨️ Command line
+
+Install it from *Settings → Command line* (a link in `~/.local/bin`). Every command accepts `--json`, so agents can use it too:
+
+```bash
+corescope ports                    # listening ports with process, project and origin
+corescope free-port 3000           # first free localhost port from 3000
+corescope kill-port 3000           # stop what listens on :3000 (asks first; --yes, --force)
+corescope agents                   # agent sessions, what they started, their ports
+corescope orphans                  # dev runtimes left running without their parent
+corescope top --mem -n 10          # top processes by memory (or CPU)
+corescope kill 4242 --tree         # stop a process and everything it started
+```
+
+Termination follows the app's rules: only your own processes, never system services or the command's own ancestors (an agent cannot stop its own session), identity revalidated right before each signal, and no signal without `--yes` when there is no terminal to confirm in.
+
 ### And also
 
 - **Storage & I/O:** per-device read/write, volume capacity (without double-counting APFS containers), NVMe temperature via public SMART APIs.

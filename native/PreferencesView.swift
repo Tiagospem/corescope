@@ -137,6 +137,7 @@ struct PreferencesView: View {
           L("Abre o menu do CoreScope com o campo Porta em foco. Registrado com RegisterEventHotKey: não pede permissão de Acessibilidade e o app recebe só esta combinação.")
         ).font(.caption).foregroundStyle(.secondary)
       }
+      CommandLineSettings()
       Section(L("Agentes")) {
         Toggle(L("Ler o limite atual pelo Codex"), isOn: $p.codexLiveLimits)
           .onChange(of: p.codexLiveLimits) { _, on in if on { AgentStore.shared.refreshCodexLive() } }

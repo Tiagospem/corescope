@@ -1,0 +1,501 @@
+//! `corescope`: command-line access to CoreScope's process view, for people and for agents.
+//! Same sampling and the same safe termination as the app: only the current user's eligible
+//! processes, identity (PID + start time + executable) revalidated right before each signal.
+use corescope::{Collector, Config, Process, Snapshot, cs_is_same, signal_process};
+use serde_json::{Value, json};
+use std::collections::{HashMap, HashSet};
+use std::io::{IsTerminal, Write};
+use std::net::TcpListener;
+use std::time::Duration;
+
+const HELP: &str = "corescope — developer-focused process view for macOS
+
+USAGE:
+  corescope ports                       listening TCP ports with process, project and origin
+  corescope free-port [FROM]            first free localhost port from FROM (default 3000)
+  corescope kill-port PORT [--force]    stop the processes listening on PORT
+  corescope agents                      AI agent sessions and what they started
+  corescope orphans                     dev runtimes left running without their parent
+  corescope top [--mem] [-n N]          top processes by CPU (or memory)
+  corescope kill PID [--tree] [--force] stop a process (and its descendants with --tree)
+  corescope mcp                         run the local MCP server on stdio
+
+OPTIONS:
+  --json     machine-readable output
+  --yes      do not ask for confirmation (required when stdin is not a terminal)
+  --force    SIGKILL instead of SIGTERM
+
+Only your own, eligible processes can be stopped; system services and CoreScope's own
+ancestors are refused. Nothing runs in the background and nothing is sent anywhere.";
+
+fn main() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let flag = |name: &str| args.iter().any(|a| a == name);
+    let json_out = flag("--json");
+    let positional: Vec<&str> = args
+        .iter()
+        .filter(|a| !a.starts_with('-'))
+        .map(String::as_str)
+        .collect();
+    let number = |name: &str| {
+        args.iter()
+            .position(|a| a == name)
+            .and_then(|i| args.get(i + 1))
+            .and_then(|v| v.parse::<usize>().ok())
+    };
+    let code = match positional.first().copied() {
+        None | Some("help") => {
+            println!("{HELP}");
+            0
+        }
+        Some("ports") => print(json_out, ports(&sample(false))),
+        Some("free-port") => {
+            let from = positional
+                .get(1)
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(3000);
+            print(json_out, free_port(from, &sample(false)))
+        }
+        Some("agents") => print(json_out, agents(&sample(true))),
+        Some("orphans") => print(json_out, orphans(&sample(false))),
+        Some("top") => print(
+            json_out,
+            top(&sample(true), flag("--mem"), number("-n").unwrap_or(10)),
+        ),
+        Some("kill-port") => match positional.get(1).and_then(|v| v.parse::<u16>().ok()) {
+            Some(port) => {
+                let snapshot = sample(false);
+                let targets: Vec<&Process> = snapshot
+                    .processes
+                    .iter()
+                    .filter(|p| p.ports.iter().any(|x| x.port == port))
+                    .collect();
+                terminate(&targets, flag("--force"), flag("--yes"), json_out)
+            }
+            None => fail(
+                json_out,
+                "usage: corescope kill-port PORT [--force] [--yes]",
+            ),
+        },
+        Some("kill") => match positional.get(1).and_then(|v| v.parse::<i32>().ok()) {
+            Some(pid) => {
+                let snapshot = sample(false);
+                let targets = if flag("--tree") {
+                    subtree(&snapshot, pid)
+                } else {
+                    snapshot.processes.iter().filter(|p| p.pid == pid).collect()
+                };
+                terminate(&targets, flag("--force"), flag("--yes"), json_out)
+            }
+            None => fail(
+                json_out,
+                "usage: corescope kill PID [--tree] [--force] [--yes]",
+            ),
+        },
+        Some("mcp") => corescope_mcp::serve(),
+        Some(other) => fail(
+            json_out,
+            &format!("unknown command: {other}. Try `corescope help`."),
+        ),
+    };
+    std::process::exit(code);
+}
+
+/// One sample gives ports, folders and origins; CPU needs a second one a moment later.
+pub fn sample(with_cpu: bool) -> Snapshot {
+    let mut collector = Collector::default();
+    let first = collector.sample(Config::default());
+    if !with_cpu {
+        return first;
+    }
+    std::thread::sleep(Duration::from_millis(700));
+    collector.sample(Config::default())
+}
+
+/// Parent of each process, and the process itself, for tree walks.
+fn by_pid(snapshot: &Snapshot) -> HashMap<i32, &Process> {
+    snapshot.processes.iter().map(|p| (p.pid, p)).collect()
+}
+/// Root first, then every descendant (children before parents when reversed for signaling).
+pub fn subtree(snapshot: &Snapshot, root: i32) -> Vec<&Process> {
+    let index = by_pid(snapshot);
+    let mut ids = vec![root];
+    let mut seen: HashSet<i32> = HashSet::from([root]);
+    let mut i = 0;
+    while i < ids.len() {
+        for p in &snapshot.processes {
+            if p.ppid == ids[i] && seen.insert(p.pid) {
+                ids.push(p.pid);
+            }
+        }
+        i += 1;
+    }
+    ids.iter().filter_map(|id| index.get(id).copied()).collect()
+}
+fn project(p: &Process) -> Option<String> {
+    let home = std::env::var("HOME").unwrap_or_default();
+    (!p.cwd.is_empty()
+        && p.cwd != "/"
+        && p.cwd != home
+        && !p.cwd.starts_with(&format!("{home}/Library/")))
+    .then(|| p.cwd.rsplit('/').next().unwrap_or("").to_string())
+}
+fn process_json(p: &Process) -> Value {
+    json!({
+        "pid": p.pid, "ppid": p.ppid, "name": p.name, "path": p.path, "cwd": p.cwd,
+        "project": project(p),
+        "origin": p.origin.as_ref().map(|o| json!({"label": o.label, "kind": o.kind, "pid": o.pid})),
+        "ports": p.ports.iter().map(|x| json!({"port": x.port, "exposed": x.exposed})).collect::<Vec<_>>(),
+        "cpu_percent": p.cpu.value, "memory_bytes": p.memory.value,
+        "eligible": p.eligible, "orphan": p.orphan.is_some(),
+    })
+}
+
+pub fn ports(snapshot: &Snapshot) -> Value {
+    let mut rows: Vec<Value> = snapshot
+        .processes
+        .iter()
+        .filter(|p| !p.ports.is_empty())
+        .flat_map(|p| {
+            p.ports.iter().map(
+                move |x| json!({"port": x.port, "exposed": x.exposed, "process": process_json(p)}),
+            )
+        })
+        .collect();
+    rows.sort_by_key(|r| r["port"].as_u64().unwrap_or(0));
+    rows.dedup_by(|a, b| a["port"] == b["port"] && a["process"]["name"] == b["process"]["name"]);
+    json!({"ports": rows})
+}
+
+pub fn free_port(from: u16, snapshot: &Snapshot) -> Value {
+    let taken: HashSet<u16> = snapshot
+        .processes
+        .iter()
+        .flat_map(|p| p.ports.iter().map(|x| x.port))
+        .collect();
+    let free = (from..=u16::MAX).find(|port| {
+        !taken.contains(port)
+            && TcpListener::bind(("127.0.0.1", *port)).is_ok()
+            && TcpListener::bind(("0.0.0.0", *port)).is_ok()
+    });
+    json!({"free_port": free, "from": from})
+}
+
+pub fn agents(snapshot: &Snapshot) -> Value {
+    let roots = snapshot.processes.iter().filter(|p| {
+        p.tags.contains(&"agent")
+            && !p.host.is_some_and(|h| h.ends_with("Desktop"))
+            && p.origin.as_ref().map(|o| o.label) != p.host
+    });
+    let sessions: Vec<Value> = roots
+        .map(|root| {
+            let tree = subtree(snapshot, root.pid);
+            json!({
+                "agent": root.host, "pid": root.pid, "project": project(root), "cwd": root.cwd,
+                "started_via": root.origin.as_ref().map(|o| o.label),
+                "processes": tree.len(),
+                "cpu_percent": tree.iter().filter_map(|p| p.cpu.value).sum::<f64>(),
+                "memory_bytes": tree.iter().filter_map(|p| p.memory.value).sum::<f64>(),
+                "ports": tree.iter().flat_map(|p| p.ports.iter().map(|x| x.port)).collect::<Vec<_>>(),
+                "children": tree.iter().skip(1).map(|p| process_json(p)).collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+    json!({"agents": sessions})
+}
+
+pub fn orphans(snapshot: &Snapshot) -> Value {
+    let rows: Vec<Value> = snapshot
+        .processes
+        .iter()
+        .filter(|p| p.orphan.is_some())
+        .map(|p| {
+            let mut v = process_json(p);
+            v["reason"] = json!(p.orphan.as_deref().map(english));
+            v
+        })
+        .collect();
+    json!({"orphans": rows})
+}
+
+pub fn top(snapshot: &Snapshot, memory: bool, count: usize) -> Value {
+    let mut rows: Vec<&Process> = snapshot.processes.iter().collect();
+    let key = |p: &&Process| if memory { p.memory.value } else { p.cpu.value }.unwrap_or(-1.);
+    rows.sort_by(|a, b| key(b).total_cmp(&key(a)));
+    json!({"by": if memory {"memory"} else {"cpu"},
+           "processes": rows.iter().take(count).map(|p| process_json(p)).collect::<Vec<_>>()})
+}
+
+/// Core messages are Portuguese (the app translates them); the CLI speaks English.
+fn english(error: &str) -> String {
+    let table = [
+        ("Pertence a outro usuário", "belongs to another user"),
+        ("Serviço essencial protegido", "protected system service"),
+        (
+            "Processo protegido ou ancestral do CoreScope",
+            "protected, or an ancestor of this command",
+        ),
+        (
+            "Identidade inválida ou processo do sistema",
+            "invalid identity or system process",
+        ),
+        (
+            "Executável indisponível; ação bloqueada",
+            "executable unavailable; refused",
+        ),
+        (
+            "Processo encerrou ou está sem permissão",
+            "already exited or not accessible",
+        ),
+        ("Identidade mudou", "identity changed (PID reused); refused"),
+        (
+            "O processo pai encerrou",
+            "its parent exited and it kept running, adopted by launchd",
+        ),
+        (
+            "Sem processo pai",
+            "no parent process (adopted by launchd); dev runtimes usually run under a terminal, editor or agent — may be a service started on purpose",
+        ),
+    ];
+    table
+        .iter()
+        .find(|(pt, _)| error.starts_with(pt))
+        .map(|(_, en)| en.to_string())
+        .unwrap_or_else(|| error.to_string())
+}
+
+/// SIGTERM (or SIGKILL) children first, then reports what is gone after two seconds.
+pub fn terminate(targets: &[&Process], force: bool, yes: bool, json_out: bool) -> i32 {
+    if targets.is_empty() {
+        return fail(json_out, "no matching process");
+    }
+    if !yes {
+        if !std::io::stdin().is_terminal() {
+            return fail(
+                json_out,
+                "refusing without --yes when stdin is not a terminal",
+            );
+        }
+        eprintln!(
+            "{} will be sent to:",
+            if force { "SIGKILL" } else { "SIGTERM" }
+        );
+        for p in targets {
+            eprintln!(
+                "  {} (PID {}) {}",
+                p.name,
+                p.pid,
+                project(p).unwrap_or_default()
+            );
+        }
+        eprint!("Proceed? [y/N] ");
+        let _ = std::io::stderr().flush();
+        let mut answer = String::new();
+        let _ = std::io::stdin().read_line(&mut answer);
+        if !matches!(answer.trim(), "y" | "Y" | "yes") {
+            return fail(json_out, "cancelled");
+        }
+    }
+    let mut results = Vec::new();
+    let mut sent = Vec::new();
+    for p in targets.iter().rev() {
+        match signal_process(p.pid, p.start, &p.path, force) {
+            Ok(()) => sent.push(*p),
+            Err(e) => results.push(
+                json!({"pid": p.pid, "name": p.name, "status": "refused", "reason": english(&e)}),
+            ),
+        }
+    }
+    if !sent.is_empty() {
+        std::thread::sleep(Duration::from_secs(2));
+    }
+    for p in sent {
+        let alive = cs_is_same(p.pid, p.start) == 1;
+        results.push(json!({"pid": p.pid, "name": p.name,
+            "status": if alive {"still running"} else {"terminated"}}));
+    }
+    let ok = results.iter().all(|r| r["status"] == "terminated");
+    print(
+        json_out,
+        json!({"signal": if force {"SIGKILL"} else {"SIGTERM"}, "results": results}),
+    );
+    if ok { 0 } else { 2 }
+}
+
+fn fail(json_out: bool, message: &str) -> i32 {
+    if json_out {
+        println!("{}", json!({"error": message}));
+    } else {
+        eprintln!("corescope: {message}");
+    }
+    1
+}
+
+/// JSON as-is, or a readable table for people.
+fn print(json_out: bool, value: Value) -> i32 {
+    if json_out {
+        println!("{value}");
+        return 0;
+    }
+    let mb = |v: &Value| {
+        v.as_f64()
+            .map(|b| format!("{:.0} MB", b / 1_048_576.))
+            .unwrap_or("—".into())
+    };
+    let pct = |v: &Value| v.as_f64().map(|c| format!("{c:.1}%")).unwrap_or("—".into());
+    let text = |v: &Value| v.as_str().unwrap_or("—").to_string();
+    // serde_json numbers ignore width specifiers: format them as strings first.
+    let num = |v: &Value| {
+        if v.is_null() {
+            "—".to_string()
+        } else {
+            v.to_string()
+        }
+    };
+    if let Some(rows) = value["ports"].as_array() {
+        println!(
+            "{:<7} {:<8} {:<24} {:<22} ORIGIN",
+            "PORT", "PID", "PROCESS", "PROJECT"
+        );
+        for r in rows {
+            let p = &r["process"];
+            println!(
+                "{:<7} {:<8} {:<24} {:<22} {}{}",
+                num(&r["port"]),
+                num(&p["pid"]),
+                text(&p["name"]),
+                text(&p["project"]),
+                text(&p["origin"]["label"]),
+                if r["exposed"] == true {
+                    "  (network)"
+                } else {
+                    ""
+                }
+            );
+        }
+    } else if let Some(port) = value.get("free_port") {
+        println!(
+            "{}",
+            port.as_u64()
+                .map(|p| p.to_string())
+                .unwrap_or("none".into())
+        );
+    } else if let Some(rows) = value["agents"].as_array() {
+        println!(
+            "{:<14} {:<8} {:<22} {:<12} {:>5} {:>7} {:>9}  PORTS",
+            "AGENT", "PID", "PROJECT", "VIA", "PROCS", "CPU", "MEMORY"
+        );
+        for r in rows {
+            println!(
+                "{:<14} {:<8} {:<22} {:<12} {:>5} {:>7} {:>9}  {}",
+                text(&r["agent"]),
+                num(&r["pid"]),
+                text(&r["project"]),
+                text(&r["started_via"]),
+                num(&r["processes"]),
+                pct(&r["cpu_percent"]),
+                mb(&r["memory_bytes"]),
+                r["ports"]
+                    .as_array()
+                    .map(|a| a
+                        .iter()
+                        .map(|p| format!(":{p}"))
+                        .collect::<Vec<_>>()
+                        .join(" "))
+                    .unwrap_or_default()
+            );
+        }
+    } else if let Some(rows) = value["orphans"].as_array() {
+        println!(
+            "{:<8} {:<24} {:<22} {:>9}  REASON",
+            "PID", "PROCESS", "PROJECT", "MEMORY"
+        );
+        for r in rows {
+            println!(
+                "{:<8} {:<24} {:<22} {:>9}  {}",
+                num(&r["pid"]),
+                text(&r["name"]),
+                text(&r["project"]),
+                mb(&r["memory_bytes"]),
+                text(&r["reason"])
+            );
+        }
+    } else if let Some(rows) = value["processes"].as_array() {
+        println!(
+            "{:<8} {:<28} {:<22} {:>7} {:>9}",
+            "PID", "PROCESS", "PROJECT", "CPU", "MEMORY"
+        );
+        for r in rows {
+            println!(
+                "{:<8} {:<28} {:<22} {:>7} {:>9}",
+                num(&r["pid"]),
+                text(&r["name"]),
+                text(&r["project"]),
+                pct(&r["cpu_percent"]),
+                mb(&r["memory_bytes"])
+            );
+        }
+    } else if let Some(rows) = value["results"].as_array() {
+        for r in rows {
+            println!(
+                "{} (PID {}): {}{}",
+                text(&r["name"]),
+                r["pid"],
+                text(&r["status"]),
+                r["reason"]
+                    .as_str()
+                    .map(|x| format!(" — {x}"))
+                    .unwrap_or_default()
+            );
+        }
+    } else {
+        println!("{value}");
+    }
+    0
+}
+
+/// The MCP server (feature 0) plugs in here; until then `mcp` reports it is unavailable.
+mod corescope_mcp {
+    pub fn serve() -> i32 {
+        eprintln!("corescope: the MCP server is not available in this build");
+        1
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn free_port_is_bindable_and_skips_taken() {
+        let held = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = held.local_addr().unwrap().port();
+        let found = free_port(port, &sample(false))["free_port"]
+            .as_u64()
+            .unwrap() as u16;
+        assert!(found > port, "a port in use must be skipped");
+        assert!(TcpListener::bind(("127.0.0.1", found)).is_ok());
+    }
+    #[test]
+    fn subtree_starts_at_root_and_includes_children() {
+        let mut child = std::process::Command::new("/bin/sleep")
+            .arg("5")
+            .spawn()
+            .unwrap();
+        let snapshot = sample(false);
+        let me = std::process::id() as i32;
+        let tree = subtree(&snapshot, me);
+        assert_eq!(tree.first().map(|p| p.pid), Some(me));
+        assert!(tree.iter().any(|p| p.pid == child.id() as i32));
+        child.kill().ok();
+        child.wait().ok();
+    }
+    #[test]
+    fn core_errors_are_translated() {
+        assert_eq!(
+            english("Pertence a outro usuário"),
+            "belongs to another user"
+        );
+        assert!(english("Sem processo pai: adotado").starts_with("no parent process"));
+        assert_eq!(english("anything else"), "anything else");
+    }
+}

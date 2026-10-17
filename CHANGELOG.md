@@ -10,6 +10,12 @@ section as the GitHub release notes.
 
 ## [Unreleased]
 
+### Added
+- **`corescope` command-line tool** bundled in the app (*Settings › Command line* links it into
+  `~/.local/bin`): `ports`, `free-port`, `kill-port`, `agents`, `orphans`, `top`, `kill
+  [--tree]`, all with `--json`. Same safe termination as the app; refuses without `--yes` when
+  there is no terminal to confirm in, and never signals its own ancestors.
+
 ## [0.3.2] - 2026-10-17
 
 ### Added

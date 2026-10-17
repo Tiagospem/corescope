@@ -40,6 +40,10 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <key>NSPrincipalClass</key><string>NSApplication</string>
 </dict></plist>
 PLIST
+# Command-line tool (corescope ports, kill-port, agents, mcp…), signed before the app.
+mkdir -p "$APP/Contents/Resources/bin"
+cp core/target/release/corescope "$APP/Contents/Resources/bin/corescope"
+codesign --force --sign - "$APP/Contents/Resources/bin/corescope"
 codesign --force --sign - "$APP"
 # Refresh LaunchServices so the Dock and Finder pick up the current icon.
 /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$APP" >/dev/null 2>&1 || true
