@@ -6,13 +6,19 @@ struct HistoryBucket: Decodable {
   let at: Double
   let samples: Int
   let cpu: Double?
+  let cpu_minutes: Int
   let cpu_max: Double?
   let memory: Double?
+  let memory_minutes: Int
   let swap: Double?
   let disk_read: Double?
+  let disk_read_minutes: Int
   let disk_write: Double?
+  let disk_write_minutes: Int
   let net_in: Double?
+  let net_in_minutes: Int
   let net_out: Double?
+  let net_out_minutes: Int
   let thermal: Int?
   let pressure: Int?
   let pressure_pct: Double?
@@ -89,7 +95,7 @@ final class HistoryStore: ObservableObject {
   }
   /// Writes the minute in progress; used on quit.
   static func flush() { _ = try? call(["op": "flush"]) }
-  func load(range: HistoryRange, end: Date) {
+  func load(range: HistoryRange, end: Date, then: ((HistorySeries?) -> Void)? = nil) {
     let to = (end.timeIntervalSince1970 / range.bucket).rounded(.up) * range.bucket
     let from = to - range.span
     generation += 1
@@ -107,7 +113,10 @@ final class HistoryStore: ObservableObject {
           self.series = s
           self.info = s.info
           self.error = nil
-        case .failure(let e): self.error = e.localizedDescription
+          then?(s)
+        case .failure(let e):
+          self.error = e.localizedDescription
+          then?(nil)
         }
       }
     }
@@ -187,9 +196,21 @@ struct HistoryView: View {
     .onReceive(tick) { _ in if end == nil { reload(keepSelection: true) } }
   }
   private func reload(keepSelection: Bool = false) {
+    let selectedAt: Double?
+    if keepSelection, let selected, let series = store.series, series.points.indices.contains(selected) {
+      selectedAt = series.points[selected].at
+    } else {
+      selectedAt = nil
+    }
     if !keepSelection { selected = nil }
-    store.load(range: range, end: end ?? Date())
-    loadTop()
+    store.load(range: range, end: end ?? Date()) { series in
+      if let selectedAt, let index = series?.points.firstIndex(where: { $0.at == selectedAt }) {
+        selected = index
+      } else {
+        selected = nil
+      }
+      loadTop()
+    }
   }
   private func loadTop() {
     let to = ((end ?? Date()).timeIntervalSince1970 / range.bucket).rounded(.up) * range.bucket
@@ -246,30 +267,36 @@ struct HistoryView: View {
     ) {
       HistoryChart(
         title: L("CPU"), symbol: "cpu", value: summary(
-          p, \.cpu, \.cpu_max, format: { String(format: "%.0f%%", $0) }, labels: ("", L("pico")), secondIsPeak: true),
+          p, \.cpu, firstCount: \.cpu_minutes, \.cpu_max, secondCount: nil,
+          format: { String(format: "%.0f%%", $0) }, labels: ("", L("pico")), secondIsPeak: true),
         series: [
           ChartSeries(values: p.map(\.cpu_max), color: Tint.cpu.opacity(0.45), name: L("pico"), format: percent),
           ChartSeries(values: p.map(\.cpu), color: Tint.cpu, name: L("média"), format: percent),
-        ], ceiling: 100, legend: [("média", Tint.cpu), ("pico", Tint.cpu.opacity(0.45))], selected: $selected)
+        ], times: p.map(\.at), ceiling: 100, legend: [("média", Tint.cpu), ("pico", Tint.cpu.opacity(0.45))],
+        selected: $selected)
       HistoryChart(
         title: L("Memória"), symbol: "memorychip", value: summary(
-          p, \.memory, \.swap, format: formatBytes, labels: ("", L("swap")), secondIsPeak: true),
+          p, \.memory, firstCount: \.memory_minutes, \.swap, secondCount: nil,
+          format: formatBytes, labels: ("", L("swap")), secondIsPeak: true),
         series: [
           ChartSeries(values: p.map(\.memory), color: Tint.memory, name: L("usada"), format: formatBytes),
           ChartSeries(values: p.map(\.swap), color: .orange, name: L("swap"), format: formatBytes),
-        ], ceiling: physical, legend: [("usada", Tint.memory), ("swap", .orange)], selected: $selected)
+        ], times: p.map(\.at), ceiling: physical, legend: [("usada", Tint.memory), ("swap", .orange)],
+        selected: $selected)
       HistoryChart(
         title: L("Disco"), symbol: "internaldrive", value: summary(
-          p, \.disk_read, \.disk_write, format: formatRate, labels: ("↓", "↑"), secondIsPeak: false),
+          p, \.disk_read, firstCount: \.disk_read_minutes, \.disk_write, secondCount: \.disk_write_minutes,
+          format: formatRate, labels: ("↓", "↑"), secondIsPeak: false),
         series: [
           .diskRead(p.map(\.disk_read)), .diskWrite(p.map(\.disk_write)),
-        ], legend: [("leitura", Tint.diskRead), ("escrita", Tint.diskWrite)], selected: $selected)
+        ], times: p.map(\.at), legend: [("leitura", Tint.diskRead), ("escrita", Tint.diskWrite)], selected: $selected)
       HistoryChart(
         title: L("Rede"), symbol: "arrow.up.arrow.down", value: summary(
-          p, \.net_in, \.net_out, format: formatRate, labels: ("↓", "↑"), secondIsPeak: false),
+          p, \.net_in, firstCount: \.net_in_minutes, \.net_out, secondCount: \.net_out_minutes,
+          format: formatRate, labels: ("↓", "↑"), secondIsPeak: false),
         series: [
           .netIn(p.map(\.net_in)), .netOut(p.map(\.net_out)),
-        ], legend: [("entrada", Tint.netIn), ("saída", Tint.netOut)], selected: $selected)
+        ], times: p.map(\.at), legend: [("entrada", Tint.netIn), ("saída", Tint.netOut)], selected: $selected)
     }
     StateStrips(points: p, selected: $selected)
   }
@@ -277,7 +304,8 @@ struct HistoryView: View {
   /// mean (rates) or maximum (peaks, swap) of the second.
   private func summary(
     _ points: [HistoryBucket], _ first: KeyPath<HistoryBucket, Double?>,
-    _ second: KeyPath<HistoryBucket, Double?>, format: @escaping (Double) -> String, labels: (String, String),
+    firstCount: KeyPath<HistoryBucket, Int>, _ second: KeyPath<HistoryBucket, Double?>,
+    secondCount: KeyPath<HistoryBucket, Int>?, format: @escaping (Double) -> String, labels: (String, String),
     secondIsPeak: Bool
   ) -> String {
     let label = { (text: String, value: Double) in text.isEmpty ? format(value) : text + " " + format(value) }
@@ -286,12 +314,20 @@ struct HistoryView: View {
       let parts = [b[keyPath: first].map { label(labels.0, $0) }, b[keyPath: second].map { label(labels.1, $0) }]
       return parts.compactMap { $0 }.joined(separator: " · ").nonEmpty ?? L("Sem dados")
     }
-    func mean(_ key: KeyPath<HistoryBucket, Double?>) -> Double? {
-      let values = points.compactMap { $0[keyPath: key] }
-      return values.isEmpty ? nil : values.reduce(0, +) / Double(values.count)
+    func mean(_ key: KeyPath<HistoryBucket, Double?>, count: KeyPath<HistoryBucket, Int>) -> Double? {
+      var total = 0
+      var weightedSum = 0.0
+      for point in points {
+        let minutes = point[keyPath: count]
+        if minutes > 0, let value = point[keyPath: key] {
+          total += minutes
+          weightedSum += value * Double(minutes)
+        }
+      }
+      return total > 0 ? weightedSum / Double(total) : nil
     }
-    guard let a = mean(first) else { return L("Sem dados") }
-    let b = secondIsPeak ? points.compactMap { $0[keyPath: second] }.max() : mean(second)
+    guard let a = mean(first, count: firstCount) else { return L("Sem dados") }
+    let b = secondIsPeak ? points.compactMap { $0[keyPath: second] }.max() : secondCount.flatMap { mean(second, count: $0) }
     return [L("média %@", label(labels.0, a)), b.map { (secondIsPeak ? L("máx. %@", label(labels.1, $0)) : label(labels.1, $0)) }]
       .compactMap { $0 }.joined(separator: " · ")
   }
@@ -360,6 +396,7 @@ private struct HistoryChart: View {
   let symbol: String
   let value: String
   let series: [ChartSeries]
+  let times: [Double]
   var ceiling: Double? = nil
   var legend: [(String, Color)] = []
   @Binding var selected: Int?
@@ -383,19 +420,19 @@ private struct HistoryChart: View {
         .lineLimit(1).minimumScaleFactor(0.7)
       AreaChart(series: series, ceiling: ceiling, capacity: max(2, count), title: title)
         .frame(height: 96)
-        .overlay { SelectionLayer(count: count, selected: $selected) }
-        // VoiceOver: swipe up/down moves the selected moment, like dragging across the chart.
-        .accessibilityAdjustableAction { direction in
-          guard count > 0 else { return }
-          let current = selected ?? count - 1
-          selected = direction == .increment ? min(count - 1, current + 1) : max(0, current - 1)
-        }
+        .overlay { SelectionLayer(times: times, title: title, selected: $selected) }
     }
   }
 }
 private struct SelectionLayer: View {
-  let count: Int
+  let times: [Double]
+  let title: String
   @Binding var selected: Int?
+  private var count: Int { times.count }
+  private var selectedTime: String {
+    guard let selected, times.indices.contains(selected) else { return L("Nenhum momento selecionado") }
+    return Date(timeIntervalSince1970: times[selected]).formatted(date: .complete, time: .shortened)
+  }
   var body: some View {
     GeometryReader { g in
       let step = g.size.width / CGFloat(max(1, count - 1))
@@ -412,6 +449,23 @@ private struct SelectionLayer: View {
             })
       }
     }
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel(L("Selecionar horário de %@", title))
+    .accessibilityValue(selectedTime)
+    .accessibilityHint(L("Use as setas esquerda e direita ou ações do VoiceOver para mudar o horário"))
+    .accessibilityAdjustableAction { direction in
+      moveSelection(increment: direction == .increment)
+    }
+    .focusable()
+    .onMoveCommand { direction in
+      if direction == .left { moveSelection(increment: false) }
+      if direction == .right { moveSelection(increment: true) }
+    }
+  }
+  private func moveSelection(increment: Bool) {
+    guard count > 0 else { return }
+    let current = selected ?? count - 1
+    selected = increment ? min(count - 1, current + 1) : max(0, current - 1)
   }
 }
 
@@ -435,7 +489,8 @@ private struct StateStrips: View {
           series: [
             ChartSeries(values: points.map(\.pressure_pct), color: .orange, format: { String(format: "%.0f%%", $0) })
           ], ceiling: 100, capacity: max(2, points.count), grid: false, title: L("Pressão %")
-        ).frame(height: 36).overlay { SelectionLayer(count: points.count, selected: $selected) }
+        ).frame(height: 36)
+          .overlay { SelectionLayer(times: points.map(\.at), title: L("Pressão %"), selected: $selected) }
       }
       Text(
         L("Térmico: pior estado do macOS no intervalo (não é °C). Eventos: pior aviso Dispatch de pressão. Pressão %: 100 − memória disponível segundo o kernel (kern.memorystatus_level), máximo do intervalo.")

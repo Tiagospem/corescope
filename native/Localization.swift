@@ -430,6 +430,9 @@ private let entries = """
   %@ amostras ¦ %@ samples ¦ %@ muestras
   Sem registro neste intervalo ¦ Nothing recorded in this interval ¦ Sin registros en este intervalo
   Clique em um gráfico para ver o que dominou naquele momento ¦ Click a chart to see what dominated at that moment ¦ Haz clic en un gráfico para ver qué dominó en ese momento
+  Nenhum momento selecionado ¦ No moment selected ¦ Ningún momento seleccionado
+  Selecionar horário de %@ ¦ Select time for %@ ¦ Seleccionar hora de %@
+  Use as setas esquerda e direita ou ações do VoiceOver para mudar o horário ¦ Use the left and right arrow keys or VoiceOver actions to change the time ¦ Usa las flechas izquierda y derecha o las acciones de VoiceOver para cambiar la hora
   Térmico e pressão de memória ¦ Thermal and memory pressure ¦ Térmico y presión de memoria
   Eventos de pressão ¦ Pressure events ¦ Eventos de presión
   Pressão % ¦ Pressure % ¦ Presión %

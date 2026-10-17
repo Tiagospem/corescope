@@ -249,32 +249,94 @@ impl Recorder {
         let db = self.open()?;
         db.exec("BEGIN IMMEDIATE")?;
         let result = (|| {
-            db.prepare("INSERT OR REPLACE INTO minutes VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)")?
-                .run(&[
-                    Value::Int(m.at),
-                    Value::Int(m.samples as i64),
-                    Value::Real(m.cpu.get()),
-                    Value::Real(m.cpu_max),
-                    Value::Real(m.memory.get()),
-                    Value::Real(m.swap),
-                    Value::Real(m.disk_read.get()),
-                    Value::Real(m.disk_write.get()),
-                    Value::Real(m.net_in.get()),
-                    Value::Real(m.net_out.get()),
-                    m.thermal.map_or(Value::Real(None), Value::Int),
-                    m.pressure.map_or(Value::Real(None), Value::Int),
-                    Value::Real(m.pressure_pct),
-                ])?;
+            let old_samples = {
+                let mut s = db.prepare("SELECT samples FROM minutes WHERE at=?")?;
+                s.bind(&[Value::Int(m.at)])?;
+                if s.step()? { s.int(0).unwrap_or(0) } else { 0 }
+            };
+            db.prepare(
+                "INSERT INTO minutes VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
+                 ON CONFLICT(at) DO UPDATE SET
+                 samples=minutes.samples+excluded.samples,
+                 cpu=CASE WHEN minutes.cpu IS NULL THEN excluded.cpu
+                   WHEN excluded.cpu IS NULL THEN minutes.cpu
+                   ELSE (minutes.cpu*minutes.samples+excluded.cpu*excluded.samples)/
+                     (minutes.samples+excluded.samples) END,
+                 cpu_max=CASE WHEN minutes.cpu_max IS NULL THEN excluded.cpu_max
+                   WHEN excluded.cpu_max IS NULL THEN minutes.cpu_max
+                   ELSE MAX(minutes.cpu_max,excluded.cpu_max) END,
+                 memory=CASE WHEN minutes.memory IS NULL THEN excluded.memory
+                   WHEN excluded.memory IS NULL THEN minutes.memory
+                   ELSE (minutes.memory*minutes.samples+excluded.memory*excluded.samples)/
+                     (minutes.samples+excluded.samples) END,
+                 swap=CASE WHEN minutes.swap IS NULL THEN excluded.swap
+                   WHEN excluded.swap IS NULL THEN minutes.swap
+                   ELSE MAX(minutes.swap,excluded.swap) END,
+                 disk_read=CASE WHEN minutes.disk_read IS NULL THEN excluded.disk_read
+                   WHEN excluded.disk_read IS NULL THEN minutes.disk_read
+                   ELSE (minutes.disk_read*minutes.samples+excluded.disk_read*excluded.samples)/
+                     (minutes.samples+excluded.samples) END,
+                 disk_write=CASE WHEN minutes.disk_write IS NULL THEN excluded.disk_write
+                   WHEN excluded.disk_write IS NULL THEN minutes.disk_write
+                   ELSE (minutes.disk_write*minutes.samples+excluded.disk_write*excluded.samples)/
+                     (minutes.samples+excluded.samples) END,
+                 net_in=CASE WHEN minutes.net_in IS NULL THEN excluded.net_in
+                   WHEN excluded.net_in IS NULL THEN minutes.net_in
+                   ELSE (minutes.net_in*minutes.samples+excluded.net_in*excluded.samples)/
+                     (minutes.samples+excluded.samples) END,
+                 net_out=CASE WHEN minutes.net_out IS NULL THEN excluded.net_out
+                   WHEN excluded.net_out IS NULL THEN minutes.net_out
+                   ELSE (minutes.net_out*minutes.samples+excluded.net_out*excluded.samples)/
+                     (minutes.samples+excluded.samples) END,
+                 thermal=CASE WHEN minutes.thermal IS NULL THEN excluded.thermal
+                   WHEN excluded.thermal IS NULL THEN minutes.thermal
+                   ELSE MAX(minutes.thermal,excluded.thermal) END,
+                 pressure=CASE WHEN minutes.pressure IS NULL THEN excluded.pressure
+                   WHEN excluded.pressure IS NULL THEN minutes.pressure
+                   ELSE MAX(minutes.pressure,excluded.pressure) END,
+                 pressure_pct=CASE WHEN minutes.pressure_pct IS NULL THEN excluded.pressure_pct
+                   WHEN excluded.pressure_pct IS NULL THEN minutes.pressure_pct
+                   ELSE MAX(minutes.pressure_pct,excluded.pressure_pct) END",
+            )?
+            .run(&[
+                Value::Int(m.at),
+                Value::Int(m.samples as i64),
+                Value::Real(m.cpu.get()),
+                Value::Real(m.cpu_max),
+                Value::Real(m.memory.get()),
+                Value::Real(m.swap),
+                Value::Real(m.disk_read.get()),
+                Value::Real(m.disk_write.get()),
+                Value::Real(m.net_in.get()),
+                Value::Real(m.net_out.get()),
+                m.thermal.map_or(Value::Real(None), Value::Int),
+                m.pressure.map_or(Value::Real(None), Value::Int),
+                Value::Real(m.pressure_pct),
+            ])?;
             let mut insert =
                 db.prepare("INSERT OR IGNORE INTO procs(name,path,cwd,origin) VALUES(?,?,?,?)")?;
             let mut find =
                 db.prepare("SELECT id FROM procs WHERE name=? AND path=? AND cwd=? AND origin=?")?;
-            let mut top = db.prepare("INSERT OR REPLACE INTO top VALUES(?,?,?,?,?,?)")?;
-            db.prepare("DELETE FROM top WHERE at=?")?
-                .run(&[Value::Int(m.at)])?;
-            let n = m.samples.max(1) as f64;
+            let total_samples = (old_samples + m.samples as i64).max(1) as f64;
+            let mut ranked = [Vec::new(), Vec::new()];
             for kind in [0, 1] {
-                for (rank, (p, _)) in m.ranked(kind == 1).into_iter().enumerate() {
+                let mut entries: HashMap<i64, (f64, f64)> = HashMap::new();
+                if old_samples > 0 {
+                    let mut previous =
+                        db.prepare("SELECT proc,cpu,memory FROM top WHERE at=? AND kind=?")?;
+                    previous.bind(&[Value::Int(m.at), Value::Int(kind)])?;
+                    while previous.step()? {
+                        let id = previous.int(0).ok_or("Processo sem identificador")?;
+                        entries.insert(
+                            id,
+                            (
+                                previous.real(1).unwrap_or(0.) * old_samples as f64 / total_samples,
+                                previous.real(2).unwrap_or(0.),
+                            ),
+                        );
+                    }
+                }
+                for (p, _) in m.ranked(kind == 1) {
                     let key = [
                         Value::Text(&p.name),
                         Value::Text(&p.path),
@@ -285,13 +347,35 @@ impl Recorder {
                     find.bind(&key)?;
                     let id = if find.step()? { find.int(0) } else { None }
                         .ok_or("Processo não registrado")?;
+                    let entry = entries.entry(id).or_default();
+                    entry.0 += p.cpu / total_samples;
+                    entry.1 = entry.1.max(p.memory);
+                }
+                let mut list: Vec<_> = entries.into_iter().collect();
+                list.sort_by(|a, b| {
+                    let av = if kind == 0 { a.1.0 } else { a.1.1 };
+                    let bv = if kind == 0 { b.1.0 } else { b.1.1 };
+                    bv.total_cmp(&av)
+                });
+                list.retain(|(_, (cpu, memory))| if kind == 0 { *cpu > 0. } else { *memory > 0. });
+                list.truncate(TOP);
+                ranked[kind as usize] = list
+                    .into_iter()
+                    .map(|(id, (cpu, memory))| (id, cpu, memory))
+                    .collect();
+            }
+            db.prepare("DELETE FROM top WHERE at=?")?
+                .run(&[Value::Int(m.at)])?;
+            let mut top = db.prepare("INSERT INTO top VALUES(?,?,?,?,?,?)")?;
+            for (kind, list) in ranked.into_iter().enumerate() {
+                for (rank, (id, cpu, memory)) in list.into_iter().enumerate() {
                     top.run(&[
                         Value::Int(m.at),
-                        Value::Int(kind),
+                        Value::Int(kind as i64),
                         Value::Int(rank as i64),
                         Value::Int(id),
-                        Value::Real(Some(p.cpu / n)),
-                        Value::Real(Some(p.memory)),
+                        Value::Real(Some(cpu)),
+                        Value::Real(Some(memory)),
                     ])?;
                 }
             }
@@ -338,13 +422,19 @@ pub struct Bucket {
     pub at: i64,
     pub samples: i64,
     pub cpu: Option<f64>,
+    pub cpu_minutes: i64,
     pub cpu_max: Option<f64>,
     pub memory: Option<f64>,
+    pub memory_minutes: i64,
     pub swap: Option<f64>,
     pub disk_read: Option<f64>,
+    pub disk_read_minutes: i64,
     pub disk_write: Option<f64>,
+    pub disk_write_minutes: i64,
     pub net_in: Option<f64>,
+    pub net_in_minutes: i64,
     pub net_out: Option<f64>,
+    pub net_out_minutes: i64,
     pub thermal: Option<i64>,
     pub pressure: Option<i64>,
     pub pressure_pct: Option<f64>,
@@ -420,7 +510,8 @@ pub fn series(path: &str, from: i64, to: i64, bucket: i64) -> Result<Series, Str
         let mut s = db.prepare(
             "SELECT (at-?1)/?2, sum(samples), avg(cpu), max(cpu_max), avg(memory), max(swap),
              avg(disk_read), avg(disk_write), avg(net_in), avg(net_out), max(thermal),
-             max(pressure), max(pressure_pct)
+             max(pressure), max(pressure_pct), count(cpu), count(memory), count(disk_read),
+             count(disk_write), count(net_in), count(net_out)
              FROM minutes WHERE at>=?1 AND at<?3 GROUP BY 1",
         )?;
         s.bind(&[Value::Int(from), Value::Int(bucket), Value::Int(to)])?;
@@ -440,6 +531,12 @@ pub fn series(path: &str, from: i64, to: i64, bucket: i64) -> Result<Series, Str
             p.thermal = s.int(10);
             p.pressure = s.int(11);
             p.pressure_pct = s.real(12);
+            p.cpu_minutes = s.int(13).unwrap_or(0);
+            p.memory_minutes = s.int(14).unwrap_or(0);
+            p.disk_read_minutes = s.int(15).unwrap_or(0);
+            p.disk_write_minutes = s.int(16).unwrap_or(0);
+            p.net_in_minutes = s.int(17).unwrap_or(0);
+            p.net_out_minutes = s.int(18).unwrap_or(0);
         }
     }
     Ok(Series {
