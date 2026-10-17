@@ -10,6 +10,7 @@ Only the latest release receives fixes.
 
 Please **do not open a public issue**. Use GitHub's private reporting instead:
 **[Report a vulnerability](https://github.com/Tiagospem/corescope/security/advisories/new)** (Security tab → *Report a vulnerability*).
+If you can't use GitHub, email the maintainer at [tiago@leilotech.com.br](mailto:tiago@leilotech.com.br).
 
 Include the CoreScope version, macOS version, steps to reproduce and the impact you observed. You can expect an initial reply within 7 days.
 
