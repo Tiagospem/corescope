@@ -40,6 +40,21 @@ Targets proposed for acceptance, not previously measured requirements nor a prom
 - History bounded by count/time: tests pass; they do not replace a prolonged memory-stability run.
 - Energy in watts/joules or Energy Impact: **unavailable**. Raw energy fields were not interpreted without a reliable unit/contract. No conclusion about battery life.
 
+## Agent token usage (2026-10-16)
+
+MacBook Air M4 under heavy load (load average ~70, several agent sessions compiling). Agents page open; the same renamed copy (`local.corescope.tokenstest`) for the baseline (`a854cec`) and the new build, one instance at a time.
+
+| Measure | Baseline | With tokens |
+|---|---|---|
+| Mean footprint, window open (120 s / 60 s) | 72.8 MiB and 81.0 MiB in two runs | 82.3 MiB and 83.0 MiB |
+| Live heap (`heap`, all zones) | 54.7 MB | 57.2 MB (+2.5 MB) |
+| CPU of one core, window open | 3.4 % | 4.6–4.8 % |
+
+- Footprint noise between runs of the same build (~8 MiB) is larger than the difference; the live heap is the more reliable comparison. The token data itself is ~30 KB (per-day buckets of ~180 files); the rest is the SwiftUI views of the new card and per-session lines.
+- First pass (only once the Agents page is opened): 315–330 transcripts, 2.7 GB, ~4.5–4.8 s of CPU once; the standalone reader peaked at 7 MB footprint (one reusable buffer; long lines that cannot carry usage, like Codex's 23 MB `compacted` entries, are skipped without buffering).
+- Incremental pass every 20 s: ~12 ms CPU (stat of ~315 files + only the new bytes, ~80 KB in the test) ≈ 0.06 % of one core.
+- The CPU difference with the window open was not separated from the machine's noise; the incremental pass measured on its own is negligible.
+
 ## Reproduce
 
 ```sh
