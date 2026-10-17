@@ -118,6 +118,13 @@ func splitPorts(_ ports: [UInt16], owner: (UInt16) -> String?) -> (
   return (owned, rest)
 }
 
+/// Port → owner for ports claimed by exactly one owner; shared ports are left out.
+func uniqueOwners(_ pairs: [(port: UInt16, owner: String)]) -> [UInt16: String] {
+  var owners: [UInt16: Set<String>] = [:]
+  for pair in pairs { owners[pair.port, default: []].insert(pair.owner) }
+  return owners.compactMapValues { $0.count == 1 ? $0.first : nil }
+}
+
 func formatBytes(_ value: Double) -> String {
   ByteCountFormatter.string(fromByteCount: Int64(max(0, value)), countStyle: .memory)
 }

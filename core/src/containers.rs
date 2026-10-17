@@ -241,6 +241,15 @@ pub fn parse_list(body: &[u8], engine: &'static str) -> Result<Vec<Container>, S
         .collect())
 }
 
+/// Keeps at most MAX_CONTAINERS per engine, running ones first so stopped
+/// containers can never push a running service out of the list.
+pub fn cap(mut list: Vec<Container>) -> Vec<Container> {
+    // Stable: the engine's own order (newest first) holds within each group.
+    list.sort_by_key(|c| c.state != "running");
+    list.truncate(MAX_CONTAINERS);
+    list
+}
+
 /// Raw counters from one `stats?one-shot=true` read.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Stats {
@@ -306,8 +315,8 @@ impl Reader {
             );
             let state = match result {
                 Ok(r) if r.status == 200 => match parse_list(&r.body, name) {
-                    Ok(mut list) => {
-                        list.truncate(MAX_CONTAINERS);
+                    Ok(list) => {
+                        let list = cap(list);
                         containers.extend(list.into_iter().map(|c| (socket.clone(), c)));
                         "ok"
                     }
@@ -398,6 +407,10 @@ impl Reader {
     }
 }
 
+/// List filtered by id prefix; `id` is hex-validated, so it needs no further escaping.
+pub fn lookup_path(id: &str) -> String {
+    format!("/containers/json?all=1&filters=%7B%22id%22%3A%5B%22{id}%22%5D%7D")
+}
 /// Stop or restart after the user confirmed this exact container.
 pub fn act(id: &str, action: &str) -> Result<(), String> {
     if !valid_id(id) {
@@ -410,42 +423,56 @@ pub fn act(id: &str, action: &str) -> Result<(), String> {
         .map(PathBuf::from)
         .unwrap_or_default();
     let host = std::env::var("DOCKER_HOST").ok();
+    // Find the owner through the filtered list, never `/containers/{id}/json`: inspect carries
+    // Config.Env, which may hold secrets. Exactly one container across all engines must match.
+    let mut matches: Vec<(PathBuf, String)> = vec![];
     for socket in sockets(&home, host.as_deref()) {
-        // Only the engine that owns this id is asked to act on it.
-        let Ok(found) = request(
-            &socket,
-            "GET",
-            &format!("/containers/{id}/json"),
-            Duration::from_secs(3),
-        ) else {
+        let Ok(found) = request(&socket, "GET", &lookup_path(id), Duration::from_secs(3)) else {
             continue;
         };
         if found.status != 200 {
             continue;
         }
-        // The engine waits up to t seconds for a clean exit before SIGKILL.
-        let path = format!("/containers/{id}/{action}?t=10");
-        let r = request(&socket, "POST", &path, Duration::from_secs(40))
-            .map_err(|_| "O motor de contêineres não respondeu")?;
-        return match r.status {
-            204 | 304 => Ok(()),
-            404 => Err("Contêiner não encontrado".into()),
-            status => {
-                let message = serde_json::from_slice::<Value>(&r.body)
-                    .ok()
-                    .and_then(|v| {
-                        v["message"]
-                            .as_str()
-                            .map(|m| m.chars().take(160).collect::<String>())
-                    })
-                    .unwrap_or_default();
-                Err(format!("{REFUSED} (HTTP {status}) {message}")
-                    .trim_end()
-                    .into())
-            }
-        };
+        let ids: Vec<String> = serde_json::from_slice::<Value>(&found.body)
+            .ok()
+            .and_then(|v| {
+                v.as_array().map(|a| {
+                    a.iter()
+                        .filter_map(|c| c["Id"].as_str())
+                        .filter(|full| valid_id(full) && full.starts_with(id))
+                        .map(String::from)
+                        .collect()
+                })
+            })
+            .unwrap_or_default();
+        matches.extend(ids.into_iter().map(|full| (socket.clone(), full)));
     }
-    Err("Contêiner não encontrado".into())
+    let (socket, id) = match matches.as_slice() {
+        [] => return Err("Contêiner não encontrado".into()),
+        [one] => one.clone(),
+        _ => return Err("Identificador de contêiner ambíguo".into()),
+    };
+    // The engine waits up to t seconds for a clean exit before SIGKILL.
+    let path = format!("/containers/{id}/{action}?t=10");
+    let r = request(&socket, "POST", &path, Duration::from_secs(40))
+        .map_err(|_| "O motor de contêineres não respondeu")?;
+    match r.status {
+        204 | 304 => Ok(()),
+        404 => Err("Contêiner não encontrado".into()),
+        status => {
+            let message = serde_json::from_slice::<Value>(&r.body)
+                .ok()
+                .and_then(|v| {
+                    v["message"]
+                        .as_str()
+                        .map(|m| m.chars().take(160).collect::<String>())
+                })
+                .unwrap_or_default();
+            Err(format!("{REFUSED} (HTTP {status}) {message}")
+                .trim_end()
+                .into())
+        }
+    }
 }
 
 #[cfg(test)]
@@ -572,6 +599,37 @@ mod tests {
         assert!((cpu_percent(&a, &b).unwrap() - 50.).abs() < 1e-9);
         assert!(cpu_percent(&b, &a).is_none());
         assert!(parse_stats(b"{}").is_none());
+    }
+    #[test]
+    fn running_containers_survive_the_cap() {
+        let item = |i: usize, state: &str| Container {
+            id: format!("{i:012x}"),
+            name: format!("c{i}"),
+            image: String::new(),
+            engine: "Docker",
+            state: state.into(),
+            status: String::new(),
+            health: None,
+            project: None,
+            service: None,
+            created: 0.,
+            ports: vec![],
+            cpu: None,
+            memory: None,
+            memory_limit: None,
+        };
+        let mut list: Vec<Container> = (0..MAX_CONTAINERS + 5).map(|i| item(i, "exited")).collect();
+        list.push(item(999, "running"));
+        let kept = cap(list);
+        assert_eq!(kept.len(), MAX_CONTAINERS);
+        assert_eq!(kept[0].name, "c999");
+        assert_eq!(kept[1].name, "c0");
+    }
+    #[test]
+    fn lookup_uses_the_filtered_list_not_inspect() {
+        let path = lookup_path("bebc2aa52608");
+        assert!(path.starts_with("/containers/json?"));
+        assert!(path.ends_with("filters=%7B%22id%22%3A%5B%22bebc2aa52608%22%5D%7D"));
     }
     #[test]
     fn actions_are_validated_before_any_request() {

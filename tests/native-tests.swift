@@ -41,8 +41,11 @@ import Foundation
     precondition(split.owned.map(\.owner) == ["redis", "mysql", "mail"])
     precondition(split.owned.last?.ports == [8025, 1025] && split.rest == [5555])
     precondition(splitPorts([80]) { _ in nil }.owned.isEmpty)
+    // A port two containers publish stays unattributed; repeats of one owner do not count.
+    let owners = uniqueOwners([(8080, "a"), (8080, "b"), (5432, "db"), (5432, "db"), (6379, "r")])
+    precondition(owners == [5432: "db", 6379: "r"])
     print(
-      "17 native assertions passed: descendants, cycle, ordering, off-screen recovery, negative-origin monitor, forest roots, flatten, collapse, totals, ancestors, filter, formatting, container ports"
+      "18 native assertions passed: descendants, cycle, ordering, off-screen recovery, negative-origin monitor, forest roots, flatten, collapse, totals, ancestors, filter, formatting, container ports, shared ports"
     )
   }
 }

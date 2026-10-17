@@ -10,7 +10,7 @@ struct PublishedPort: Decodable, Hashable {
 struct ContainerItem: Decodable, Identifiable, Equatable {
   let id: String
   var name: String
-  let image: String
+  var image: String
   let engine: String
   let state: String
   let status: String
@@ -64,43 +64,57 @@ final class ContainerStore: ObservableObject {
   private(set) var owners: [UInt16: ContainerItem] = [:]
   private let queue = DispatchQueue(label: "app.corescope.containers", qos: .utility)
   private let actions = DispatchQueue(label: "app.corescope.containers.actions", qos: .userInitiated)
-  private var statsWatchers = Set<UUID>()
-  private var portWatchers = Set<UUID>()
+  /// Registered views: whether each wants stats, and the window hosting it (weak).
+  private var watchers: [UUID: Bool] = [:]
+  private var windows: [UUID: WeakWindow] = [:]
   private var timer: Timer?
   private var busy = false
   private var lastRead = Date.distantPast
 
   func watch(_ token: UUID, stats: Bool) {
-    if stats { statsWatchers.insert(token) } else { portWatchers.insert(token) }
-    // A surface that just opened gets data now, unless a read happened moments ago.
-    if Date().timeIntervalSince(lastRead) > 2 { tick() } else if timer == nil { schedule() }
+    watchers[token] = stats
+    kick()
+  }
+  /// The hosting window is known only once the view is installed, possibly after onAppear.
+  func attach(_ token: UUID, window: NSWindow?) {
+    windows[token] = WeakWindow(window: window)
+    if watchers[token] != nil { kick() }
   }
   func unwatch(_ token: UUID) {
-    statsWatchers.remove(token)
-    portWatchers.remove(token)
-    if statsWatchers.isEmpty && portWatchers.isEmpty {
+    watchers[token] = nil
+    windows[token] = nil
+    if watchers.isEmpty {
       timer?.invalidate()
       timer = nil
     }
   }
-  /// Some surface is on screen: a minimized or covered window keeps its views but needs no data.
-  private var surfaceVisible: Bool {
-    NSApp.windows.contains {
-      $0.isVisible && !$0.isMiniaturized && $0.occlusionState.contains(.visible)
-        && $0.className != "NSStatusBarWindow"
+  /// A surface that just opened gets data now, unless a read happened moments ago.
+  private func kick() {
+    if Date().timeIntervalSince(lastRead) > 2 { tick() } else if timer == nil { schedule() }
+  }
+  /// Watchers whose own window is on screen: a minimized or covered window keeps its views
+  /// (and their registration) but needs no data, whatever other windows are showing.
+  private var visibleWatchers: [Bool] {
+    watchers.compactMap { token, stats in
+      guard let w = windows[token]?.window, w.isVisible, !w.isMiniaturized,
+        w.occlusionState.contains(.visible)
+      else { return nil }
+      return stats
     }
   }
   private func tick() {
     timer?.invalidate()
     timer = nil
-    guard !busy, !statsWatchers.isEmpty || !portWatchers.isEmpty else { return }
+    guard !busy, !watchers.isEmpty else { return }
     let monitor = Monitor.shared
-    let stats = !statsWatchers.isEmpty
+    let visible = visibleWatchers
+    let stats = visible.contains(true)
     // Port labels only matter when a VM helper (OrbStack, Docker Desktop…) is listening.
     let needed =
       stats
-      || monitor.snapshot?.servers.contains { $0.tags.contains("container") } == true
-    guard needed, !monitor.sleeping, !monitor.manuallyPaused, surfaceVisible else {
+      || (!visible.isEmpty
+        && monitor.snapshot?.servers.contains { $0.tags.contains("container") } == true)
+    guard needed, !monitor.sleeping, !monitor.manuallyPaused else {
       schedule()
       return
     }
@@ -137,7 +151,7 @@ final class ContainerStore: ObservableObject {
     }
   }
   private func schedule() {
-    guard timer == nil, !statsWatchers.isEmpty || !portWatchers.isEmpty else { return }
+    guard timer == nil, !watchers.isEmpty else { return }
     let seconds = ProcessInfo.processInfo.isLowPowerModeEnabled ? 10.0 : 5.0
     timer = Timer.scheduledTimer(withTimeInterval: seconds, repeats: false) { [weak self] _ in
       self?.timer = nil
@@ -145,12 +159,13 @@ final class ContainerStore: ObservableObject {
     }
     timer?.tolerance = 1
   }
+  /// A port published by more than one container (other host address or engine) stays on the
+  /// helper row: picking one would put the wrong container's Stop button there.
   static func owners(_ containers: [ContainerItem]) -> [UInt16: ContainerItem] {
-    var out: [UInt16: ContainerItem] = [:]
-    for c in containers where c.running {
-      for p in c.tcpPorts where out[p.host] == nil { out[p.host] = c }
-    }
-    return out
+    let running = containers.filter(\.running)
+    let byID = Dictionary(running.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+    let pairs = running.flatMap { c in c.tcpPorts.map { (port: $0.host, owner: c.id) } }
+    return uniqueOwners(pairs).compactMapValues { byID[$0] }
   }
   /// Runs after the user confirmed; the engine allows 10 s for a clean exit before SIGKILL.
   func perform(_ container: ContainerItem, action: String) {
@@ -187,11 +202,32 @@ final class ContainerStore: ObservableObject {
   }
 }
 
+private struct WeakWindow {
+  weak var window: NSWindow?
+}
+/// Reports the window that hosts a view, so polling follows that window's visibility.
+private struct WindowReader: NSViewRepresentable {
+  let onChange: (NSWindow?) -> Void
+  final class Probe: NSView {
+    var onChange: ((NSWindow?) -> Void)?
+    override func viewDidMoveToWindow() {
+      super.viewDidMoveToWindow()
+      onChange?(window)
+    }
+  }
+  func makeNSView(context: Context) -> Probe {
+    let probe = Probe()
+    probe.onChange = onChange
+    return probe
+  }
+  func updateNSView(_ probe: Probe, context: Context) { probe.onChange = onChange }
+}
 private struct ContainerWatch: ViewModifier {
   let stats: Bool
   @ViewState private var token = UUID()
   func body(content: Content) -> some View {
     content
+      .background(WindowReader { [token] window in ContainerStore.shared.attach(token, window: window) })
       .onAppear { ContainerStore.shared.watch(token, stats: stats) }
       .onDisappear { ContainerStore.shared.unwatch(token) }
   }
