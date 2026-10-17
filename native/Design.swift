@@ -284,8 +284,54 @@ struct ProcessIcon: View {
   }
 }
 
-/// Terminate in place: one click arms, a second confirms (or a single click when the user
-/// disabled confirmation). Avoids opening any window to stop a process.
+/// Two-step action in place: one click arms, a second confirms; it disarms itself after 4 s.
+/// Avoids opening any window to act on a row.
+struct ArmedButton: View {
+  let symbol: String
+  let confirm: String
+  let help: String
+  /// VoiceOver names for the idle button and for the confirm step.
+  var label: String? = nil
+  var confirmLabel: String? = nil
+  var tint: Color = Tint.danger
+  /// False acts on the first click (the user disabled confirmation for this action).
+  var needsConfirm = true
+  let action: () -> Void
+  @ViewState private var armed = false
+  @ViewState private var token = 0
+  var body: some View {
+    if armed {
+      HStack(spacing: 2) {
+        Button(confirm) {
+          armed = false
+          action()
+        }.buttonStyle(.borderedProminent).tint(tint).controlSize(.small)
+          .accessibilityLabel(confirmLabel ?? confirm)
+        Button {
+          armed = false
+        } label: {
+          Image(systemName: "xmark").font(.system(size: 9, weight: .bold))
+        }.buttonStyle(HoverButtonStyle(size: 20)).help(L("Cancelar")).accessibilityLabel(L("Cancelar"))
+      }
+    } else {
+      Button {
+        guard needsConfirm else { return action() }
+        armed = true
+        token += 1
+        let current = token
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
+          if token == current { armed = false }
+        }
+      } label: {
+        Image(systemName: symbol).font(.system(size: 13))
+      }
+      .buttonStyle(HoverButtonStyle(tint: tint, size: 22))
+      .help(help)
+      .accessibilityLabel(label ?? help)
+    }
+  }
+}
+/// Terminate in place (or a single click when the user disabled confirmation).
 struct KillButton: View {
   let process: ProcessItem
   var force = false
@@ -296,55 +342,29 @@ struct KillButton: View {
   // Not observed: hundreds of rows would otherwise re-render on every snapshot.
   private var monitor: Monitor { Monitor.shared }
   private var prefs: Preferences { Preferences.shared }
-  @ViewState private var armed = false
-  @ViewState private var token = 0
   var body: some View {
-    Group {
-      if !process.eligible {
-        Image(systemName: "lock.fill").font(.system(size: 10)).foregroundStyle(.tertiary)
-          .frame(width: 22, height: 22).help(L(process.blocked))
-          .accessibilityLabel(L("%@ não pode ser encerrado", "\(process.name)"))
-          .accessibilityHint(L(process.blocked))
-      } else if armed {
-        HStack(spacing: 2) {
-          Button(force ? L("Forçar") : L("Encerrar")) {
-            armed = false
-            monitor.signal(group, force: force)
-          }.buttonStyle(.borderedProminent).tint(.red).controlSize(.small)
-            .accessibilityLabel(
-              force ? L("Confirmar: forçar %@", "\(process.name)") : L("Confirmar: encerrar %@", "\(process.name)"))
-          Button {
-            armed = false
-          } label: {
-            Image(systemName: "xmark").font(.system(size: 9, weight: .bold))
-          }.buttonStyle(HoverButtonStyle(size: 20)).help(L("Cancelar")).accessibilityLabel(L("Cancelar"))
-        }
-      } else {
-        Button {
-          if prefs.confirmTerminate || force || group.count > 1 {
-            armed = true
-            token += 1
-            let current = token
-            DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
-              if token == current { armed = false }
-            }
-          } else {
-            monitor.signal([process], force: false)
-          }
-        } label: {
-          Image(systemName: force ? "bolt.circle" : "xmark.circle").font(.system(size: 13))
-        }
-        .buttonStyle(HoverButtonStyle(tint: Tint.danger, size: 22))
-        .help(
-          group.count > 1
-            ? L("Encerra a sessão e os %@ processos que ela iniciou", String(group.count - 1))
-            : force
-              ? L("Forçar encerramento (SIGKILL) de %@", "\(process.name)")
-              : L("Encerrar %@ (SIGTERM)", "\(process.name)"))
-        .accessibilityLabel(
-          group.count > 1
-            ? L("Encerrar sessão %@", "\(process.name)")
-            : force ? L("Forçar encerramento de %@", "\(process.name)") : L("Encerrar %@", "\(process.name)"))
+    if !process.eligible {
+      Image(systemName: "lock.fill").font(.system(size: 10)).foregroundStyle(.tertiary)
+        .frame(width: 22, height: 22).help(L(process.blocked))
+        .accessibilityLabel(L("%@ não pode ser encerrado", "\(process.name)"))
+        .accessibilityHint(L(process.blocked))
+    } else {
+      ArmedButton(
+        symbol: force ? "bolt.circle" : "xmark.circle",
+        confirm: force ? L("Forçar") : L("Encerrar"),
+        help: group.count > 1
+          ? L("Encerra a sessão e os %@ processos que ela iniciou", String(group.count - 1))
+          : force
+            ? L("Forçar encerramento (SIGKILL) de %@", "\(process.name)")
+            : L("Encerrar %@ (SIGTERM)", "\(process.name)"),
+        label: group.count > 1
+          ? L("Encerrar sessão %@", "\(process.name)")
+          : force ? L("Forçar encerramento de %@", "\(process.name)") : L("Encerrar %@", "\(process.name)"),
+        confirmLabel: force
+          ? L("Confirmar: forçar %@", "\(process.name)") : L("Confirmar: encerrar %@", "\(process.name)"),
+        needsConfirm: prefs.confirmTerminate || force || group.count > 1
+      ) {
+        monitor.signal(group, force: force)
       }
     }
   }

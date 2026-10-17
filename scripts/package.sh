@@ -12,8 +12,13 @@ rm -rf dist && mkdir -p dist/stage
 ditto -c -k --keepParent "$APP" "dist/$NAME.zip"
 ditto "$APP" dist/stage/CoreScope.app
 ln -s /Applications dist/stage/Applications
-hdiutil create -quiet -volname "CoreScope $VERSION" -srcfolder dist/stage -fs HFS+ \
-  -format UDZO -ov "dist/$NAME.dmg"
+# hdiutil occasionally fails with "Resource busy" on CI runners; retry a few times.
+for attempt in 1 2 3; do
+  hdiutil create -quiet -volname "CoreScope $VERSION" -srcfolder dist/stage -fs HFS+ \
+    -format UDZO -ov "dist/$NAME.dmg" && break
+  [ "$attempt" = 3 ] && exit 1
+  sleep 5
+done
 rm -rf dist/stage
 (cd dist && shasum -a 256 "$NAME.dmg" "$NAME.zip" > SHA256SUMS.txt)
 ls -lh dist

@@ -12,6 +12,7 @@
 #include <signal.h>
 #include <errno.h>
 #include <string.h>
+#include <stdlib.h>
 #include <IOKit/IOKitLib.h>
 #include <CoreFoundation/CoreFoundation.h>
 
@@ -52,12 +53,13 @@ int os_process(int32_t pid,CSProcess *o){
  return 0;
 }
 int os_volumes(CSVolume *o,int cap){
- struct statfs *mounts=NULL;int n=getmntinfo(&mounts,MNT_NOWAIT);if(n<=0)return -1;int j=0;
+ // getmntinfo() reuses one process-wide buffer and crashes when sampled from two threads.
+ struct statfs *mounts=NULL;int n=getmntinfo_r_np(&mounts,MNT_NOWAIT);if(n<=0){free(mounts);return -1;}int j=0;
  for(int i=0;i<n&&j<cap;i++){
   struct statfs *m=&mounts[i];if(!(m->f_flags&MNT_LOCAL)||strncmp(m->f_mntfromname,"/dev/",5)!=0)continue;
   CSVolume *v=&o[j++];memset(v,0,sizeof(*v));v->total=m->f_blocks*(uint64_t)m->f_bsize;v->available=m->f_bavail*(uint64_t)m->f_bsize;
   strlcpy(v->device,m->f_mntfromname,sizeof(v->device));strlcpy(v->mount,m->f_mntonname,sizeof(v->mount));strlcpy(v->kind,m->f_fstypename,sizeof(v->kind));
- }return j;
+ }free(mounts);return j;
 }
 static int number(CFDictionaryRef d,CFStringRef key,uint64_t *o){CFTypeRef v=CFDictionaryGetValue(d,key);return v&&CFGetTypeID(v)==CFNumberGetTypeID()&&CFNumberGetValue(v,kCFNumberSInt64Type,o);}
 int os_disks(CSDisk *out,int cap){
@@ -111,7 +113,6 @@ int os_nvme_temperature(uint64_t driver_id,uint32_t *kelvin){
  return result==kIOReturnSuccess?0:smart_status(result);
 }
 
-#include <stdlib.h>
 #include <net/if.h>
 #include <net/route.h>
 #include <netinet/in.h>

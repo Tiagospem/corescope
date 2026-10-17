@@ -51,3 +51,16 @@ pgrep -x CoreScope
 ```
 
 For a controlled comparison: use the same build, 3 s interval, a similar number of processes, no interaction or AX capture during the window; run overview, table, menu-bar-only and panel separately. Visually confirm the state before and after. Run for a few minutes instead of extrapolating from these short windows. Do not alter the user's services to get artificially low numbers.
+
+## Containers (ADR 003)
+
+2026-10-16, same Mac, OrbStack with 6 running containers (5 of the user's plus a test `nginx:alpine`). `scripts/measure.c`, 60 s per window after a 20 s warm-up, alternating the previous build (`a854cec`) and the new one; with the app hidden (`NSRunningApplication.hide`) no container read happens. Other sessions were building and running CoreScope at the same time: the spread between identical windows is larger than the measured difference.
+
+| Scenario | Build | CPU of one core | Footprint mean / peak |
+|---|---|---:|---:|
+| Overview visible (with the Containers card) | previous | 4.78% · 4.72% | 99.8 / 134.7 · 89.9 / 124.0 MiB |
+| Overview visible (with the Containers card) | new | 5.14% · 4.35% | 93.7 / 130.8 · 92.8 / 128.7 MiB |
+| App hidden | previous | 1.31% | 75.3 / 115.6 MiB |
+| App hidden | new | 1.53% | 85.8 / 128.8 MiB |
+
+A full read (list + 6 one-shot stats) takes ~70 ms of wall time, almost all of it waiting on the engine, every 5 s. Conclusion: cost not distinguishable from noise on this machine; a single hidden window is not enough to claim a memory difference.

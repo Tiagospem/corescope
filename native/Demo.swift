@@ -20,6 +20,18 @@ enum Demo {
     demoPath(value, home: home, projects: projects, executable: executable)
       .replacingOccurrences(of: user, with: "dev")
   }
+  /// Compose projects get a fake name; container and image names that embed it follow it.
+  static func container(_ c: ContainerItem) -> ContainerItem {
+    var c = c
+    if let project = c.project {
+      let fake = demoPick(projects, project)
+      c.name = c.name.replacingOccurrences(of: project, with: fake)
+      // Compose names built images <project>-<service>; registry names stay as they are.
+      c.image = c.image.replacingOccurrences(of: project, with: fake)
+      c.project = fake
+    }
+    return c
+  }
   static func scrub(_ snapshot: Snapshot) -> Snapshot {
     var s = snapshot
     for i in s.processes.indices {

@@ -98,6 +98,33 @@ struct ProcessForest {
   }
 }
 
+/// Groups ports by owner in order of first appearance; ports without an owner stay in `rest`.
+func splitPorts(_ ports: [UInt16], owner: (UInt16) -> String?) -> (
+  owned: [(owner: String, ports: [UInt16])], rest: [UInt16]
+) {
+  var owned: [(owner: String, ports: [UInt16])] = []
+  var rest: [UInt16] = []
+  for port in ports {
+    guard let id = owner(port) else {
+      rest.append(port)
+      continue
+    }
+    if let index = owned.firstIndex(where: { $0.owner == id }) {
+      owned[index].ports.append(port)
+    } else {
+      owned.append((id, [port]))
+    }
+  }
+  return (owned, rest)
+}
+
+/// Port → owner for ports claimed by exactly one owner; shared ports are left out.
+func uniqueOwners(_ pairs: [(port: UInt16, owner: String)]) -> [UInt16: String] {
+  var owners: [UInt16: Set<String>] = [:]
+  for pair in pairs { owners[pair.port, default: []].insert(pair.owner) }
+  return owners.compactMapValues { $0.count == 1 ? $0.first : nil }
+}
+
 func formatBytes(_ value: Double) -> String {
   ByteCountFormatter.string(fromByteCount: Int64(max(0, value)), countStyle: .memory)
 }
