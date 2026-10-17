@@ -163,6 +163,13 @@ func demoPick(_ list: [String], _ key: String) -> String {
 /// volumes, other users) becomes `demoHome/code/<fake project>`, so no real folder name is shown.
 /// Executables keep their file name, which is already shown as the process name.
 func demoPath(_ path: String, home: String, projects: [String], executable: Bool = false) -> String {
+  func withoutDataVolumePrefix(_ value: String) -> String {
+    let prefix = "/System/Volumes/Data"
+    if value == prefix { return "/" }
+    return value.hasPrefix(prefix + "/") ? String(value.dropFirst(prefix.count)) : value
+  }
+  let path = withoutDataVolumePrefix(path)
+  let home = withoutDataVolumePrefix(home)
   guard path.hasPrefix("/") else { return path }
   let name = (path as NSString).lastPathComponent
   let file = executable ? "/" + name : ""
