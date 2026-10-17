@@ -15,8 +15,11 @@ Requirements: macOS 14 or later, Xcode Command Line Tools (Swift 6) and Rust/Car
 ```bash
 ./scripts/test.sh     # cargo fmt --check, cargo test, clippy -D warnings, native logic tests
 ./scripts/build.sh    # release build into build/CoreScope.app
-open build/CoreScope.app
-open --env CORESCOPE_DEMO=1 build/CoreScope.app   # demo mode: anonymized users, paths, projects and session titles
+# Quit any running CoreScope instance with ⌘Q before launching.
+# For screenshots or recordings, use demo mode and inspect captures for private data:
+open --env CORESCOPE_DEMO=1 build/CoreScope.app
+# For normal use, run this INSTEAD of the demo command:
+# open build/CoreScope.app
 ```
 
 `./scripts/test.sh` and `./scripts/build.sh` must both pass before you open a pull request. Use demo mode for any screenshot or recording you attach, so your own paths and projects don't leak.
