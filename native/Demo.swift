@@ -24,6 +24,7 @@ enum Demo {
     var s = snapshot
     for i in s.processes.indices {
       s.processes[i].user = s.processes[i].user == user ? "dev" : s.processes[i].user
+      s.processes[i].signalPath = s.processes[i].path
       s.processes[i].path = path(s.processes[i].path, executable: true)
       s.processes[i].cwd = path(s.processes[i].cwd)
       s.processes[i].orphan_parent = nil
