@@ -1,49 +1,66 @@
-# Consumo observado
+# Observed resource usage
 
-16/10/2026, Mac arm64, macOS 27.0.1, 10 núcleos lógicos, 16 GiB. Build release com Swift `-O` e Rust release, assinatura ad hoc. Código final `d83bbf0`. Bundle local: **2,9 MiB** (não inclui toolchains/cache de compilação).
+*Português: [CONSUMPTION.pt-BR.md](CONSUMPTION.pt-BR.md)*
 
-## Método e limites
+> **Historical (v0.1.0).** These measurements are from commit `d83bbf0`, the first native version. The UI has since changed (process tree, Agents page, new floating panel layouts), and the numbers below do not describe the current version. The current summary is the “Resource usage” table in the [README](../README.md#resource-usage).
 
-`scripts/measure.c` observa somente o PID escolhido por `proc_pid_rusage(RUSAGE_INFO_V4)`, a cada segundo. Revalida início do processo, usa relógio monotônico e converte ticks Mach para nanossegundos antes de dividir pelo tempo decorrido. `100%` de CPU significa **um núcleo**; em dez núcleos, 10% nessa coluna equivale aproximadamente a 1% da capacidade lógica total, sem correção por diferenças de desempenho entre núcleos.
+2026-10-16, arm64 Mac, macOS 27.0.1, 10 logical cores, 16 GiB. Release build with Swift `-O` and Rust release, ad hoc signing. Final code `d83bbf0`. Local bundle: **2.9 MiB** (does not include toolchains/build cache).
 
-Memória é `ri_phys_footprint`, média aritmética de amostras e maior valor da janela; não é pico histórico do lançamento nem apenas RSS. Os JSON também guardam RSS final e despertares de pacote. **Todos os testes tiveram 0 despertares de pacote atribuídos por segundo**, mas isso não significa ausência de timers: despertares de interrupção aparecem separadamente.
+## Method and limits
 
-A máquina continuou executando ferramentas de desenvolvimento e agentes. Não foi isolada, reiniciada nem teve processos de trabalho interrompidos. As janelas não incluíram novas chamadas de automação por nossa parte, porém houve interação e mudanças de seleção/árvore entre observações. Além disso, `sample` após a janela da tabela encontrou chamadas `mshMIGPerform`, `_AXXMIGCopyMultipleAttributeValues`, `NSTableViewCellMockElement` e criação de células. Portanto o custo observado inclui trabalho de acessibilidade e não estabelece quanto foi exclusivamente causado pelo coletor ou pela atualização normal da UI. O reset da sessão de automação não garante remover todos os observadores externos.
+`scripts/measure.c` observes only the chosen PID via `proc_pid_rusage(RUSAGE_INFO_V4)`, once per second. It revalidates the process start time, uses a monotonic clock and converts Mach ticks to nanoseconds before dividing by the elapsed time. `100%` CPU means **one core**; on ten cores, 10% in this column is roughly 1% of total logical capacity, with no correction for performance differences between cores.
 
-A tentativa de minimizar/fechar pela automação continuou retornando a janela de Ajustes. **Não consideramos essa janela uma medição comprovada de modo oculto**, apesar do nome histórico da intenção. Nenhum número foi descartado por ser desfavorável.
+Memory is `ri_phys_footprint`, the arithmetic mean of the samples and the largest value in the window; it is neither the historical peak since launch nor just RSS. The JSON files also store the final RSS and package wakeups. **Every test had 0 attributed package wakeups per second**, but this does not mean there were no timers: interrupt wakeups are reported separately.
 
-## Resultados
+The machine kept running development tools and agents. It was not isolated or restarted, and work processes were not interrupted. The windows did not include new automation calls on our part, but there was interaction and selection/tree changes between observations. In addition, `sample` after the table window found calls to `mshMIGPerform`, `_AXXMIGCopyMultipleAttributeValues`, `NSTableViewCellMockElement` and cell creation. The observed cost therefore includes accessibility work and does not establish how much was caused solely by the collector or by normal UI updates. Resetting the automation session does not guarantee removal of all external observers.
 
-| Cenário observado | Duração | CPU de um núcleo | Footprint médio / maior | Despertares de interrupção | Dados brutos |
+The attempt to minimize/close via automation kept returning the Settings window. **We do not consider that window a proven measurement of hidden mode**, despite the historical name of the intent. No number was discarded for being unfavorable.
+
+## Results
+
+| Observed scenario | Duration | CPU of one core | Mean / largest footprint | Interrupt wakeups | Raw data |
 |---|---:|---:|---:|---:|---|
-| Visão geral final | 40.1 s | 2.79% | 78.4 / 112.8 MiB | 3.06/s | [consumption-final-overview.json](consumption-final-overview.json) |
-| Tentativa de minimizar; estado oculto não confirmado | 40.1 s | 3.98% | 114.4 / 121.3 MiB | 2.14/s | [consumption-minimize-attempt.json](consumption-minimize-attempt.json) |
-| Tabela completa final, sessão interativa | 40.3 s | 33.72% | 143.9 / 151.4 MiB | 2.83/s | [consumption-final-processes.json](consumption-final-processes.json) |
-| Tabela após reset da automação, sessão interativa | 35.1 s | 13.94% | 160.4 / 166.2 MiB | 2.31/s | [consumption-processes-after-ui-reset.json](consumption-processes-after-ui-reset.json) |
-| Exploração inicial antes do ajuste da árvore | 45.2 s | 5.20% | 110.7 / 173.7 MiB | 6.15/s | [consumption-visible.json](consumption-visible.json) |
-| Tabela anterior ao ajuste da árvore | 35.1 s | 9.43% | 153.3 / 204.0 MiB | 10.25/s | [consumption-processes-quiet.json](consumption-processes-quiet.json) |
+| Final overview | 40.1 s | 2.79% | 78.4 / 112.8 MiB | 3.06/s | [consumption-final-overview.json](consumption-final-overview.json) |
+| Minimize attempt; hidden state not confirmed | 40.1 s | 3.98% | 114.4 / 121.3 MiB | 2.14/s | [consumption-minimize-attempt.json](consumption-minimize-attempt.json) |
+| Final full table, interactive session | 40.3 s | 33.72% | 143.9 / 151.4 MiB | 2.83/s | [consumption-final-processes.json](consumption-final-processes.json) |
+| Table after automation reset, interactive session | 35.1 s | 13.94% | 160.4 / 166.2 MiB | 2.31/s | [consumption-processes-after-ui-reset.json](consumption-processes-after-ui-reset.json) |
+| Initial exploration before the tree adjustment | 45.2 s | 5.20% | 110.7 / 173.7 MiB | 6.15/s | [consumption-visible.json](consumption-visible.json) |
+| Table before the tree adjustment | 35.1 s | 9.43% | 153.3 / 204.0 MiB | 10.25/s | [consumption-processes-quiet.json](consumption-processes-quiet.json) |
 
-Os arquivos com “quiet”/“final” preservam os nomes da coleta; “quiet” significa ausência de novas chamadas explícitas nossas durante a janela, não certificação de ambiente ocioso. Não se deve inferir uma melhora percentual entre execuções com cargas, superfícies e interações diferentes.
+The files named “quiet”/“final” keep the names from the collection; “quiet” means no new explicit calls on our part during the window, not certification of an idle environment. No percentage improvement should be inferred between runs with different loads, surfaces and interactions.
 
-## Metas de engenharia e estado
+## Engineering targets and status
 
-Metas propostas para aceitação, não requisitos medidos previamente nem promessa de desempenho universal:
+Targets proposed for acceptance, not previously measured requirements nor a promise of universal performance:
 
-- Visão geral sem interação: CPU média até 5% de um núcleo; footprint médio até 128 MiB. A janela observada ficou abaixo, mas precisa de repetição isolada para caracterizar baseline.
-- Tabela completa sem interação: CPU média até 10% de um núcleo; footprint médio até 200 MiB e pico de janela até 256 MiB. **CPU não atingida nas últimas janelas desta sessão**; memória ficou abaixo. O perfil exige separar observação AX de atualização normal antes de decidir uma otimização adicional. Não declarar a leveza de todas as superfícies como aprovada.
-- Somente barra, janela/painel ocultos: CPU média até 1% de um núcleo; ainda **não validada**. O código reduz cadência para pelo menos 10 s, mas implementação não é evidência de resultado.
-- Pacote menor que 10 MiB: observado 2,9 MiB.
-- Histórico limitado por quantidade/tempo: testes passam; não substituem um ensaio prolongado de estabilidade de memória.
-- Energia em watts/joules ou Energy Impact: **indisponível**. Campos brutos de energia não foram interpretados sem unidade/contrato confiável. Não há conclusão sobre autonomia da bateria.
+- Overview without interaction: mean CPU up to 5% of one core; mean footprint up to 128 MiB. The observed window was below this, but needs an isolated repeat to characterize a baseline.
+- Full table without interaction: mean CPU up to 10% of one core; mean footprint up to 200 MiB and window peak up to 256 MiB. **CPU target not met in the latest windows of this session**; memory was below target. The profile requires separating AX observation from normal updates before deciding on further optimization. Do not declare every surface as approved for lightness.
+- Menu bar only, window/panel hidden: mean CPU up to 1% of one core; still **not validated**. The code reduces the cadence to at least 10 s, but implementation is not evidence of the result.
+- Bundle smaller than 10 MiB: observed 2.9 MiB.
+- History bounded by count/time: tests pass; they do not replace a prolonged memory-stability run.
+- Energy in watts/joules or Energy Impact: **unavailable**. Raw energy fields were not interpreted without a reliable unit/contract. No conclusion about battery life.
 
-## Reproduzir
+## Reproduce
 
 ```sh
 cd corescope
 clang -O2 scripts/measure.c -o build/measure
 pgrep -x CoreScope
-# Substituir PID pelo valor conferido; o medidor não envia sinais.
+# Replace PID with the verified value; the meter sends no signals.
 ./build/measure PID 60
 ```
 
-Para uma comparação controlada: use o mesmo build, intervalo de 3 s, número semelhante de processos, sem interação ou captura AX durante a janela; execute separadamente visão geral, tabela, somente barra e painel. Confirme visualmente o estado antes e depois. Rode por alguns minutos em vez de extrapolar destas janelas curtas. Não altere serviços do usuário para obter números artificialmente baixos.
+For a controlled comparison: use the same build, 3 s interval, a similar number of processes, no interaction or AX capture during the window; run overview, table, menu-bar-only and panel separately. Visually confirm the state before and after. Run for a few minutes instead of extrapolating from these short windows. Do not alter the user's services to get artificially low numbers.
+
+## Containers (ADR 003)
+
+2026-10-16, same Mac, OrbStack with 6 running containers (5 of the user's plus a test `nginx:alpine`). `scripts/measure.c`, 60 s per window after a 20 s warm-up, alternating the previous build (`a854cec`) and the new one; with the app hidden (`NSRunningApplication.hide`) no container read happens. Other sessions were building and running CoreScope at the same time: the spread between identical windows is larger than the measured difference.
+
+| Scenario | Build | CPU of one core | Footprint mean / peak |
+|---|---|---:|---:|
+| Overview visible (with the Containers card) | previous | 4.78% · 4.72% | 99.8 / 134.7 · 89.9 / 124.0 MiB |
+| Overview visible (with the Containers card) | new | 5.14% · 4.35% | 93.7 / 130.8 · 92.8 / 128.7 MiB |
+| App hidden | previous | 1.31% | 75.3 / 115.6 MiB |
+| App hidden | new | 1.53% | 85.8 / 128.8 MiB |
+
+A full read (list + 6 one-shot stats) takes ~70 ms of wall time, almost all of it waiting on the engine, every 5 s. Conclusion: cost not distinguishable from noise on this machine; a single hidden window is not enough to claim a memory difference.

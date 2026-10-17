@@ -1,92 +1,94 @@
-# Temperatura de discos: investigação do Disk Drill
+# Disk temperature: investigation of Disk Drill
 
-Data: 16/10/2026. Escopo: análise estática, somente leitura, do Disk Drill instalado e consulta a fontes públicas. Nenhum disco foi interrogado por esta investigação; nenhuma preferência, helper, extensão, permissão ou configuração SMART foi alterada. O app e seus executáveis não foram executados. A sessão REA foi fechada ao concluir.
+*Português: [DISKDRILL-TEMPERATURE.pt-BR.md](DISKDRILL-TEMPERATURE.pt-BR.md)*
 
-## Conclusão
+Date: 2026-10-16. Scope: static, read-only analysis of the installed Disk Drill and consultation of public sources. No disk was queried by this investigation; no preference, helper, extension, permission or SMART setting was changed. The app and its executables were not run. The REA session was closed on completion.
 
-O Disk Drill instalado inclui **smartctl/Smartmontools** e código que reconhece os resultados ATA e NVMe dessa ferramenta. Isso também é confirmado pela [documentação oficial da CleverFiles](https://www.cleverfiles.com/help/monitor-smart-status-disk-health/), na seção “What Mechanism Does Disk Drill for macOS Use to Integrate With S.M.A.R.T.”. Não se trata de uma temperatura universal que o macOS publique como propriedade comum do disco.
+## Conclusion
 
-Há uma oportunidade melhor que depender do Disk Drill: o SDK Apple instalado fornece a interface **NVMeSMARTLibExternal.h**, com leitura SMART e campo de temperatura. CoreScope pode usar esse contrato do SDK por um pequeno adaptador C próprio. O funcionamento com o SSD Apple interno e com o Kingston externo precisa ser verificado por leitura real no host; a análise estática, sozinha, não demonstra acesso, temperatura ou compatibilidade.
+The installed Disk Drill includes **smartctl/Smartmontools** and code that recognizes that tool's ATA and NVMe results. This is also confirmed by the [official CleverFiles documentation](https://www.cleverfiles.com/help/monitor-smart-status-disk-health/), in the section “What Mechanism Does Disk Drill for macOS Use to Integrate With S.M.A.R.T.”. It is not a universal temperature that macOS publishes as a common disk property.
 
-## Resultado posterior no CoreScope
+There is a better option than depending on Disk Drill: the installed Apple SDK provides the **NVMeSMARTLibExternal.h** interface, with SMART reading and a temperature field. CoreScope can use this SDK contract through a small C adapter of its own. Whether it works with the internal Apple SSD and the external Kingston must be verified by a real read on the host; static analysis alone does not demonstrate access, temperature or compatibility.
 
-Após esta investigação estática, o adaptador independente do CoreScope leu os dois SSDs usando `SMARTReadData`, sem root: Apple 50,85 °C e Kingston 47,85 °C às 09:55:31. Isso valida esses dispositivos e essa conexão no host observado; não prova suporte universal. A evidência de execução e suas limitações estão em [VALIDATION.md](VALIDATION.md). As seções abaixo preservam o escopo e as incertezas da investigação estática original.
+## Subsequent result in CoreScope
 
-## Alvos e evidências
+After this static investigation, CoreScope's independent adapter read both SSDs using `SMARTReadData`, without root: Apple 50.85 °C and Kingston 47.85 °C at 09:55:31. This validates these devices and this connection on the observed host; it does not prove universal support. The execution evidence and its limitations are in [VALIDATION.md](VALIDATION.md). The sections below preserve the scope and uncertainties of the original static investigation.
 
-Disk Drill **6.3**, build **6.3.2326**, identificado por `Contents/Info.plist`. Caminhos abaixo são relativos a `/Applications/Disk Drill.app`.
+## Targets and evidence
 
-| Item | Resultado observado | Referência |
+Disk Drill **6.3**, build **6.3.2326**, identified via `Contents/Info.plist`. Paths below are relative to `/Applications/Disk Drill.app`.
+
+| Item | Observed result | Reference |
 | --- | --- | --- |
-| Executável principal | Mach-O universal, fatia arm64 selecionada, SHA-256 `7c9721f7db6afb2b66fe5606ca7a06c1b693a6fa5eefb794b786bb4a09a230ad` | REA `open_binary` |
-| Imports do principal | `IOCreatePlugInInterfaceForService`, `IORegistryEntryCreateCFProperty`, `IOBSDNameMatching`, `IOServiceGetMatchingService`, `IODestroyPlugInInterface`, `posix_spawn`, APIs de autorização | REA `inspect_macho`, `ev_40b5d7747b34e93f3b4c1055b3e7dc3d37b65a7d8a5538adc6639eadc9717728` |
-| smartctl incluído | `Contents/Library/LoginItems/SmartDaemon.app/Contents/MacOS/smartctl`; SHA-256 `82dca2cab9e0b67e15960b4b119f58fa96f4d23e5f49eef499b8a13499629575`; importa `IOCreatePlugInInterfaceForService` | REA `inspect_macho`, `ev_a69e5eb58a28f5d7ad5bd57176f0e84b115610b125acc2eb428a7a0e40bd94e9` |
-| Tabela de atributos | `smartattrs.plist` associa 190 a Airflow Temperature e 194 a HDA temperature, ambos com formato Temperature | REA `inspect_plist`, `ev_1f7e093783efd43ee5ae55cdb06294bcafac8c97c934dfb0c391ca9663e980a3` |
-| Serviço empacotado | LaunchDaemon `com.cleverfiles.BackService_12`, `KeepAlive=true`, programa `Contents/Helpers/BackService_12.app/Contents/MacOS/cfbackd` | REA `inspect_plist`, `ev_b29e0296ca01e56b2ade832fbb350967ad8ba6a99eb847abfdddae5562349267` |
+| Main executable | Universal Mach-O, arm64 slice selected, SHA-256 `7c9721f7db6afb2b66fe5606ca7a06c1b693a6fa5eefb794b786bb4a09a230ad` | REA `open_binary` |
+| Main executable imports | `IOCreatePlugInInterfaceForService`, `IORegistryEntryCreateCFProperty`, `IOBSDNameMatching`, `IOServiceGetMatchingService`, `IODestroyPlugInInterface`, `posix_spawn`, authorization APIs | REA `inspect_macho`, `ev_40b5d7747b34e93f3b4c1055b3e7dc3d37b65a7d8a5538adc6639eadc9717728` |
+| Bundled smartctl | `Contents/Library/LoginItems/SmartDaemon.app/Contents/MacOS/smartctl`; SHA-256 `82dca2cab9e0b67e15960b4b119f58fa96f4d23e5f49eef499b8a13499629575`; imports `IOCreatePlugInInterfaceForService` | REA `inspect_macho`, `ev_a69e5eb58a28f5d7ad5bd57176f0e84b115610b125acc2eb428a7a0e40bd94e9` |
+| Attribute table | `smartattrs.plist` maps 190 to Airflow Temperature and 194 to HDA temperature, both with Temperature format | REA `inspect_plist`, `ev_1f7e093783efd43ee5ae55cdb06294bcafac8c97c934dfb0c391ca9663e980a3` |
+| Bundled service | LaunchDaemon `com.cleverfiles.BackService_12`, `KeepAlive=true`, program `Contents/Helpers/BackService_12.app/Contents/MacOS/cfbackd` | REA `inspect_plist`, `ev_b29e0296ca01e56b2ade832fbb350967ad8ba6a99eb847abfdddae5562349267` |
 
-Os IDs acima são observações reais do REA, não IDs inventados para a pesquisa em shell. A inspeção do plist registra o arquivo em `normalized_result.source_path`; o `subject` genérico do REA pode continuar sendo o binário ativo da sessão.
+The IDs above are real REA observations, not IDs invented for the shell research. The plist inspection records the file in `normalized_result.source_path`; REA's generic `subject` may still be the session's active binary.
 
-### Evidência estática complementar em shell
+### Complementary static evidence from the shell
 
-`strings -a` no principal encontrou `SmartctlProvider`, `SmartctlAttribute`, `SmartmontoolsPath`, `Contents/MacOS/smartctl`, `/usr/local/bin/smartctl`, `/usr/local/sbin/smartctl`, `/usr/sbin/smartctl`, `smartctl detected at %@`, `ata_smart_attributes`, `nvme_smart_health_information_log`, `smart_status.passed`, `temperature` e `smartctl.messages.string`.
+`strings -a` on the main executable found `SmartctlProvider`, `SmartctlAttribute`, `SmartmontoolsPath`, `Contents/MacOS/smartctl`, `/usr/local/bin/smartctl`, `/usr/local/sbin/smartctl`, `/usr/sbin/smartctl`, `smartctl detected at %@`, `ata_smart_attributes`, `nvme_smart_health_information_log`, `smart_status.passed`, `temperature` and `smartctl.messages.string`.
 
-Também aparecem `IOATASMARTInterface` nos tipos Objective-C, `SMART Capable` e mensagem de formato de temperatura SMART desconhecido. São evidências de rotas implementadas/candidatas, não prova de qual rota foi usada nesta máquina.
+`IOATASMARTInterface` also appears among the Objective-C types, along with `SMART Capable` and an unknown-SMART-temperature-format message. These are evidence of implemented/candidate routes, not proof of which route was used on this machine.
 
-O smartctl incluído contém identificador de build **7.5, 2025-04-30, r5715**, textos `NVMe SMART Capable`, `GetLogPage failed`, e referências a bridges ASMedia/JMicron/Realtek. A presença desses nomes **não prova suporte no backend Darwin**. O arquivo `smartctl_copyrights.txt` identifica Smartmontools e sua licença. Nenhum código ou executável do Disk Drill foi copiado para CoreScope.
+The bundled smartctl contains the build identifier **7.5, 2025-04-30, r5715**, the strings `NVMe SMART Capable`, `GetLogPage failed`, and references to ASMedia/JMicron/Realtek bridges. The presence of these names **does not prove support in the Darwin backend**. The file `smartctl_copyrights.txt` identifies Smartmontools and its license. No Disk Drill code or executable was copied into CoreScope.
 
-`codesign -d --entitlements :-` no smartctl mostrou `disable-library-validation` e `personal-information.addressbook`; isso não demonstra autorização SMART nem necessidade dessas permissões para CoreScope. A existência de LaunchDaemon e imports de autorização também não prova que leituras de temperatura necessitem root.
+`codesign -d --entitlements :-` on smartctl showed `disable-library-validation` and `personal-information.addressbook`; this does not demonstrate SMART authorization, nor that CoreScope needs these permissions. The existence of a LaunchDaemon and of authorization imports also does not prove that temperature reads require root.
 
-## Rota pública verificada no SDK Apple
+## Public route verified in the Apple SDK
 
-Header instalado:
+Installed header:
 
 `/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/IOKit.framework/Versions/A/Headers/storage/nvme/NVMeSMARTLibExternal.h`
 
-O header declara acesso por tarefas fora do kernel e fornece:
+The header declares access by tasks outside the kernel and provides:
 
-- Propriedade `kIOPropertyNVMeSMARTCapableKey`: `NVMe SMART Capable`.
+- Property `kIOPropertyNVMeSMARTCapableKey`: `NVMe SMART Capable`.
 - `kIONVMeSMARTUserClientTypeID`: `AA0FA6F9-C2D6-457F-B10B-59A13253292F`.
 - `kIONVMeSMARTInterfaceID`: `CCD1DB19-FD9A-4DAF-BF95-12454B230AB6`.
-- `NVMeSMARTData`, estrutura empacotada de 512 bytes, cujo campo `TEMPERATURE` é um `uint16_t` após `CRITICAL_WARNING`.
+- `NVMeSMARTData`, a packed 512-byte structure whose `TEMPERATURE` field is a `uint16_t` after `CRITICAL_WARNING`.
 - `IONVMeSMARTInterface.SMARTReadData(interface, NVMeSMARTData*)`.
-- `IONVMeSMARTInterface.GetLogPage(interface, buffer, logPageID, numDWords)`; `numDWords` é baseado em zero.
+- `IONVMeSMARTInterface.GetLogPage(interface, buffer, logPageID, numDWords)`; `numDWords` is zero-based.
 
-Usar o header do SDK evita reconstruir manualmente ABI de um binário. A temperatura NVMe é expressa em Kelvin; a apresentação em Celsius exige conversão, com validação de leitura e de valores sentinela. Retornar indisponível em falha, jamais fabricar zero graus.
+Using the SDK header avoids manually reconstructing ABI from a binary. The NVMe temperature is expressed in Kelvin; presenting it in Celsius requires conversion, with validation of the read and of sentinel values. Return unavailable on failure, never fabricate zero degrees.
 
-A [implementação pública Darwin de Smartmontools](https://www.smartmontools.org/static/doxygen/os__darwin_8cpp_source.html) corrobora o percurso: encontra o dispositivo pelo nome BSD, sobe os pais no plano IOService até SMART-capable, cria plugin, consulta a interface NVMe e chama GetLogPage. A enumeração usa IOBlockStorageDevice. Seu backend SCSI nessa revisão retorna indisponível. Essa fonte é uma revisão publicada de 2025, não uma afirmação sobre qualquer futuro backend.
+The [public Darwin implementation of Smartmontools](https://www.smartmontools.org/static/doxygen/os__darwin_8cpp_source.html) corroborates the route: it finds the device by BSD name, walks up the parents in the IOService plane to a SMART-capable one, creates a plugin, queries the NVMe interface and calls GetLogPage. Enumeration uses IOBlockStorageDevice. Its SCSI backend in that revision returns unavailable. That source is a published 2025 revision, not a statement about any future backend.
 
-Fluxo de implementação independente sugerido:
+Suggested independent implementation flow:
 
-1. Partir do nome BSD do disco físico, usar `IOBSDNameMatching` e obter o serviço correspondente.
-2. Percorrer pais `kIOServicePlane`, verificando a propriedade NVMe SMART em cada serviço. Liberar cada referência adquirida; limitar a travessia e tratar desconexão.
-3. Criar `IOCFPlugInInterface` com o user client NVMe, consultar `IONVMeSMARTInterface` com `QueryInterface`, verificar o retorno e ponteiros.
-4. Ler `SMARTReadData`; se necessário, avaliar GetLogPage com log 2 e 127 dwords para 512 bytes. Esta alternativa deve ser validada em runtime, não assumida.
-5. Converter a temperatura apenas após sucesso e associar a amostra ao disco físico correto. APFS pode expor volumes virtuais diferentes do backing device.
-6. Liberar interface via `Release`, plugin via `IODestroyPlugInInterface`, objetos IOKit via `IOObjectRelease`.
+1. Start from the BSD name of the physical disk, use `IOBSDNameMatching` and obtain the matching service.
+2. Walk the parents in `kIOServicePlane`, checking the NVMe SMART property on each service. Release every acquired reference; bound the traversal and handle disconnection.
+3. Create an `IOCFPlugInInterface` with the NVMe user client, query `IONVMeSMARTInterface` with `QueryInterface`, and check the return value and pointers.
+4. Read `SMARTReadData`; if needed, evaluate GetLogPage with log 2 and 127 dwords for 512 bytes. This alternative must be validated at runtime, not assumed.
+5. Convert the temperature only after success and associate the sample with the correct physical disk. APFS may expose virtual volumes distinct from the backing device.
+6. Release the interface via `Release`, the plugin via `IODestroyPlugInInterface`, and IOKit objects via `IOObjectRelease`.
 
-Isso é uma proposta baseada no contrato público, não pseudocódigo extraído do Disk Drill.
+This is a proposal based on the public contract, not pseudocode extracted from Disk Drill.
 
-## Interno Apple, externo Kingston e permissões
+## Internal Apple, external Kingston and permissions
 
-| Caso | O que se pode concluir agora | O que falta provar |
+| Case | What can be concluded now | What remains to be proven |
 | --- | --- | --- |
-| SSD Apple interno NVMe | Existe API de leitura adequada no SDK | Serviço exposto, leitura sem privilégio e valor válido neste macOS |
-| Kingston NVMe por Thunderbolt/USB4 com PCIe exposto | Pode apresentar a mesma interface NVMe | Topologia real do adaptador e sucesso de leitura |
-| Kingston via bridge USB/SCSI | Suporte depende de bridge, driver e backend; nomes no binário não bastam | Pass-through efetivo disponível neste host |
-| Permissão de leitura | Não é correto inferir root apenas porque Disk Drill tem helper | Código de retorno da leitura sem privilégio |
+| Internal Apple NVMe SSD | A suitable read API exists in the SDK | Service exposed, unprivileged read and valid value on this macOS |
+| Kingston NVMe over Thunderbolt/USB4 with PCIe exposed | May present the same NVMe interface | Actual adapter topology and read success |
+| Kingston via USB/SCSI bridge | Support depends on bridge, driver and backend; names in the binary are not enough | Effective pass-through available on this host |
+| Read permission | It is not correct to infer root just because Disk Drill has a helper | Return code of the unprivileged read |
 
-A documentação CleverFiles menciona uma extensão SAT para alguns externos e desaconselha seu uso geral a partir do macOS 11 por falta de manutenção. Essa investigação não instalou nem recomenda instalar essa extensão, reduzir segurança do boot ou reutilizar os helpers do Disk Drill. A API pública deve ser tentada com o usuário normal; falhas devem permanecer explícitas.
+The CleverFiles documentation mentions a SAT extension for some external drives and advises against its general use from macOS 11 onward due to lack of maintenance. This investigation did not install, nor does it recommend installing, that extension, lowering boot security or reusing Disk Drill's helpers. The public API should be tried as the normal user; failures must remain explicit.
 
-Integração opcional com **smartctl instalado independentemente** pode ser alternativa futura. Ler JSON, usar argumentos fixos de consulta, prazo limitado, associação por disco físico e tratamento de falhas por dispositivo. Não adotar o smartctl interno do Disk Drill como dependência de CoreScope. Seu caminho, versão e existência pertencem ao outro aplicativo.
+Optional integration with an **independently installed smartctl** may be a future alternative: read JSON, use fixed query arguments, a bounded timeout, association by physical disk and per-device failure handling. Do not adopt Disk Drill's bundled smartctl as a CoreScope dependency. Its path, version and existence belong to the other application.
 
-## Limites e questões pendentes
+## Limits and open questions
 
-REA abriu e identificou os binários; inspeções Mach-O/plist funcionaram. `search_strings` pelo provider nativo profundo retornou `provider_unavailable`: Ghidra não configurado, Hopper ausente, IDA não configurado. Há ainda limitação declarada do provider Ghidra para selecionar fatia em Mach-O universal. Nenhum engine foi instalado. Strings em shell são explicitamente fallback, não decompilação REA.
+REA opened and identified the binaries; Mach-O/plist inspections worked. `search_strings` through the deep native provider returned `provider_unavailable`: Ghidra not configured, Hopper absent, IDA not configured. There is also a declared limitation of the Ghidra provider in selecting a slice in universal Mach-O. No engine was installed. Shell strings are explicitly a fallback, not REA decompilation.
 
-- **Respondido:** fonte tecnológica do Disk Drill — Smartmontools empacotado, parsing SMART e imports IOKit.
-- **Respondido:** há API pública no SDK local que permite uma implementação própria de leitura NVMe.
-- **Parcial:** fluxo interno exato, argumentos do subprocesso e ordem de fallback do Disk Drill; requer análise profunda ou observação controlada.
-- **Não testado nesta investigação:** temperaturas reais, permissões efetivas e suporte dos dois dispositivos locais. A implementação e validação runtime de CoreScope são atividades separadas.
-- **Não estabelecido:** envolvimento de cfbackd na temperatura, frequência real observada, transporte do adaptador Kingston, precisão/calibração dos sensores.
+- **Answered:** Disk Drill's technology source — bundled Smartmontools, SMART parsing and IOKit imports.
+- **Answered:** there is a public API in the local SDK that allows an independent NVMe read implementation.
+- **Partial:** Disk Drill's exact internal flow, subprocess arguments and fallback order; requires deep analysis or controlled observation.
+- **Not tested in this investigation:** real temperatures, effective permissions and support for the two local devices. CoreScope's implementation and runtime validation are separate activities.
+- **Not established:** cfbackd's involvement in temperature, actual observed frequency, the Kingston adapter's transport, sensor precision/calibration.
 
-As conclusões não prometem suporte universal a discos externos nem equivalência funcional ao Disk Drill.
+The conclusions do not promise universal support for external disks or functional equivalence to Disk Drill.

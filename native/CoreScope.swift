@@ -47,7 +47,7 @@ struct CoreScopeApp: App {
         CommandGroup(replacing: .appInfo) {
           Button(L("Sobre o CoreScope")) {
             NSApp.orderFrontStandardAboutPanel(options: [
-              .applicationName: "CoreScope", .applicationVersion: "0.2.0",
+              .applicationName: "CoreScope", .applicationVersion: "0.2.1",
               .credits: NSAttributedString(
                 string:
                   "Monitor local para desenvolvedores · Rust + SwiftUI\n© 2026 Tiago Padilha · MIT License\ngithub.com/Tiagospem/corescope"),
@@ -132,9 +132,10 @@ private struct MiniTile: View {
       }
       Text(value).font(.system(size: 17, weight: .semibold, design: .rounded)).monospacedDigit()
         .lineLimit(1).minimumScaleFactor(0.7)
-      AreaChart(series: series, ceiling: ceiling, capacity: 80, grid: false, lineWidth: 1.3)
+      AreaChart(series: series, ceiling: ceiling, capacity: 80, grid: false, lineWidth: 1.3, title: title)
         .frame(height: 30)
     }
+    .accessibilityElement(children: .combine)
     .padding(9)
     .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 9))
   }
@@ -166,6 +167,7 @@ struct MenuSummary: View {
   @ObservedObject var monitor = Monitor.shared
   @ObservedObject var prefs = Preferences.shared
   @ObservedObject var agents = AgentStore.shared
+  @ObservedObject var containers = ContainerStore.shared
   @Environment(\.openWindow) var openWindow
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
@@ -181,17 +183,19 @@ struct MenuSummary: View {
         } label: {
           Image(systemName: monitor.manuallyPaused ? "play.fill" : "pause.fill")
         }.buttonStyle(HoverButtonStyle()).help(monitor.manuallyPaused ? L("Retomar") : L("Pausar"))
+          .accessibilityLabel(monitor.manuallyPaused ? L("Retomar coleta") : L("Pausar coleta"))
         Button {
           prefs.panelVisible.toggle()
         } label: {
           Image(systemName: prefs.panelVisible ? "pip.fill" : "pip")
         }.buttonStyle(HoverButtonStyle(tint: .accentColor))
           .help(prefs.panelVisible ? L("Ocultar painel flutuante") : L("Mostrar painel flutuante"))
+          .accessibilityLabel(prefs.panelVisible ? L("Ocultar painel flutuante") : L("Mostrar painel flutuante"))
         Button {
           open(.settings)
         } label: {
           Image(systemName: "gearshape")
-        }.buttonStyle(HoverButtonStyle()).help(L("Ajustes"))
+        }.buttonStyle(HoverButtonStyle()).help(L("Ajustes")).accessibilityLabel(L("Ajustes"))
       }
       if let s = monitor.snapshot {
         PortQuickLookup(snapshot: s)
@@ -199,26 +203,26 @@ struct MenuSummary: View {
           GridRow {
             MiniTile(
               title: L("CPU"), value: s.cpu.percent, detail: L("%@ núcleos", "\(s.cores)"),
-              series: [ChartSeries(values: s.history.map(\.cpu), color: Tint.cpu)], ceiling: 100)
+              series: [.cpu(s.history.map(\.cpu))], ceiling: 100)
             MiniTile(
               title: L("MEMÓRIA"), value: s.memorySummary,
               detail: s.memoryFraction.map { String(format: L("%.0f%% de %@"), $0 * 100, s.physical.bytes) } ?? "",
-              series: [ChartSeries(values: s.history.map(\.memory), color: Tint.memory)],
+              series: [.memory(s.history.map(\.memory))],
               ceiling: s.physical.value)
           }
           GridRow {
             MiniTile(
               title: L("DISCO"), value: s.diskRate, detail: "↓\(s.disk_read.rate)",
               series: [
-                ChartSeries(values: s.history.map(\.disk_read), color: Tint.diskRead),
-                ChartSeries(values: s.history.map(\.disk_write), color: Tint.diskWrite),
+                .diskRead(s.history.map(\.disk_read)),
+                .diskWrite(s.history.map(\.disk_write)),
               ])
             MiniTile(
               title: L("REDE"), value: formatRate((s.net_in.value ?? 0) + (s.net_out.value ?? 0)),
               detail: "↓\(s.net_in.rate)",
               series: [
-                ChartSeries(values: s.history.map(\.net_in), color: Tint.netIn),
-                ChartSeries(values: s.history.map(\.net_out), color: Tint.netOut),
+                .netIn(s.history.map(\.net_in)),
+                .netOut(s.history.map(\.net_out)),
               ])
           }
         }
@@ -262,17 +266,23 @@ struct MenuSummary: View {
             }
           }
         }
-        if !s.servers.isEmpty {
-          section(L("Servidores em escuta"), count: s.servers.count, tint: Tint.netIn) {
+        let servers = serverEntries(s.serverGroups, owners: containers.owners)
+        if !servers.isEmpty {
+          section(L("Servidores em escuta"), count: servers.count, tint: Tint.netIn) {
             EmptyView()
           } content: {
-            ForEach(s.servers.prefix(4)) { p in
-              ProcessLine(process: p, subtitle: devSubtitle(p)) {
-                if let port = p.ports.first {
-                  Badge(text: ":\(port.port)", color: port.exposed ? .orange : Tint.netIn)
-                  OpenPortButton(port: port.port)
+            ForEach(servers.prefix(4)) { entry in
+              switch entry {
+              case .container(let c, let via, let ports):
+                ContainerServerLine(container: c, via: via, ports: ports, maxPorts: 1)
+              case .process(let p, _, let ports):
+                ProcessLine(process: p, subtitle: devSubtitle(p)) {
+                  if let port = ports.first {
+                    PortBadge(port: port)
+                    OpenPortButton(port: port.port)
+                  }
+                  KillButton(process: p)
                 }
-                KillButton(process: p)
               }
             }
           }
@@ -298,7 +308,7 @@ struct MenuSummary: View {
         Spacer()
         Button(L("Sair")) { NSApp.terminate(nil) }.keyboardShortcut("q")
       }.controlSize(.regular)
-    }.padding(14).frame(width: 372).id(prefs.language)
+    }.padding(14).frame(width: 372).id(prefs.language).watchesContainers(stats: false)
   }
   private func open(_ page: Page?) {
     // The popover is the key window at click time; dismiss it before showing the main window.

@@ -79,11 +79,13 @@ struct PreferencesView: View {
             } label: {
               Image(systemName: "arrow.up")
             }.disabled(index == 0).help(L("Mover %@ para a esquerda", "\(item)"))
+              .accessibilityLabel(L("Mover %@ para a esquerda", "\(item)"))
             Button {
               p.menuItems.swapAt(index, index + 1)
             } label: {
               Image(systemName: "arrow.down")
             }.disabled(index == p.menuItems.count - 1).help(L("Mover %@ para a direita", "\(item)"))
+              .accessibilityLabel(L("Mover %@ para a direita", "\(item)"))
           }
         }
       }
