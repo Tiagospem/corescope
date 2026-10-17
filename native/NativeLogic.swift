@@ -338,14 +338,19 @@ private struct JSONScanner {
         case UInt8(ascii: "t"): out.append(0x09)
         case UInt8(ascii: "u"):
           var code = try hex4()
-          if (0xD800..<0xDC00).contains(code), peek() == UInt8(ascii: "\\"), index + 1 < bytes.count,
-            bytes[index + 1] == UInt8(ascii: "u")
-          {
+          if (0xD800..<0xDC00).contains(code) {
+            guard peek() == UInt8(ascii: "\\"), index + 1 < bytes.count,
+              bytes[index + 1] == UInt8(ascii: "u")
+            else { throw OrderedJSON.ParseError() }
             index += 2
             let low = try hex4()
-            code = 0x10000 + ((code - 0xD800) << 10) + (low &- 0xDC00)
+            guard (0xDC00...0xDFFF).contains(low) else { throw OrderedJSON.ParseError() }
+            code = 0x10000 + ((code - 0xD800) << 10) + (low - 0xDC00)
+          } else if (0xDC00...0xDFFF).contains(code) {
+            throw OrderedJSON.ParseError()
           }
-          out += Array(String(Unicode.Scalar(code).map(Character.init) ?? "\u{FFFD}").utf8)
+          guard let scalar = Unicode.Scalar(code) else { throw OrderedJSON.ParseError() }
+          out += Array(String(scalar).utf8)
         default: throw OrderedJSON.ParseError()
         }
       case 0..<0x20: throw OrderedJSON.ParseError()

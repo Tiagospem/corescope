@@ -13,6 +13,7 @@ enum ClaudeLimitsBridge {
   static let script = support.appendingPathComponent("claude-statusline.sh")
   static let limitsFile = support.appendingPathComponent("claude-limits.json")
   private static let stateFile = support.appendingPathComponent("claude-statusline-state.json")
+  private static let enabledFile = support.appendingPathComponent("claude-statusline-enabled")
   private static let backups = support.appendingPathComponent("backups")
   /// Follows a dotfiles symlink so the real file is edited and the link survives.
   static var settingsFile: URL {
@@ -46,14 +47,17 @@ enum ClaudeLimitsBridge {
     export LC_ALL=C
     umask 077
     dir="$HOME/Library/Application Support/CoreScope"
-    input=$(cat)
-    limits=$(printf '%s' "$input" | /usr/bin/plutil -extract rate_limits json -o - - 2>/dev/null)
-    if [ -n "$limits" ]; then
-      file="$dir/claude-limits.json"
-      if [ "$(cat "$file" 2>/dev/null)" = "$limits" ]; then
-        touch "$file"
-      else
-        mkdir -p "$dir" && printf '%s' "$limits" > "$file.$$" && mv -f "$file.$$" "$file"
+    input=$(cat; printf '.')
+    input=${input%.}
+    if [ -f "$dir/claude-statusline-enabled" ]; then
+      limits=$(printf '%s' "$input" | /usr/bin/plutil -extract rate_limits json -o - - 2>/dev/null)
+      if [ -n "$limits" ]; then
+        file="$dir/claude-limits.json"
+        if [ "$(cat "$file" 2>/dev/null)" = "$limits" ]; then
+          touch "$file"
+        else
+          mkdir -p "$dir" && printf '%s' "$limits" > "$file.$$" && mv -f "$file.$$" "$file"
+        fi
       fi
     fi
     if [ "$1" = "--record" ]; then
@@ -90,7 +94,10 @@ enum ClaudeLimitsBridge {
       guard let settings = try? OrderedJSON.parse(text) else { return .failure(.unreadable) }
       guard case .object = settings else { return .failure(.notObject) }
       let link = ClaudeStatusLine.link(of: settings, script: script.path)
-      if link == .installed || link == .chained { return .success(link) }
+      if link == .installed || link == .chained {
+        try write("", to: enabledFile)
+        return .success(link)
+      }
       let previous = settings["statusLine"]
       guard let installed = ClaudeStatusLine.installing(over: previous, script: script.path, chain: chain)
       else { return .success(link) }
@@ -101,6 +108,7 @@ enum ClaudeLimitsBridge {
       if let previous { state.insert(.init(key: "previous", value: previous), at: 0) }
       try write(OrderedJSON.object(state).serialized() + "\n", to: stateFile)
       try write(settings.setting("statusLine", installed).serialized() + trailing(text), to: file)
+      try write("", to: enabledFile)
       return .success(ClaudeStatusLine.link(of: settings.setting("statusLine", installed), script: script.path))
     } catch let failure as Failure {
       return .failure(failure)
@@ -112,6 +120,7 @@ enum ClaudeLimitsBridge {
   /// Puts back the statusLine CoreScope replaced (or removes the one it added) and deletes the
   /// saved limits. A statusLine the user edited since is left alone.
   static func disable() -> Result<ClaudeStatusLine.Link, Failure> {
+    defer { try? FileManager.default.removeItem(at: enabledFile) }
     defer { try? FileManager.default.removeItem(at: limitsFile) }
     do {
       let file = settingsFile
@@ -121,10 +130,18 @@ enum ClaudeLimitsBridge {
         removeScriptIfUnused()
         return .success(currentLink() ?? .absent)
       }
-      try? FileManager.default.removeItem(at: stateFile)
-      guard let text = try? String(contentsOf: file, encoding: .utf8) else { return .success(.absent) }
+      guard let text = try? String(contentsOf: file, encoding: .utf8) else {
+        if !FileManager.default.fileExists(atPath: file.path), state["fileExisted"] == .bool(false) {
+          try FileManager.default.removeItem(at: stateFile)
+          removeScriptIfUnused()
+          return .success(.absent)
+        }
+        return .failure(.io("Could not read ~/.claude/settings.json"))
+      }
       guard let settings = try? OrderedJSON.parse(text) else { return .failure(.unreadable) }
+      guard case .object = settings else { return .failure(.notObject) }
       guard settings["statusLine"] == installed else {
+        try? FileManager.default.removeItem(at: stateFile)
         removeScriptIfUnused()
         return .failure(.changedSince)
       }
@@ -135,6 +152,7 @@ enum ClaudeLimitsBridge {
       } else {
         try write(restored.serialized() + trailing(text), to: file)
       }
+      try? FileManager.default.removeItem(at: stateFile)
       removeScriptIfUnused()
       return .success(ClaudeStatusLine.link(of: restored, script: script.path))
     } catch let failure as Failure {
@@ -154,18 +172,36 @@ enum ClaudeLimitsBridge {
   }
   /// Keeps the script while any status line (for example a hand-made chain) still calls it.
   private static func removeScriptIfUnused() {
-    let text = (try? String(contentsOf: settingsFile, encoding: .utf8)) ?? ""
-    if !text.contains(script.path) { try? FileManager.default.removeItem(at: script) }
+    guard let text = try? String(contentsOf: settingsFile, encoding: .utf8),
+      let settings = try? OrderedJSON.parse(text), case .object = settings
+    else { return }
+    if !referencesScript(settings) { try? FileManager.default.removeItem(at: script) }
+  }
+  private static func referencesScript(_ value: OrderedJSON) -> Bool {
+    switch value {
+    case .object(let members): members.contains { referencesScript($0.value) }
+    case .array(let values): values.contains { referencesScript($0) }
+    case .string(let string): string.contains(script.lastPathComponent)
+    case .number, .bool, .null: false
+    }
   }
   /// settings-<timestamp>.json next to the other CoreScope files; the newest 10 are kept.
   private static func backup(_ text: String) throws {
     let fm = FileManager.default
     try fm.createDirectory(at: backups, withIntermediateDirectories: true)
     let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
-    try write(text, to: backups.appendingPathComponent("settings-\(stamp).json"))
-    let old = ((try? fm.contentsOfDirectory(atPath: backups.path)) ?? [])
-      .filter { $0.hasPrefix("settings-") }.sorted().dropLast(10)
-    for name in old { try? fm.removeItem(at: backups.appendingPathComponent(name)) }
+    try write(text, to: backups.appendingPathComponent("settings-\(stamp)-\(UUID().uuidString).json"))
+    let old = ((try? fm.contentsOfDirectory(
+      at: backups, includingPropertiesForKeys: [.contentModificationDateKey])) ?? [])
+      .filter { $0.lastPathComponent.hasPrefix("settings-") }
+      .sorted {
+        let left = (try? $0.resourceValues(forKeys: [.contentModificationDateKey]))?
+          .contentModificationDate ?? .distantPast
+        let right = (try? $1.resourceValues(forKeys: [.contentModificationDateKey]))?
+          .contentModificationDate ?? .distantPast
+        return left < right
+      }.dropLast(10)
+    for file in old { try? fm.removeItem(at: file) }
   }
   /// Atomic replace that keeps the original file's permissions (settings.json is often 0600).
   private static func write(_ text: String, to url: URL) throws {
