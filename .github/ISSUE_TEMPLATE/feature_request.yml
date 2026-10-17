@@ -1,0 +1,30 @@
+name: Feature request
+description: Suggest an idea or improvement for CoreScope.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        CoreScope stays local-only (no network, telemetry or credentials) and uses only public macOS APIs. Ideas that need private APIs, root or a privileged helper are out of scope.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: Describe the situation, e.g. "I can't tell which agent session started this dev server".
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like CoreScope to do?
+    validations:
+      required: true
+  - type: textarea
+    id: source
+    attributes:
+      label: Where would the data come from?
+      description: If you know it — a public API, a local file a tool already writes, etc.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you've considered

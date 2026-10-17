@@ -17,7 +17,7 @@ struct ResourceCard: View {
     Card {
       HStack(spacing: 6) {
         Image(systemName: symbol).font(.system(size: 11, weight: .semibold))
-          .foregroundStyle(series.first?.color ?? .secondary)
+          .foregroundStyle(series.first?.color ?? .secondary).accessibilityHidden(true)
         Text(title).font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
         Spacer()
         ForEach(legend, id: \.0) { item in
@@ -38,9 +38,10 @@ struct ResourceCard: View {
       } else {
         Color.clear.frame(height: 4)
       }
-      AreaChart(series: series, ceiling: ceiling).frame(height: 54)
+      AreaChart(series: series, ceiling: ceiling, title: title).frame(height: 54)
       Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(1)
     }.help(help)
+    .accessibilityElement(children: .combine)
   }
 }
 
@@ -60,12 +61,12 @@ struct OverviewView: View {
               title: L("CPU"), symbol: "cpu",
               value: s.cpu.value.map { String(format: "%.0f", $0) } ?? "—", unit: "%",
               detail: L("%@ núcleos · térmico %@", "\(s.cores)", "\(s.thermalLabel.lowercased())"),
-              series: [ChartSeries(values: s.history.map(\.cpu), color: Tint.cpu)], ceiling: 100,
+              series: [.cpu(s.history.map(\.cpu))], ceiling: 100,
               help: s.cpu.explanation)
             ResourceCard(
               title: L("Memória"), symbol: "memorychip", value: s.memorySummary,
               detail: L("de %@ · swap %@", "\(s.physical.bytes)", "\(s.swap.bytes)"),
-              series: [ChartSeries(values: s.history.map(\.memory), color: Tint.memory)],
+              series: [.memory(s.history.map(\.memory))],
               ceiling: s.physical.value, fraction: s.memoryFraction,
               help: L(
                 "Ativa + wired + compressor (%@). Pressão de memória: %@.", s.compressed.bytes,
@@ -74,8 +75,8 @@ struct OverviewView: View {
               title: L("Disco"), symbol: "internaldrive", value: s.diskRate,
               detail: "↓ \(s.disk_read.rate)  ↑ \(s.disk_write.rate)",
               series: [
-                ChartSeries(values: s.history.map(\.disk_read), color: Tint.diskRead),
-                ChartSeries(values: s.history.map(\.disk_write), color: Tint.diskWrite),
+                .diskRead(s.history.map(\.disk_read)),
+                .diskWrite(s.history.map(\.disk_write)),
               ], legend: [("leitura", Tint.diskRead), ("escrita", Tint.diskWrite)],
               help: s.disk_read.explanation)
             ResourceCard(
@@ -83,8 +84,8 @@ struct OverviewView: View {
               value: formatRate((s.net_in.value ?? 0) + (s.net_out.value ?? 0)),
               detail: "↓ \(s.net_in.rate)  ↑ \(s.net_out.rate)",
               series: [
-                ChartSeries(values: s.history.map(\.net_in), color: Tint.netIn),
-                ChartSeries(values: s.history.map(\.net_out), color: Tint.netOut),
+                .netIn(s.history.map(\.net_in)),
+                .netOut(s.history.map(\.net_out)),
               ], legend: [("entrada", Tint.netIn), ("saída", Tint.netOut)],
               help: s.net_in.explanation)
           }
@@ -97,6 +98,7 @@ struct OverviewView: View {
           }
           if Preferences.shared.limitsInOverview { LimitsCard() }
           AgentSessionsCard(snapshot: s)
+          ContainersCard()
           LazyVGrid(
             columns: Array(repeating: GridItem(.flexible(), spacing: 12, alignment: .top), count: 2),
             alignment: .leading, spacing: 12
@@ -174,34 +176,38 @@ func devSubtitle(_ p: ProcessItem) -> String {
 
 private struct ServersCard: View {
   let groups: [(ProcessItem, Int)]
+  @ObservedObject var containers = ContainerStore.shared
   var body: some View {
+    let entries = serverEntries(groups, owners: containers.owners)
     Card {
-      CardHeader(title: L("Servidores em escuta"), symbol: "network", tint: Tint.netIn, count: groups.count) {
+      CardHeader(title: L("Servidores em escuta"), symbol: "network", tint: Tint.netIn, count: entries.count) {
         Button(L("Ver todos")) { navigate(.processes) }.buttonStyle(.link).font(.caption)
       }
-      if groups.isEmpty {
+      if entries.isEmpty {
         EmptyNote(text: L("Nenhuma porta TCP aberta por processos seus."))
       }
-      ForEach(groups.prefix(7), id: \.0.id) { p, instances in
-        ProcessLine(process: p, subtitle: devSubtitle(p)) {
-          HStack(spacing: 3) {
-            if instances > 1 {
-              Text(L("×%@", "\(instances)")).font(.caption2).foregroundStyle(.secondary)
-                .help(L("%@ processos compartilham estas portas", "\(instances)"))
+      ForEach(entries.prefix(7)) { entry in
+        switch entry {
+        case .container(let c, let via, let ports):
+          ContainerServerLine(container: c, via: via, ports: ports)
+        case .process(let p, let instances, let ports):
+          ProcessLine(process: p, subtitle: devSubtitle(p)) {
+            HStack(spacing: 3) {
+              if instances > 1 {
+                Text(L("×%@", "\(instances)")).font(.caption2).foregroundStyle(.secondary)
+                  .help(L("%@ processos compartilham estas portas", "\(instances)"))
+              }
+              ForEach(ports.prefix(2), id: \.port) { port in PortBadge(port: port) }
+              if let port = ports.first?.port { OpenPortButton(port: port) }
+              KillButton(process: p)
             }
-            ForEach(p.ports.prefix(2), id: \.port) { port in
-              Badge(text: ":\(port.port)", color: port.exposed ? .orange : Tint.netIn)
-                .help(port.exposed ? L("Acessível na rede") : L("Somente local"))
-            }
-            if let port = p.ports.first?.port { OpenPortButton(port: port) }
-            KillButton(process: p)
           }
         }
       }
-      if groups.count > 7 {
-        Text(L("+ %@ servidores", "\(groups.count - 7)")).font(.caption).foregroundStyle(.secondary)
+      if entries.count > 7 {
+        Text(L("+ %@ servidores", "\(entries.count - 7)")).font(.caption).foregroundStyle(.secondary)
       }
-    }
+    }.watchesContainers(stats: false)
   }
 }
 

@@ -17,6 +17,13 @@
   <img alt="MIT" src="https://img.shields.io/badge/license-MIT-lightgrey">
 </p>
 
+<!--
+  Demo GIF slot. Record docs/screenshots/demo.gif as described in CONTRIBUTING.md
+  ("Recording the demo GIF"), then uncomment this block:
+<p align="center">
+  <img src="docs/screenshots/demo.gif" alt="CoreScope demo: the process tree, terminating a dev server with the inline ✕ button, and the Agents page" width="900">
+</p>
+-->
 <p align="center">
   <img src="docs/screenshots/overview.jpg" alt="CoreScope overview: CPU, memory, disk and network charts, listening servers, possible orphans, usage limits and agent sessions" width="900">
 </p>
@@ -57,6 +64,13 @@ If you work with Claude Code, Codex, editors and terminals all day, your Mac fil
 - **Codex weekly limit**, read from the `rate_limits` events Codex itself writes to `~/.codex/sessions` — no network, no credentials. Optionally shown in the menu bar and floating panel.
 - **Claude Code 5-hour and weekly limits** (opt-in, Pro/Max plans), taken from the [`rate_limits` data Claude Code hands to its status line](https://code.claude.com/docs/en/statusline). Turn on *Settings → Agents → Read the Claude limit from the status line*; see [Privacy](#privacy) for exactly what it changes.
 - **Possible orphans:** dev runtimes still running after their terminal, editor or agent went away.
+
+### 🐳 Containers
+
+- **Docker and OrbStack containers** (also Docker Desktop and Colima) with status, health, image, compose project, published ports, CPU and memory — on an Overview card and in full on the Agents page.
+- **Listening servers name the container**: ports that OrbStack Helper or `com.docker.backend` hold for a container show up as *container &lt;name&gt;* instead of the VM helper.
+- **Stop / Restart** in place with the same click-to-arm, click-to-confirm button used for processes.
+- Read from the engine's **local Unix socket** only (`~/.orbstack/run/docker.sock`, `~/.docker/run/docker.sock`, Colima, `/var/run/docker.sock` or a `unix://` `DOCKER_HOST`), at most every 5 s and only while a container view is on screen.
 
 ### 📊 Menu bar and floating panel
 
@@ -122,6 +136,7 @@ CoreScope is **local-only**: no network access, no telemetry, no accounts.
   - After each reply, Claude Code itself pipes the status line JSON to that command (`~/Library/Application Support/CoreScope/claude-statusline.sh`, a readable shell script). It keeps **only** `rate_limits` (percentages and reset times) in `claude-limits.json` next to it; nothing else from the session is stored.
   - The numbers refresh only when Claude Code replies, and only Pro/Max plans report them.
   - Turning the option off restores the previous `statusLine` exactly (or leaves it alone if you edited it since) and deletes the saved limits and the script (the script stays only while a hand-edited status line still calls it).
+- Containers come from the Docker Engine API over its local Unix socket — never TCP, never registry or Docker Hub credentials. Nothing is read while no container view is on screen.
 - History (up to 10 minutes) lives in memory only. Preferences and watched processes stay in `UserDefaults`.
 - Nothing is ever killed automatically. Termination only targets your own, eligible processes, revalidates each process identity (PID + start time + executable) right before signaling, and never touches system services or CoreScope's own ancestors.
 
@@ -141,10 +156,11 @@ Sampling pauses during sleep and slows down in Low Power Mode.
 | Directory | Role |
 |---|---|
 | `core/src/macos.c` | Thin C adapter over public SDK APIs (libproc, Mach, sysctl, IOKit, NVMe SMART) |
+| `core/src/containers.rs` | Docker Engine API client over local Unix sockets: container list, one-shot stats, stop/restart |
 | `core/src/lib.rs` | Rust core: sampling, deltas, history, diagnostics, process classification (agents, editors, terminals, runtimes), origin and orphan detection, safe signaling, C ABI |
 | `native/` | SwiftUI + AppKit app: window, menu bar extra, floating `NSPanel`, agents, localization |
 | `scripts/` | Build, tests, procedural app icon, external read-only resource meter |
-| `docs/` | Architecture, API sources, validation and measurement notes (Portuguese) |
+| `docs/` | Architecture, API sources, validation and measurement notes (English; Portuguese originals in `*.pt-BR.md`) |
 
 The Swift UI calls the Rust core over a small C ABI that returns one JSON snapshot per sample on a serial background queue. See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
@@ -154,10 +170,10 @@ The Swift UI calls the Rust core over a small C ABI that returns one JSON snapsh
 ./scripts/test.sh     # cargo fmt --check, cargo test, clippy -D warnings, native logic tests
 ./scripts/build.sh    # release build into build/CoreScope.app
 ./scripts/package.sh  # DMG + zip + SHA-256 checksums into dist/ (release artifacts)
-open --env CORESCOPE_DEMO=1 build/CoreScope.app   # live metrics with anonymized paths, projects and session titles
+open --env CORESCOPE_DEMO=1 build/CoreScope.app   # demo mode: live metrics, anonymized user, home and session titles (quit with ⌘Q first)
 ```
 
-The screenshots in this README were taken in demo mode.
+The screenshots in this README were taken in demo mode. Demo mode doesn't rename folders under your home, so check captures before sharing them (see [CONTRIBUTING.md](CONTRIBUTING.md)).
 
 ## Roadmap
 
@@ -171,7 +187,7 @@ Please report vulnerabilities privately — see [SECURITY.md](SECURITY.md).
 
 ## Contributing
 
-Issues and pull requests are welcome. Please run `./scripts/test.sh` before opening a PR, keep the app offline-only, and avoid private or undocumented system APIs.
+Issues and pull requests are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for build and test commands, code style and the project principles (local-only, public APIs only).
 
 ## License
 

@@ -34,6 +34,16 @@ import Foundation
     precondition(filtered.map(\.pid) == [10, 11, 12])
     precondition(formatDuration(3725) == "1 h 2 min")
     precondition(projectName("/") == nil && projectName("/tmp/app") == "app")
+    // VM helper ports split among the containers that published them.
+    let split = splitPorts([6379, 3306, 8025, 1025, 5555]) {
+      [6379: "redis", 3306: "mysql", 8025: "mail", 1025: "mail"][$0]
+    }
+    precondition(split.owned.map(\.owner) == ["redis", "mysql", "mail"])
+    precondition(split.owned.last?.ports == [8025, 1025] && split.rest == [5555])
+    precondition(splitPorts([80]) { _ in nil }.owned.isEmpty)
+    // A port two containers publish stays unattributed; repeats of one owner do not count.
+    let owners = uniqueOwners([(8080, "a"), (8080, "b"), (5432, "db"), (5432, "db"), (6379, "r")])
+    precondition(owners == [5432: "db", 6379: "r"])
     // Claude status line: settings.json edits keep key order, numbers and escapes untouched.
     let settingsText = """
       {
@@ -82,7 +92,7 @@ import Foundation
     precondition(parseClaudeLimits(limits, now: .distantPast).count == 2)
     precondition(parseClaudeLimits(Data("nope".utf8)).isEmpty)
     print(
-      "30 native assertions passed: descendants, cycle, ordering, off-screen recovery, negative-origin monitor, forest roots, flatten, collapse, totals, ancestors, filter, formatting, settings JSON, status line install/chain, Claude limits"
+      "33 native assertions passed: descendants, cycle, ordering, off-screen recovery, negative-origin monitor, forest roots, flatten, collapse, totals, ancestors, filter, formatting, container ports, shared ports, settings JSON, status line install/chain, Claude limits"
     )
   }
 }

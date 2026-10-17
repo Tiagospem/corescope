@@ -225,6 +225,7 @@ struct FloatingView: View {
         if !s.orphans.isEmpty {
           Badge(text: "\(s.orphans.count)", color: .orange, symbol: "exclamationmark.triangle.fill")
             .help(L("%@ possíveis órfãos", "\(s.orphans.count)"))
+            .accessibilityLabel(L("%@ possíveis órfãos", "\(s.orphans.count)"))
         }
       } else {
         ProgressView().controlSize(.small)
@@ -241,7 +242,7 @@ struct FloatingView: View {
       Text(value).font(.system(size: 13 * k, weight: .semibold, design: .rounded)).monospacedDigit()
         .lineLimit(1)
       if let fraction { MeterBar(fraction: fraction, color: color).frame(width: 44 * k) }
-    }
+    }.accessibilityElement(children: .combine)
   }
 
   // MARK: Standard / detailed card
@@ -260,40 +261,45 @@ struct FloatingView: View {
           Image(systemName: prefs.panelTop ? "pin.fill" : "pin").font(.system(size: 10 * k))
         }.buttonStyle(HoverButtonStyle(tint: .accentColor, size: 20 * k))
           .help(prefs.panelTop ? L("Fixado acima das janelas") : L("Fixar acima das janelas"))
+          .accessibilityLabel(L("Manter acima das janelas"))
+          .accessibilityValue(prefs.panelTop ? L("Ativado") : L("Desativado"))
         Button {
           prefs.panelLocked.toggle()
         } label: {
           Image(systemName: prefs.panelLocked ? "lock.fill" : "lock.open").font(.system(size: 10 * k))
         }.buttonStyle(HoverButtonStyle(tint: .accentColor, size: 20 * k))
           .help(prefs.panelLocked ? L("Posição travada") : L("Travar posição"))
+          .accessibilityLabel(L("Travar posição"))
+          .accessibilityValue(prefs.panelLocked ? L("Ativado") : L("Desativado"))
         menuButton
         Button {
           prefs.panelVisible = false
         } label: {
           Image(systemName: "xmark").font(.system(size: 9 * k, weight: .bold))
         }.buttonStyle(HoverButtonStyle(size: 20 * k)).help(L("Ocultar painel"))
+          .accessibilityLabel(L("Ocultar painel"))
       }
       if let s = monitor.snapshot {
         metricRow(
           L("CPU"), s.cpu.value.map { String(format: "%.1f%%", $0) } ?? "—",
-          [ChartSeries(values: s.history.map(\.cpu), color: Tint.cpu)], ceiling: 100)
+          [.cpu(s.history.map(\.cpu))], ceiling: 100)
         metricRow(
           L("Memória"), s.memorySummary,
-          [ChartSeries(values: s.history.map(\.memory), color: Tint.memory)],
+          [.memory(s.history.map(\.memory))],
           ceiling: s.physical.value,
           detail: s.memoryFraction.map { String(format: L("%.0f%%"), $0 * 100) })
         metricRow(
           L("Disco"), s.diskRate,
           [
-            ChartSeries(values: s.history.map(\.disk_read), color: Tint.diskRead),
-            ChartSeries(values: s.history.map(\.disk_write), color: Tint.diskWrite),
+            .diskRead(s.history.map(\.disk_read)),
+            .diskWrite(s.history.map(\.disk_write)),
           ])
         if prefs.panelNetwork {
           metricRow(
             L("Rede"), formatRate((s.net_in.value ?? 0) + (s.net_out.value ?? 0)),
             [
-              ChartSeries(values: s.history.map(\.net_in), color: Tint.netIn),
-              ChartSeries(values: s.history.map(\.net_out), color: Tint.netOut),
+              .netIn(s.history.map(\.net_in)),
+              .netOut(s.history.map(\.net_out)),
             ])
         }
         if prefs.limitsInPanel {
@@ -323,9 +329,10 @@ struct FloatingView: View {
           }
         }
       }.frame(width: 104 * k, alignment: .leading)
-      AreaChart(series: series, ceiling: ceiling, capacity: 60, grid: false, lineWidth: 1.3)
+      AreaChart(series: series, ceiling: ceiling, capacity: 60, grid: false, lineWidth: 1.3, title: title)
         .frame(width: chartWidth, height: 26 * k)
     }
+    .accessibilityElement(children: .combine)
   }
   private func statusLine(_ s: Snapshot) -> some View {
     HStack(spacing: 8 * k) {
@@ -334,6 +341,9 @@ struct FloatingView: View {
           Circle().fill(s.thermalColor).frame(width: 6, height: 6)
           Text(s.thermalLabel)
         }.help(L("Estado térmico do macOS"))
+          .accessibilityElement(children: .ignore)
+          .accessibilityLabel(L("Estado térmico do macOS"))
+          .accessibilityValue(s.thermalLabel)
       }
       if let sensor = s.disks.first(where: { $0.id == prefs.selectedSensor }) {
         Text(L("SSD %@", "\(sensor.temperature.value.map { String(format: "%.0f °C", $0) } ?? "—")"))
@@ -342,10 +352,14 @@ struct FloatingView: View {
       Spacer(minLength: 0)
       if !s.servers.isEmpty {
         Label("\(s.servers.count)", systemImage: "network").help(L("%@ servidores em escuta", "\(s.servers.count)"))
+          .accessibilityElement(children: .ignore)
+          .accessibilityLabel(L("%@ servidores em escuta", "\(s.servers.count)"))
       }
       if !s.orphans.isEmpty {
         Label("\(s.orphans.count)", systemImage: "exclamationmark.triangle.fill")
           .foregroundStyle(.orange).help(L("%@ possíveis órfãos", "\(s.orphans.count)"))
+          .accessibilityElement(children: .ignore)
+          .accessibilityLabel(L("%@ possíveis órfãos", "\(s.orphans.count)"))
       }
     }
     .font(.system(size: 10 * k)).foregroundStyle(.secondary).labelStyle(CompactLabel())
@@ -383,6 +397,7 @@ struct FloatingView: View {
     }
     .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
     .help(L("Layout, tamanho, opacidade e opções"))
+    .accessibilityLabel(L("Opções do painel"))
   }
 }
 private struct CompactLabel: LabelStyle {

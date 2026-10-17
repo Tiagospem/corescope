@@ -147,14 +147,14 @@ struct ProcessesView: View {
       VStack(spacing: 10) {
         HStack(spacing: 10) {
           HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary).accessibilityHidden(true)
             TextField(L("Nome, PID, porta, projeto ou agente"), text: $query).textFieldStyle(.plain)
             if !query.isEmpty {
               Button {
                 query = ""
               } label: {
                 Image(systemName: "xmark.circle.fill")
-              }.buttonStyle(.plain).foregroundStyle(.tertiary)
+              }.buttonStyle(.plain).foregroundStyle(.tertiary).accessibilityLabel(L("Limpar busca"))
             }
           }
           .padding(.horizontal, 9).padding(.vertical, 6)
@@ -162,26 +162,27 @@ struct ProcessesView: View {
           .frame(maxWidth: 360)
           Spacer()
           Picker(L("Exibição"), selection: $prefs.processTree) {
-            Image(systemName: "list.bullet.indent").help(L("Árvore")).tag(true)
-            Image(systemName: "list.bullet").help(L("Lista")).tag(false)
+            Image(systemName: "list.bullet.indent").help(L("Árvore")).accessibilityLabel(L("Árvore")).tag(true)
+            Image(systemName: "list.bullet").help(L("Lista")).accessibilityLabel(L("Lista")).tag(false)
           }.pickerStyle(.segmented).labelsHidden().frame(width: 84)
           if prefs.processTree {
             Button {
               expanded = Set(s.processes.map(\.id))
             } label: {
               Image(systemName: "plus.square.on.square")
-            }.buttonStyle(HoverButtonStyle(size: 26)).help(L("Expandir tudo"))
+            }.buttonStyle(HoverButtonStyle(size: 26)).help(L("Expandir tudo")).accessibilityLabel(L("Expandir tudo"))
             Button {
               expanded = []
             } label: {
               Image(systemName: "minus.square")
-            }.buttonStyle(HoverButtonStyle(size: 26)).help(L("Recolher tudo"))
+            }.buttonStyle(HoverButtonStyle(size: 26)).help(L("Recolher tudo")).accessibilityLabel(L("Recolher tudo"))
           }
           Button {
             showInspector.toggle()
           } label: {
             Image(systemName: "sidebar.right")
           }.buttonStyle(HoverButtonStyle(size: 26)).help(L("Mostrar ou ocultar detalhes"))
+            .accessibilityLabel(showInspector ? L("Ocultar detalhes") : L("Mostrar detalhes"))
         }
         HStack(spacing: 6) {
           ScrollView(.horizontal, showsIndicators: false) {
@@ -289,6 +290,7 @@ private struct ScopeChip: View {
     Button(action: action) {
       HStack(spacing: 5) {
         Image(systemName: scope.symbol).font(.system(size: 10, weight: .semibold))
+          .accessibilityHidden(true)
         Text(scope.title)
         if let count {
           Text("\(count)").monospacedDigit().foregroundStyle(
@@ -326,6 +328,7 @@ private struct NameCell: View {
               .contentShape(Rectangle())
           }.buttonStyle(.plain).foregroundStyle(.secondary)
             .help(row.expanded ? L("Recolher") : L("Expandir"))
+            .accessibilityLabel(row.expanded ? L("Recolher %@", "\(row.item.name)") : L("Expandir %@", "\(row.item.name)"))
         } else {
           Color.clear.frame(width: 14, height: 1)
         }
@@ -339,8 +342,12 @@ private struct NameCell: View {
           .padding(.horizontal, 5).padding(.vertical, 1)
           .background(Color.primary.opacity(0.08), in: Capsule()).foregroundStyle(.secondary)
           .help(L("%@ processos filhos", "\(row.children)"))
+          .accessibilityLabel(L("%@ processos filhos", "\(row.children)"))
       }
-      if watched { Image(systemName: "star.fill").font(.system(size: 9)).foregroundStyle(.yellow) }
+      if watched {
+        Image(systemName: "star.fill").font(.system(size: 9)).foregroundStyle(.yellow)
+          .help(L("Acompanhado")).accessibilityLabel(L("Acompanhado"))
+      }
       if row.item.orphan != nil { Badge(text: L("órfão"), color: .orange) }
       if row.item.isAgentSession { Badge(text: row.item.sessionSource, color: .orange) }
     }.help(row.item.path.isEmpty ? row.item.name : row.item.path)
@@ -352,6 +359,7 @@ private struct OriginCell: View {
     HStack(spacing: 5) {
       if let project = item.project {
         Image(systemName: "folder").font(.system(size: 10)).foregroundStyle(.secondary)
+          .accessibilityHidden(true)
         Text(project).lineLimit(1)
       }
       if let origin = item.origin {
@@ -368,7 +376,7 @@ private struct PortsCell: View {
   var body: some View {
     HStack(spacing: 3) {
       ForEach(ports.prefix(2), id: \.port) { p in
-        Badge(text: ":\(p.port)", color: p.exposed ? .orange : Tint.netIn)
+        PortBadge(port: p)
           .help(p.exposed ? L("Escutando em todas as interfaces (acessível na rede)") : L("Somente local (loopback)"))
       }
       if ports.count > 2 { Text("+\(ports.count - 2)").font(.caption2).foregroundStyle(.secondary) }
@@ -386,6 +394,7 @@ private struct ValueCell: View {
       if let total {
         Text("Σ " + format(total)).font(.caption2).monospacedDigit().foregroundStyle(.secondary)
           .help(L("Soma do processo e de todos os descendentes"))
+          .accessibilityLabel(L("Total com descendentes: %@", format(total)))
       }
     }
   }
@@ -577,12 +586,12 @@ struct ProcessInspector: View {
                 NSWorkspace.shared.open(URL(fileURLWithPath: p.cwd))
               } label: {
                 Image(systemName: "folder")
-              }.buttonStyle(HoverButtonStyle(size: 22)).help(L("Abrir no Finder"))
+              }.buttonStyle(HoverButtonStyle(size: 22)).help(L("Abrir no Finder")).accessibilityLabel(L("Abrir diretório no Finder"))
               Button {
                 openTerminal(at: p.cwd)
               } label: {
                 Image(systemName: "terminal")
-              }.buttonStyle(HoverButtonStyle(size: 22)).help(L("Abrir Terminal aqui"))
+              }.buttonStyle(HoverButtonStyle(size: 22)).help(L("Abrir Terminal aqui")).accessibilityLabel(L("Abrir Terminal no diretório"))
             }
           }
           pathRow(L("Executável"), p.path.isEmpty ? "Indisponível" : abbreviateHome(p.path)) {
@@ -591,7 +600,7 @@ struct ProcessInspector: View {
                 NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: p.path)])
               } label: {
                 Image(systemName: "magnifyingglass")
-              }.buttonStyle(HoverButtonStyle(size: 22)).help(L("Mostrar no Finder"))
+              }.buttonStyle(HoverButtonStyle(size: 22)).help(L("Mostrar no Finder")).accessibilityLabel(L("Mostrar executável no Finder"))
             }
           }
           Text(L("Início %@ · ativo há %@", "\(p.startDate.formatted(date: .abbreviated, time: .shortened))", "\(formatDuration(p.uptime))"))
@@ -635,9 +644,9 @@ struct ProcessInspector: View {
           ).disabled(!prefs.watched.contains(p.id) && prefs.watched.count >= 12)
           if p.history.count > 1 {
             AreaChart(
-              series: [ChartSeries(values: p.history.map(\.cpu), color: Tint.cpu)], ceiling: 100
+              series: [.cpu(p.history.map(\.cpu))], ceiling: 100, title: L("CPU")
             ).frame(height: 46)
-            AreaChart(series: [ChartSeries(values: p.history.map(\.memory), color: Tint.memory)])
+            AreaChart(series: [.memory(p.history.map(\.memory))], title: L("Memória"))
               .frame(height: 38)
             Text(L("CPU (verde) e memória (azul) · até 10 min")).font(.caption2).foregroundStyle(.secondary)
           } else {
@@ -672,6 +681,6 @@ struct ProcessInspector: View {
     VStack(alignment: .leading, spacing: 2) {
       Text(title).font(.caption).foregroundStyle(.secondary)
       Text(value).font(.system(.callout, design: .rounded).weight(.medium)).monospacedDigit()
-    }.help(metric.explanation)
+    }.help(metric.explanation).accessibilityElement(children: .combine)
   }
 }
