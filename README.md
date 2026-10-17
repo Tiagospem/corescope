@@ -128,6 +128,13 @@ agents:
 - **You see it** — the Agents page lists who is waiting, for which command and why. `corescope wait` does the same for your own scripts.
 - **Economy mode** (Energy page): on battery, busy processes agent sessions start run at macOS background priority, so they yield CPU and disk to what you are doing; servers with open ports are left alone, and everything returns to normal on AC.
 
+### 🔌 Ports
+
+- **Reachable from the network**: everything of yours listening beyond `localhost` — processes and container ports published on `0.0.0.0` — ranked by risk: databases, caches and queues high (they often run without a password in development), dev servers medium, macOS services low; each with how to bind it to `127.0.0.1` (for compose, `"127.0.0.1:3306:3306"`).
+- **Projects' preferred ports**: the `ports:` of each `.corescope.yml` — free, in use by the project itself, or taken by something else (who holds it, and the next free port).
+- **Free port finder** and every listening server with its project, open-in-browser and terminate.
+- `corescope exposure`, `corescope ports --check`, and MCP `exposure_report` / `port_conflicts` (check before starting a server on a fixed port).
+
 ### 💚 Services
 
 Watch the things your work depends on: a local API's `/health`, a database port, a staging URL. Each check runs every 30 s while CoreScope is open — an HTTP GET (2xx/3xx up, 4xx answered with an error, 5xx or no answer down) or a TCP connect — with latency, a strip of the last 40 results, an Overview summary and optional notifications when a service goes down (two failures in a row) or comes back. Ports you have open right now are offered as one-click suggestions.
@@ -227,6 +234,7 @@ corescope power                    # battery, watts per process and per agent se
 corescope config                   # validate this project's .corescope.yml
 corescope logs --errors            # this project's recent errors, with traces
 corescope wait                     # wait until the Mac has room (the project's rule or flags)
+corescope exposure                 # what listens beyond localhost, riskiest first
 ```
 
 Termination follows the app's rules: only your own processes, never system services or the command's own ancestors (an agent cannot stop its own session), identity revalidated right before each signal, and no signal without `--yes` when there is no terminal to confirm in.
@@ -243,6 +251,7 @@ Off by default. *Settings → MCP server for agents → Enable* registers `cores
 | `list_my_processes` | What the calling agent session started, including servers it detached |
 | `power_usage` | Battery, total watts, top processes and agent sessions by power |
 | `list_databases` | Local MySQL/PostgreSQL/Redis status (read-only, no passwords) |
+| `exposure_report` / `port_conflicts` | What listens beyond localhost (risk and fix); projects' preferred ports and who holds them |
 | `list_worktrees` | Git worktrees agents left: branch, merged, uncommitted changes, in use |
 | `system_capacity` / `wait_for_capacity` | Whether the Mac has room for heavy work under the project's rule; wait until it does |
 | `list_containers` / `container_logs` / `container_action` | Containers with project, ports, restart policy and volumes; logs; start/stop/restart under the profiles' sharing rules |

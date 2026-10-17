@@ -26,6 +26,8 @@ USAGE:
   corescope power                       battery, total power, top processes and agent sessions by watts
   corescope worktrees [FOLDER...]       git worktrees agents left (Claude Code, Codex, …): branch,
                                         merged, uncommitted changes, last commit, in use
+  corescope exposure                    what listens beyond localhost (processes and containers), by risk
+  corescope ports --check [FOLDER...]   projects' preferred ports (.corescope.yml): free, ours or taken
   corescope containers                  containers (state, ports, compose project, health), volumes
   corescope logs [FOLDER] [--errors] [--search TEXT] [-n N]
                                         the project's log files: tail, errors with traces, or search
@@ -67,7 +69,12 @@ fn main() {
             println!("{HELP}");
             0
         }
+        Some("ports") if flag("--check") => {
+            let folders: Vec<std::path::PathBuf> = positional[1..].iter().map(Into::into).collect();
+            print(json_out, port_claims(&folders))
+        }
         Some("ports") => print(json_out, ports(&sample(false))),
+        Some("exposure") => print(json_out, exposure()),
         Some("free-port") => {
             let from = positional
                 .get(1)
@@ -408,6 +415,51 @@ pub fn worktrees(folders: &[std::path::PathBuf]) -> Value {
         })
         .collect();
     json!({"worktrees": rows, "note": "Remove clean, unused ones from CoreScope › Cleanup (to the Trash) or with clean_dev_space."})
+}
+
+/// Listening ports reachable from the network, riskiest first, with advice.
+pub fn exposure() -> Value {
+    let snapshot = sample(false);
+    let list = corescope::containers::Reader::default()
+        .read(false)
+        .containers;
+    let rows = corescope::exposure::exposures(&snapshot, &list, project);
+    json!({"exposed": rows, "note": "Only your own processes' ports are visible; ports bound to 127.0.0.1 are not listed."})
+}
+
+/// Each known project's preferred ports (.corescope.yml › ports): free, held by the project, or
+/// taken by something else (with who and a free alternative).
+pub fn port_claims(folders: &[std::path::PathBuf]) -> Value {
+    let home: std::path::PathBuf = std::env::var_os("HOME").map(Into::into).unwrap_or_default();
+    let snapshot = sample(false);
+    let roots = devspace::normalize(if folders.is_empty() {
+        devspace::auto_roots(&home, &snapshot.processes)
+    } else {
+        folders.to_vec()
+    });
+    let projects: Vec<corescope::exposure::ProjectPorts> =
+        corescope::projectconfig::discover(&roots)
+            .iter()
+            .filter_map(|f| corescope::projectconfig::load(f))
+            .filter_map(|found| {
+                let c = found.config?;
+                let name = c
+                    .name
+                    .clone()
+                    .unwrap_or_else(|| found.folder.rsplit('/').next().unwrap_or("").to_string());
+                (!c.ports.is_empty())
+                    .then(|| (name, found.folder.clone(), c.ports.into_iter().collect()))
+            })
+            .collect();
+    let list = corescope::containers::Reader::default()
+        .read(false)
+        .containers;
+    let claims = corescope::exposure::claims(&snapshot, &list, &projects, |from| {
+        free_port(from, &snapshot)["free_port"]
+            .as_u64()
+            .map(|p| p as u16)
+    });
+    json!({"port_claims": claims, "projects_checked": projects.len()})
 }
 
 /// Containers of every local engine with their compose project, plus volumes and restart policies.
@@ -769,6 +821,37 @@ fn print(json_out: bool, value: Value) -> i32 {
                 )
             }
         );
+    } else if let Some(rows) = value["exposed"].as_array() {
+        if rows.is_empty() {
+            println!("nothing of yours listens beyond localhost");
+        }
+        for r in rows {
+            println!(
+                "{:<7} :{:<6} {:<34} {}",
+                text(&r["risk"]).to_uppercase(),
+                num(&r["port"]),
+                text(&r["owner"]),
+                text(&r["advice"])
+            );
+        }
+    } else if let Some(rows) = value["port_claims"].as_array() {
+        if rows.is_empty() {
+            println!("no .corescope.yml with `ports:` found");
+        }
+        for r in rows {
+            println!(
+                "{:<20} {:<10} :{:<6} {:<6} {}{}",
+                text(&r["project"]),
+                text(&r["role"]),
+                num(&r["port"]),
+                text(&r["state"]),
+                text(&r["held_by"]).replace('—', ""),
+                r["suggestion"]
+                    .as_u64()
+                    .map(|p| format!("  → try :{p}"))
+                    .unwrap_or_default()
+            );
+        }
     } else if let Some(rows) = value["worktrees"].as_array() {
         println!(
             "{:<44} {:<34} {:<12} {:>7}  IN USE",

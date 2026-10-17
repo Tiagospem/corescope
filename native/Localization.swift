@@ -900,4 +900,18 @@ private let entries = """
   %@ alterações não commitadas ¦ %@ uncommitted changes ¦ %@ cambios sin confirmar
   Sessões no mesmo diretório ¦ Sessions in the same folder ¦ Sesiones en la misma carpeta
   Várias sessões de agente no mesmo diretório de trabalho podem sobrescrever os arquivos umas das outras e disputar portas e o servidor de dev. Dê a cada uma um git worktree próprio. ¦ Several agent sessions in one working tree can overwrite each other's files and fight over ports and the dev server. Give each its own git worktree. ¦ Varias sesiones de agente en el mismo árbol de trabajo pueden sobrescribir los archivos de las otras y disputarse puertos y el servidor de desarrollo. Da a cada una su propio git worktree.
+  Acessível pela rede ¦ Reachable from the network ¦ Accesible desde la red
+  Nada seu escuta além do localhost. ¦ Nothing of yours listens beyond localhost. ¦ Nada tuyo escucha más allá de localhost.
+  alto ¦ high ¦ alto
+  médio ¦ medium ¦ medio
+  baixo ¦ low ¦ bajo
+  Portas abertas em todas as interfaces (0.0.0.0) podem ser acessadas por outros na mesma rede: café, coworking, escritório. Bancos e caches costumam vir sem senha em desenvolvimento. ¦ Ports open on all interfaces (0.0.0.0) can be reached by others on the same network: cafés, coworking, offices. Databases and caches often have no password in development. ¦ Los puertos abiertos en todas las interfaces (0.0.0.0) pueden ser accedidos por otros en la misma red: cafés, coworking, oficinas. Las bases de datos y cachés suelen no tener contraseña en desarrollo.
+  Portas preferidas dos projetos ¦ Projects' preferred ports ¦ Puertos preferidos de los proyectos
+  Achar porta livre ¦ Find a free port ¦ Buscar puerto libre
+  Copiar ¦ Copy ¦ Copiar
+  Nenhum .corescope.yml com `ports:`. Declare as portas do projeto (web: 8000, vite: 5173) para ver conflitos aqui. ¦ No .corescope.yml with `ports:`. Declare the project's ports (web: 8000, vite: 5173) to see conflicts here. ¦ Ningún .corescope.yml con `ports:`. Declara los puertos del proyecto (web: 8000, vite: 5173) para ver conflictos aquí.
+  livre ¦ free ¦ libre
+  em uso pelo projeto ¦ in use by the project ¦ en uso por el proyecto
+  ocupada por %@ ¦ taken by %@ ¦ ocupado por %@
+  livre: :%@ ¦ free: :%@ ¦ libre: :%@
   """

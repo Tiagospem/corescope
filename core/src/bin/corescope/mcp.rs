@@ -445,6 +445,22 @@ fn core_tools() -> Vec<Value> {
             &[],
         ),
         tool(
+            "exposure_report",
+            "What listens beyond localhost (your processes and containers), riskiest first: \
+             databases and caches reachable from the network, dev servers, macOS services; with how \
+             to bind each to 127.0.0.1.",
+            json!({}),
+            &[],
+        ),
+        tool(
+            "port_conflicts",
+            "Projects' preferred ports (.corescope.yml › ports): free, held by the project itself, \
+             or taken by something else — with who holds it and a free alternative. Check before \
+             starting a server on a fixed port.",
+            json!({"folders": {"type": "array", "items": {"type": "string"}}}),
+            &[],
+        ),
+        tool(
             "list_worktrees",
             "Git worktrees agents left behind (Claude Code .claude/worktrees, Codex, Conductor, \
              Cursor or any `git worktree add`) in the known project folders: branch, merged or not, \
@@ -555,6 +571,17 @@ fn call(params: &Value) -> Value {
         "list_orphans" => text(orphans(&sample(false)), false),
         "list_databases" => text(databases(&sample(false)), false),
         "list_containers" => text(containers(), false),
+        "exposure_report" => text(crate::exposure(), false),
+        "port_conflicts" => {
+            let folders: Vec<std::path::PathBuf> = args["folders"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .map(Into::into)
+                .collect();
+            text(crate::port_claims(&folders), false)
+        }
         "list_worktrees" => {
             let folders: Vec<std::path::PathBuf> = args["folders"]
                 .as_array()

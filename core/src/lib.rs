@@ -3,6 +3,7 @@ pub mod capacity;
 pub mod containers;
 pub mod databases;
 pub mod devspace;
+pub mod exposure;
 pub mod history;
 pub mod logs;
 mod os;
@@ -1712,6 +1713,80 @@ pub extern "C" fn cs_background(pid: i32, start: u64, on: i32) -> *mut c_char {
         set_background(pid, start, on != 0)?;
         Ok("{\"ok\":true}".into())
     })
+}
+
+/// Ports reachable from the network (processes from the app's last sample are not needed: a fresh
+/// one is taken) with risk and advice.
+#[unsafe(no_mangle)]
+pub extern "C" fn cs_exposure() -> *mut c_char {
+    response(|| {
+        let snapshot = Collector::default().sample(Config::default());
+        let list = CONTAINERS
+            .get_or_init(|| Mutex::new(containers::Reader::default()))
+            .lock()
+            .map_err(|_| "Leitor de contêineres indisponível")?
+            .read(false)
+            .containers;
+        let home = home();
+        let rows = exposure::exposures(&snapshot, &list, |p| {
+            let cwd = std::path::Path::new(&p.cwd);
+            (!p.cwd.is_empty() && cwd != home && cwd != std::path::Path::new("/"))
+                .then(|| cwd.file_name().map(|n| n.to_string_lossy().to_string()))
+                .flatten()
+        });
+        json(Ok(rows))
+    })
+}
+
+#[derive(Deserialize)]
+struct ClaimsRequest {
+    projects: Vec<ClaimProject>,
+}
+#[derive(Deserialize)]
+struct ClaimProject {
+    name: String,
+    folder: String,
+    ports: std::collections::BTreeMap<String, u16>,
+}
+/// Preferred ports of the given projects: free, the project's own, or taken (with who and a free
+/// alternative).
+///
+/// # Safety
+/// `request` is a valid NUL-terminated UTF-8 JSON pointer for the duration of this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cs_port_claims(request: *const c_char) -> *mut c_char {
+    response(|| {
+        if request.is_null() {
+            return Err("Consulta ausente".into());
+        }
+        let bytes = unsafe { CStr::from_ptr(request) }.to_bytes();
+        let r: ClaimsRequest = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
+        let projects: Vec<exposure::ProjectPorts> = r
+            .projects
+            .into_iter()
+            .map(|p| (p.name, p.folder, p.ports.into_iter().collect()))
+            .collect();
+        let snapshot = Collector::default().sample(Config::default());
+        let list = CONTAINERS
+            .get_or_init(|| Mutex::new(containers::Reader::default()))
+            .lock()
+            .map_err(|_| "Leitor de contêineres indisponível")?
+            .read(false)
+            .containers;
+        json(Ok(exposure::claims(&snapshot, &list, &projects, |from| {
+            exposure::free_port(from, &snapshot)
+        })))
+    })
+}
+
+#[cfg(test)]
+impl Snapshot {
+    /// A real sample with chosen processes, for tests of logic over snapshots.
+    pub(crate) fn for_tests(processes: Vec<Process>) -> Snapshot {
+        let mut s = Collector::default().sample(Config::default());
+        s.processes = processes;
+        s
+    }
 }
 
 /// A plain process for tests elsewhere in the crate.

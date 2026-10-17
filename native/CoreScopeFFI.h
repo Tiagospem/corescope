@@ -24,6 +24,10 @@ char *cs_logs(const char *request);
 char *cs_docker_details(void);
 // Darwin background priority on/off for a same-user process (identity revalidated).
 char *cs_background(int32_t pid, uint64_t start, int32_t on);
+// Ports reachable beyond localhost, riskiest first: [{port,owner,pid,container,project,kind,risk,advice}].
+char *cs_exposure(void);
+// Projects' preferred ports: {"projects":[{name,folder,ports:{role:port}}]} → [PortClaim].
+char *cs_port_claims(const char *request);
 void cs_free(char *pointer);
 
 int32_t cs_is_same(int32_t pid, uint64_t start);

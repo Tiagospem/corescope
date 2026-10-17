@@ -33,6 +33,10 @@ section as the GitHub release notes.
   and are pruned from git (branches stay), dirty or occupied ones are locked. The Agents page
   flags sessions sharing one working tree. `corescope worktrees` and MCP `list_worktrees`;
   conflicts in `corescope agents` / `list_agent_sessions`.
+- **Ports page**: what listens beyond localhost (processes and published container ports) ranked
+  by risk with how to bind it to 127.0.0.1; projects' preferred ports from `.corescope.yml`
+  (free, ours or taken, with a free alternative); free port finder; every listening server.
+  `corescope exposure`, `corescope ports --check`, MCP `exposure_report` and `port_conflicts`.
 
 ## [0.4.0] - 2026-10-17
 
