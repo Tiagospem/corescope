@@ -57,6 +57,13 @@ If you work with Claude Code, Codex, editors and terminals all day, your Mac fil
 - **Codex weekly limit**, read from the `rate_limits` events Codex itself writes to `~/.codex/sessions` — no network, no credentials. Optionally shown in the menu bar and floating panel.
 - **Possible orphans:** dev runtimes still running after their terminal, editor or agent went away.
 
+### 🐳 Containers
+
+- **Docker and OrbStack containers** (also Docker Desktop and Colima) with status, health, image, compose project, published ports, CPU and memory — on an Overview card and in full on the Agents page.
+- **Listening servers name the container**: ports that OrbStack Helper or `com.docker.backend` hold for a container show up as *container &lt;name&gt;* instead of the VM helper.
+- **Stop / Restart** in place with the same click-to-arm, click-to-confirm button used for processes.
+- Read from the engine's **local Unix socket** only (`~/.orbstack/run/docker.sock`, `~/.docker/run/docker.sock`, Colima, `/var/run/docker.sock` or a `unix://` `DOCKER_HOST`), at most every 5 s and only while a container view is on screen.
+
 ### 📊 Menu bar and floating panel
 
 <table>
@@ -116,6 +123,7 @@ CoreScope is **local-only**: no network access, no telemetry, no accounts.
 - Process names, executables, users, start times, working directories and listening ports are read locally through public macOS APIs (`libproc`, `sysctl`, IOKit). Working directories and ports are read only for **your own** processes.
 - **Arguments and environment variables are never collected.**
 - Agent data comes from local files only: the newest `rate_limits` event in `~/.codex/sessions` and the session metadata in `~/.claude/sessions`. Claude Code does not store its weekly limit on disk, so CoreScope does not show it — and does not read credentials to fetch it.
+- Containers come from the Docker Engine API over its local Unix socket — never TCP, never registry or Docker Hub credentials. Nothing is read while no container view is on screen.
 - History (up to 10 minutes) lives in memory only. Preferences and watched processes stay in `UserDefaults`.
 - Nothing is ever killed automatically. Termination only targets your own, eligible processes, revalidates each process identity (PID + start time + executable) right before signaling, and never touches system services or CoreScope's own ancestors.
 
@@ -135,6 +143,7 @@ Sampling pauses during sleep and slows down in Low Power Mode.
 | Directory | Role |
 |---|---|
 | `core/src/macos.c` | Thin C adapter over public SDK APIs (libproc, Mach, sysctl, IOKit, NVMe SMART) |
+| `core/src/containers.rs` | Docker Engine API client over local Unix sockets: container list, one-shot stats, stop/restart |
 | `core/src/lib.rs` | Rust core: sampling, deltas, history, diagnostics, process classification (agents, editors, terminals, runtimes), origin and orphan detection, safe signaling, C ABI |
 | `native/` | SwiftUI + AppKit app: window, menu bar extra, floating `NSPanel`, agents, localization |
 | `scripts/` | Build, tests, procedural app icon, external read-only resource meter |

@@ -28,6 +28,16 @@ enum Demo {
     }
     return out.replacingOccurrences(of: user, with: "dev")
   }
+  /// Compose projects get a fake name; container names that embed the project follow it.
+  static func container(_ c: ContainerItem) -> ContainerItem {
+    var c = c
+    if let project = c.project {
+      let fake = pick(projects, project)
+      c.name = c.name.replacingOccurrences(of: project, with: fake)
+      c.project = fake
+    }
+    return c
+  }
   static func scrub(_ snapshot: Snapshot) -> Snapshot {
     var s = snapshot
     for i in s.processes.indices {

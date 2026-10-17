@@ -229,8 +229,49 @@ struct ProcessIcon: View {
   }
 }
 
-/// Terminate in place: one click arms, a second confirms (or a single click when the user
-/// disabled confirmation). Avoids opening any window to stop a process.
+/// Two-step action in place: one click arms, a second confirms; it disarms itself after 4 s.
+/// Avoids opening any window to act on a row.
+struct ArmedButton: View {
+  let symbol: String
+  let confirm: String
+  let help: String
+  var tint: Color = Tint.danger
+  /// False acts on the first click (the user disabled confirmation for this action).
+  var needsConfirm = true
+  let action: () -> Void
+  @ViewState private var armed = false
+  @ViewState private var token = 0
+  var body: some View {
+    if armed {
+      HStack(spacing: 2) {
+        Button(confirm) {
+          armed = false
+          action()
+        }.buttonStyle(.borderedProminent).tint(tint).controlSize(.small)
+        Button {
+          armed = false
+        } label: {
+          Image(systemName: "xmark").font(.system(size: 9, weight: .bold))
+        }.buttonStyle(HoverButtonStyle(size: 20)).help(L("Cancelar"))
+      }
+    } else {
+      Button {
+        guard needsConfirm else { return action() }
+        armed = true
+        token += 1
+        let current = token
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
+          if token == current { armed = false }
+        }
+      } label: {
+        Image(systemName: symbol).font(.system(size: 13))
+      }
+      .buttonStyle(HoverButtonStyle(tint: tint, size: 22))
+      .help(help)
+    }
+  }
+}
+/// Terminate in place (or a single click when the user disabled confirmation).
 struct KillButton: View {
   let process: ProcessItem
   var force = false
@@ -241,47 +282,22 @@ struct KillButton: View {
   // Not observed: hundreds of rows would otherwise re-render on every snapshot.
   private var monitor: Monitor { Monitor.shared }
   private var prefs: Preferences { Preferences.shared }
-  @ViewState private var armed = false
-  @ViewState private var token = 0
   var body: some View {
-    Group {
-      if !process.eligible {
-        Image(systemName: "lock.fill").font(.system(size: 10)).foregroundStyle(.tertiary)
-          .frame(width: 22, height: 22).help(L(process.blocked))
-      } else if armed {
-        HStack(spacing: 2) {
-          Button(force ? L("Forçar") : L("Encerrar")) {
-            armed = false
-            monitor.signal(group, force: force)
-          }.buttonStyle(.borderedProminent).tint(.red).controlSize(.small)
-          Button {
-            armed = false
-          } label: {
-            Image(systemName: "xmark").font(.system(size: 9, weight: .bold))
-          }.buttonStyle(HoverButtonStyle(size: 20)).help(L("Cancelar"))
-        }
-      } else {
-        Button {
-          if prefs.confirmTerminate || force || group.count > 1 {
-            armed = true
-            token += 1
-            let current = token
-            DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
-              if token == current { armed = false }
-            }
-          } else {
-            monitor.signal([process], force: false)
-          }
-        } label: {
-          Image(systemName: force ? "bolt.circle" : "xmark.circle").font(.system(size: 13))
-        }
-        .buttonStyle(HoverButtonStyle(tint: Tint.danger, size: 22))
-        .help(
-          group.count > 1
-            ? L("Encerra a sessão e os %@ processos que ela iniciou", String(group.count - 1))
-            : force
-              ? L("Forçar encerramento (SIGKILL) de %@", "\(process.name)")
-              : L("Encerrar %@ (SIGTERM)", "\(process.name)"))
+    if !process.eligible {
+      Image(systemName: "lock.fill").font(.system(size: 10)).foregroundStyle(.tertiary)
+        .frame(width: 22, height: 22).help(L(process.blocked))
+    } else {
+      ArmedButton(
+        symbol: force ? "bolt.circle" : "xmark.circle",
+        confirm: force ? L("Forçar") : L("Encerrar"),
+        help: group.count > 1
+          ? L("Encerra a sessão e os %@ processos que ela iniciou", String(group.count - 1))
+          : force
+            ? L("Forçar encerramento (SIGKILL) de %@", "\(process.name)")
+            : L("Encerrar %@ (SIGTERM)", "\(process.name)"),
+        needsConfirm: prefs.confirmTerminate || force || group.count > 1
+      ) {
+        monitor.signal(group, force: force)
       }
     }
   }
