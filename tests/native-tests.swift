@@ -103,6 +103,16 @@ func tokenTests() {
     (url, size) = write("abc.jsonl", body + String(partial.prefix(40)))
   }
   TranscriptTally.forceFullParse = false
+  let lateMessage =
+    #"{"parentUuid":null,"cwd":"\#(String(repeating: "x", count: 600))","message":{"model":"claude-opus-5-5","id":"late","type":"message","role":"assistant","usage":{"input_tokens":11,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":3}},"type":"assistant","timestamp":"2026-10-16T12:00:00.000Z"}"#
+  let (lateURL, lateSize) = write("late.jsonl", assistant("first", 1) + "\n" + lateMessage + "\n")
+  for full in [false, true] {
+    TranscriptTally.forceFullParse = full
+    var lateTally = TranscriptTally(kind: .claude, path: lateURL.path)
+    lateTally.read(lateURL, size: lateSize, chunk: 256)
+    precondition(lateTally.total == TokenCounts(input: 21, output: 4, cacheWrite: 100, cacheRead: 1000))
+  }
+  TranscriptTally.forceFullParse = false
   let sub = dir.appendingPathComponent("abc/subagents")
   try? FileManager.default.createDirectory(at: sub, withIntermediateDirectories: true)
   let subagent = TranscriptTally(kind: .claude, path: sub.appendingPathComponent("agent-1.jsonl").path)
@@ -126,4 +136,27 @@ func tokenTests() {
   precondition(c.session == "root" && c.cwd == "/tmp/demo" && c.model == "gpt-6.1-sol")
   precondition(c.total == TokenCounts(input: 90, output: 16, cacheWrite: 0, cacheRead: 160))
   precondition(c.offset == codexSize)
+
+  let shared = [count(100, 100, 60, 7), count(250, 150, 100, 9)]
+  let parentLog = [
+    #"{"type":"session_meta","payload":{"id":"root","cwd":"/tmp/demo"}}"#,
+  ] + shared
+  let forkLog = [
+    #"{"type":"session_meta","payload":{"id":"fork","session_id":"root","cwd":"/tmp/demo"}}"#,
+  ] + shared + [count(300, 50, 20, 4)]
+  let (parentURL, parentSize) = write("parent.jsonl", parentLog.joined(separator: "\n") + "\n")
+  let (forkURL, forkSize) = write("fork.jsonl", forkLog.joined(separator: "\n") + "\n")
+  var parent = TranscriptTally(kind: .codex, path: parentURL.path)
+  var fork = TranscriptTally(kind: .codex, path: forkURL.path)
+  parent.read(parentURL, size: parentSize)
+  fork.read(forkURL, size: forkSize)
+  precondition(parent.session == fork.session)
+  var deduper = CodexEventDeduper()
+  var combined = TokenCounts()
+  for (tally, session) in [(parent, parent.session), (fork, fork.session)] {
+    for event in tally.codexEvents where deduper.insert(event, session: session) {
+      combined += event.counts
+    }
+  }
+  precondition(combined == TokenCounts(input: 120, output: 20, cacheWrite: 0, cacheRead: 180))
 }

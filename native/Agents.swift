@@ -138,13 +138,13 @@ struct TokenReport: Equatable {
   func claude(_ meta: ClaudeSessionMeta?) -> SessionTokens? {
     meta?.sessionId.flatMap { sessions["claude:" + $0] }
   }
-  /// Codex keeps no pid → session map on disk: pick the newest Codex conversation in the
-  /// process's folder that was written since the process started.
+  /// Codex keeps no pid → session map on disk: only show a candidate when exactly one
+  /// conversation in the process's folder was written since the process started.
   func codex(for root: ProcessItem) -> SessionTokens? {
     guard root.name.lowercased().hasPrefix("codex") else { return nil }
     let since = root.startDate.addingTimeInterval(-60)
-    return sessions.filter { $0.key.hasPrefix("codex:") && $0.value.cwd == root.cwd && $0.value.updated >= since }
-      .max { $0.value.updated < $1.value.updated }?.value
+    let matches = sessions.filter { $0.key.hasPrefix("codex:") && $0.value.cwd == root.cwd && $0.value.updated >= since }
+    return matches.count == 1 ? matches.first?.value : nil
   }
 }
 
@@ -205,24 +205,15 @@ final class TokenUsageStore: ObservableObject {
         }
       }
     }
-    // Codex files live under the day the conversation started; already known files are
-    // re-checked wherever they are, so long conversations keep counting.
+    // Resumed Codex conversations can remain under arbitrarily old start dates.
     let root = Self.home.appendingPathComponent(".codex/sessions")
-    let calendar = Calendar(identifier: .gregorian)
-    var seen = Set(out.map(\.url.path))
-    for back in 0...7 {
-      guard let day = calendar.date(byAdding: .day, value: -back, to: Date()) else { continue }
-      let c = calendar.dateComponents([.year, .month, .day], from: day)
-      let dir = root.appendingPathComponent(
-        String(format: "%04d/%02d/%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0))
-      for file in Self.list(dir) where file.pathExtension == "jsonl" {
-        guard let s = Self.stat(file), s.modified >= since, seen.insert(file.path).inserted else { continue }
+    if let enumerator = FileManager.default.enumerator(
+      at: root, includingPropertiesForKeys: Self.keys, options: [.skipsHiddenFiles])
+    {
+      for case let file as URL in enumerator where file.pathExtension == "jsonl" {
+        guard let s = Self.stat(file), s.modified >= since else { continue }
         out.append((file, .codex, s.size, s.modified))
       }
-    }
-    for (path, entry) in files where entry.tally.kind == .codex && !seen.contains(path) {
-      let url = URL(fileURLWithPath: path)
-      if let s = Self.stat(url), s.modified >= since { out.append((url, .codex, s.size, s.modified)) }
     }
     return out
   }
@@ -245,11 +236,25 @@ final class TokenUsageStore: ObservableObject {
     var report = TokenReport(ready: true)
     var agents: [String: TokenRow] = [:]
     var projects: [String: TokenRow] = [:]
+    var codexEventDeduper = CodexEventDeduper()
     for (tally, modified) in files.values {
       let cwd = Demo.enabled ? tally.cwd.map(Demo.path) : tally.cwd
       let project = usageProject(cwd) ?? L("Sem projeto")
       let agent = tally.kind.rawValue
-      for (day, counts) in tally.days where day >= weekStart {
+      let session = tally.session.map { (tally.kind == .claude ? "claude:" : "codex:") + $0 }
+      var codexCounts = TokenCounts()
+      let dailyCounts: [(Int, TokenCounts)]
+      if tally.kind == .codex {
+        var daily: [Int: TokenCounts] = [:]
+        for event in tally.codexEvents where codexEventDeduper.insert(event, session: session) {
+          codexCounts += event.counts
+          if let day = event.day { daily[day, default: TokenCounts()] += event.counts }
+        }
+        dailyCounts = daily.map { ($0.key, $0.value) }
+      } else {
+        dailyCounts = Array(tally.days)
+      }
+      for (day, counts) in dailyCounts where day >= weekStart {
         func add(_ row: inout TokenRow) {
           row.week += counts
           if day == today { row.today += counts }
@@ -258,10 +263,10 @@ final class TokenUsageStore: ObservableObject {
         add(&agents[agent, default: TokenRow(id: agent)])
         add(&projects[project, default: TokenRow(id: project)])
       }
-      guard let session = tally.session else { continue }
-      let key = (tally.kind == .claude ? "claude:" : "codex:") + session
+      guard let session else { continue }
+      let key = session
       var s = report.sessions[key] ?? SessionTokens()
-      s.counts += tally.total
+      s.counts += tally.kind == .codex ? codexCounts : tally.total
       if tally.isSubagent {
         s.subagents += 1
         if s.model == nil { s.model = tally.model }
