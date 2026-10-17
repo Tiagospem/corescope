@@ -29,6 +29,17 @@ The attempt to minimize/close via automation kept returning the Settings window.
 
 The files named “quiet”/“final” keep the names from the collection; “quiet” means no new explicit calls on our part during the window, not certification of an idle environment. No percentage improvement should be inferred between runs with different loads, surfaces and interactions.
 
+## Persistent history: on vs off
+
+16/10/2026, same Mac, release build of the history branch. Each run: fresh app launch, main window on **Overview** (including the new per-core CPU and memory breakdown cards), sampling every 3 s, 20–25 s warm-up, then `scripts/measure.c` for 120 s. History was turned on only from the command line (`-historyEnabled YES`, argument domain), without changing the saved preference. The machine was loaded by builds and agents from other sessions (E cores near 100%), so the baseline sits above the 2.8% in the table above; compare these rows with each other, not with older runs.
+
+| History | CPU (one core) | Mean / max footprint | Interrupt wakeups |
+|---|---:|---:|---:|
+| Off | 4.55% | 88.7 / 125.7 MiB | 3.40/s |
+| On (7 days) | 4.78% | 95.0 / 135.0 MiB | 3.24/s |
+
+Observed difference: **+0.2 CPU points** (within run-to-run variation: another run with history on measured 4.48%) and **~+6 MiB footprint** (the minute accumulator and SQLite's page cache). Writes: a single commit per minute to the WAL (the `-wal` file's mtime changes only at the minute boundary); 20 top rows per minute, deduplicated process identities (28 after 13 minutes), ~366 KB after 14 minutes with the WAL not yet recycled. Measured with the window visible; the window-closed cost (10 s cadence) was not measured in this round.
+
 ## Engineering targets and status
 
 Targets proposed for acceptance, not previously measured requirements nor a promise of universal performance:
@@ -39,6 +50,21 @@ Targets proposed for acceptance, not previously measured requirements nor a prom
 - Bundle smaller than 10 MiB: observed 2.9 MiB.
 - History bounded by count/time: tests pass; they do not replace a prolonged memory-stability run.
 - Energy in watts/joules or Energy Impact: **unavailable**. Raw energy fields were not interpreted without a reliable unit/contract. No conclusion about battery life.
+
+## Agent token usage (2026-10-16)
+
+MacBook Air M4 under heavy load (load average ~70, several agent sessions compiling). Agents page open; the same renamed copy (`local.corescope.tokenstest`) for the baseline (`a854cec`) and the new build, one instance at a time.
+
+| Measure | Baseline | With tokens |
+|---|---|---|
+| Mean footprint, window open (120 s / 60 s) | 72.8 MiB and 81.0 MiB in two runs | 82.3 MiB and 83.0 MiB |
+| Live heap (`heap`, all zones) | 54.7 MB | 57.2 MB (+2.5 MB) |
+| CPU of one core, window open | 3.4 % | 4.6–4.8 % |
+
+- Footprint noise between runs of the same build (~8 MiB) is larger than the difference; the live heap is the more reliable comparison. The token data itself is ~30 KB (per-day buckets of ~180 files); the rest is the SwiftUI views of the new card and per-session lines.
+- First pass (only once the Agents page is opened): 315–330 transcripts, 2.7 GB, ~4.5–4.8 s of CPU once; the standalone reader peaked at 7 MB footprint (one reusable buffer; long lines that cannot carry usage, like Codex's 23 MB `compacted` entries, are skipped without buffering).
+- Incremental pass every 20 s: ~12 ms CPU (stat of ~315 files + only the new bytes, ~80 KB in the test) ≈ 0.06 % of one core.
+- The CPU difference with the window open was not separated from the machine's noise; the incremental pass measured on its own is negligible.
 
 ## Reproduce
 

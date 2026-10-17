@@ -18,7 +18,7 @@ for lang in pt en es; do
   mkdir -p "$APP/Contents/Resources/$lang.lproj"
   echo '"CFBundleDisplayName" = "CoreScope";' > "$APP/Contents/Resources/$lang.lproj/InfoPlist.strings"
 done
-swiftc -O -swift-version 5 -target "$ARCH-apple-macosx14.0" -import-objc-header native/CoreScopeFFI.h native/*.swift core/target/release/libcorescope.a -framework SwiftUI -framework AppKit -framework IOKit -framework CoreFoundation -framework ServiceManagement -framework UserNotifications -framework Carbon -o "$APP/Contents/MacOS/CoreScope"
+swiftc -O -swift-version 5 -target "$ARCH-apple-macosx14.0" -import-objc-header native/CoreScopeFFI.h native/*.swift core/target/release/libcorescope.a -lsqlite3 -framework SwiftUI -framework AppKit -framework IOKit -framework CoreFoundation -framework ServiceManagement -framework UserNotifications -framework Carbon -o "$APP/Contents/MacOS/CoreScope"
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

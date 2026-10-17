@@ -286,7 +286,7 @@ private let entries = """
   Sem app de origem ¦ No origin app ¦ Sin app de origen
   Sem confirmação, o botão ✕ envia SIGTERM no primeiro clique. Encerrar árvore e forçar (SIGKILL) sempre pedem confirmação. ¦ Without confirmation, the ✕ button sends SIGTERM on the first click. Terminating a tree and forcing (SIGKILL) always ask first. ¦ Sin confirmación, el botón ✕ envía SIGTERM con el primer clic. Finalizar un árbol y forzar (SIGKILL) siempre piden confirmación.
   Sem permissão ¦ No permission ¦ Sin permiso
-  Sem rede ou telemetria. Sem argumentos, ambiente, logs de processos ou banco de dados. Preferências e identidades acompanhadas/ignoradas ficam no UserDefaults. Histórico somente em RAM, até 120 amostras / 10 minutos. ¦ No network or telemetry. No arguments, environment, process logs or database. Preferences and watched/ignored identities live in UserDefaults. History only in RAM, up to 120 samples / 10 minutes. ¦ Sin red ni telemetría. Sin argumentos, entorno, registros de procesos ni base de datos. Preferencias e identidades seguidas/ignoradas quedan en UserDefaults. Historial solo en RAM, hasta 120 muestras / 10 minutos.
+  Sem rede ou telemetria. Sem argumentos, ambiente ou logs de processos. Preferências e identidades acompanhadas/ignoradas ficam no UserDefaults. Gráficos ao vivo em RAM (120 amostras / 10 minutos); o histórico persistente é opcional e local. ¦ No network or telemetry. No arguments, environment or process logs. Preferences and watched/ignored identities live in UserDefaults. Live charts in RAM (120 samples / 10 minutes); persistent history is opt-in and local. ¦ Sin red ni telemetría. Sin argumentos, entorno ni registros de procesos. Preferencias e identidades seguidas/ignoradas quedan en UserDefaults. Gráficos en vivo en RAM (120 muestras / 10 minutos); el historial persistente es opcional y local.
   Sensor no menu e painel ¦ Sensor in menu and panel ¦ Sensor en menú y panel
   Sensores ¦ Sensors ¦ Sensores
   Servidor ¦ Server ¦ Servidor
@@ -406,6 +406,81 @@ private let entries = """
   Mostrar no %@ ¦ Show in %@ ¦ Mostrar en %@
   Abre esta sessão no Claude Desktop ¦ Opens this session in Claude Desktop ¦ Abre esta sesión en Claude Desktop
   Traz %@, onde a sessão está rodando, para a frente ¦ Brings %@, where the session runs, to the front ¦ Trae al frente %@, donde se ejecuta la sesión
+  Gravação desligada: mostrando o histórico já salvo. Ative em Ajustes › Histórico. ¦ Recording is off: showing history already saved. Turn it on in Settings › History. ¦ Grabación desactivada: se muestra el historial ya guardado. Actívala en Ajustes › Historial.
+  Período ¦ Range ¦ Periodo
+  Período anterior ¦ Previous period ¦ Periodo anterior
+  Próximo período ¦ Next period ¦ Periodo siguiente
+  Até ¦ Until ¦ Hasta
+  Agora ¦ Now ¦ Ahora
+  Gravando · %@ dias · %@ ¦ Recording · %@ days · %@ ¦ Grabando · %@ días · %@
+  %@ minutos salvos desde %@. Resumos de 1 minuto, gravados uma vez por minuto. ¦ %@ minutes saved since %@. One-minute summaries, written once per minute. ¦ %@ minutos guardados desde %@. Resúmenes de 1 minuto, escritos una vez por minuto.
+  média ¦ mean ¦ media
+  pico ¦ peak ¦ pico
+  usada ¦ used ¦ usada
+  swap ¦ swap ¦ swap
+  Sem dados ¦ No data ¦ Sin datos
+  média %@ ¦ mean %@ ¦ media %@
+  máx. %@ ¦ max %@ ¦ máx. %@
+  Histórico persistente ¦ Persistent history ¦ Historial persistente
+  Responda “o que deixou o Mac lento ontem às 15h?”: com o histórico ligado, o CoreScope guarda a cada minuto CPU, memória, swap, disco, rede, estado térmico e os 10 processos que mais usaram CPU e memória. ¦ Answer “what made my Mac slow yesterday at 3 pm?”: with history on, CoreScope saves CPU, memory, swap, disk, network, thermal state and the 10 processes using the most CPU and memory every minute. ¦ Responde “¿qué hizo lento el Mac ayer a las 15 h?”: con el historial activado, CoreScope guarda cada minuto CPU, memoria, swap, disco, red, estado térmico y los 10 procesos que más CPU y memoria usaron.
+  Fica só neste Mac, em ~/Library/Application Support/CoreScope. Nunca grava argumentos ou variáveis de ambiente. Desligado por padrão; apague tudo quando quiser. ¦ It stays on this Mac, in ~/Library/Application Support/CoreScope. Arguments and environment variables are never saved. Off by default; delete it all whenever you want. ¦ Se queda en este Mac, en ~/Library/Application Support/CoreScope. Nunca guarda argumentos ni variables de entorno. Desactivado por defecto; bórralo todo cuando quieras.
+  Ativar histórico (7 dias) ¦ Turn on history (7 days) ¦ Activar historial (7 días)
+  Abrir ajustes ¦ Open Settings ¦ Abrir ajustes
+  Selecionado: %@ – %@ ¦ Selected: %@ – %@ ¦ Seleccionado: %@ – %@
+  %@ amostras ¦ %@ samples ¦ %@ muestras
+  Sem registro neste intervalo ¦ Nothing recorded in this interval ¦ Sin registros en este intervalo
+  Clique em um gráfico para ver o que dominou naquele momento ¦ Click a chart to see what dominated at that moment ¦ Haz clic en un gráfico para ver qué dominó en ese momento
+  Nenhum momento selecionado ¦ No moment selected ¦ Ningún momento seleccionado
+  Selecionar horário de %@ ¦ Select time for %@ ¦ Seleccionar hora de %@
+  Use as setas esquerda e direita ou ações do VoiceOver para mudar o horário ¦ Use the left and right arrow keys or VoiceOver actions to change the time ¦ Usa las flechas izquierda y derecha o las acciones de VoiceOver para cambiar la hora
+  Térmico e pressão de memória ¦ Thermal and memory pressure ¦ Térmico y presión de memoria
+  Eventos de pressão ¦ Pressure events ¦ Eventos de presión
+  Pressão % ¦ Pressure % ¦ Presión %
+  Térmico: pior estado do macOS no intervalo (não é °C). Eventos: pior aviso Dispatch de pressão. Pressão %: 100 − memória disponível segundo o kernel (kern.memorystatus_level), máximo do intervalo. ¦ Thermal: worst macOS state in the interval (not °C). Events: worst Dispatch pressure warning. Pressure %: 100 − memory available according to the kernel (kern.memorystatus_level), interval maximum. ¦ Térmico: peor estado de macOS en el intervalo (no son °C). Eventos: peor aviso Dispatch de presión. Presión %: 100 − memoria disponible según el kernel (kern.memorystatus_level), máximo del intervalo.
+  O que dominou ¦ What dominated ¦ Qué dominó
+  %@ minutos registrados ¦ %@ minutes recorded ¦ %@ minutos registrados
+  %.1f%% ¦ %.1f%% ¦ %.1f%%
+  pico %@ ¦ peak %@ ¦ pico %@
+  %@ min no top ¦ %@ min in top ¦ %@ min en el top
+  CPU: média em % de um núcleo sobre os minutos do intervalo; minutos fora do top 10 contam como zero. Memória: maior phys_footprint registrado. Agrupado por executável, diretório e origem. ¦ CPU: mean as % of one core over the interval's minutes; minutes outside the top 10 count as zero. Memory: highest phys_footprint recorded. Grouped by executable, folder and origin. ¦ CPU: media en % de un núcleo sobre los minutos del intervalo; los minutos fuera del top 10 cuentan como cero. Memoria: mayor phys_footprint registrado. Agrupado por ejecutable, carpeta y origen.
+  Nada registrado neste intervalo (Mac em repouso, app fechado ou histórico desligado). ¦ Nothing recorded in this interval (Mac asleep, app closed or history off). ¦ Nada registrado en este intervalo (Mac en reposo, app cerrada o historial desactivado).
+  Núcleos ¦ Cores ¦ Núcleos
+  Desempenho (P) ¦ Performance (P) ¦ Rendimiento (P)
+  Eficiência (E) ¦ Efficiency (E) ¦ Eficiencia (E)
+  CPU por núcleo ¦ CPU per core ¦ CPU por núcleo
+  Contadores por núcleo temporariamente indisponíveis. ¦ Per-core counters temporarily unavailable. ¦ Contadores por núcleo temporalmente no disponibles.
+  %@ · %@ ¦ %@ · %@ ¦ %@ · %@
+  host_processor_info indisponível ¦ host_processor_info unavailable ¦ host_processor_info no disponible
+  sysctl · um único nível de desempenho ¦ sysctl · a single performance level ¦ sysctl · un único nivel de rendimiento
+  Tipo por núcleo indisponível (mapa do IODeviceTree incompleto) ¦ Per-core type unavailable (incomplete IODeviceTree map) ¦ Tipo por núcleo no disponible (mapa de IODeviceTree incompleto)
+  IODeviceTree · cluster-type, conferido com sysctl hw.perflevel0/1 ¦ IODeviceTree · cluster-type, checked against sysctl hw.perflevel0/1 ¦ IODeviceTree · cluster-type, verificado con sysctl hw.perflevel0/1
+  Ticks por CPU lógica via host_processor_info; o tipo de cada núcleo vem do IODeviceTree e é conferido com sysctl hw.perflevel0/1. ¦ Ticks per logical CPU via host_processor_info; each core's type comes from the IODeviceTree and is checked against sysctl hw.perflevel0/1. ¦ Ticks por CPU lógica vía host_processor_info; el tipo de cada núcleo viene del IODeviceTree y se verifica con sysctl hw.perflevel0/1.
+  CPU %@ (%@): %@ ¦ CPU %@ (%@): %@ ¦ CPU %@ (%@): %@
+  Memória de apps ¦ App memory ¦ Memoria de apps
+  Wired ¦ Wired ¦ Wired
+  Comprimida ¦ Compressed ¦ Comprimida
+  Arquivos em cache ¦ Cached files ¦ Archivos en caché
+  Detalhe da memória ¦ Memory breakdown ¦ Detalle de la memoria
+  de %@ ¦ of %@ ¦ de %@
+  Swap usado ¦ Swap used ¦ Swap usado
+  Pressão de memória ¦ Memory pressure ¦ Presión de memoria
+  evento: %@ ¦ event: %@ ¦ evento: %@
+  Pressão % = 100 − memória disponível segundo o kernel (kern.memorystatus_level). Os eventos são os avisos do macOS; RAM ocupada, sozinha, não é pressão. ¦ Pressure % = 100 − memory available according to the kernel (kern.memorystatus_level). Events are macOS warnings; RAM in use, alone, is not pressure. ¦ Presión % = 100 − memoria disponible según el kernel (kern.memorystatus_level). Los eventos son los avisos de macOS; la RAM ocupada, por sí sola, no es presión.
+  Gravar histórico neste Mac ¦ Record history on this Mac ¦ Grabar historial en este Mac
+  Manter por ¦ Keep for ¦ Conservar durante
+  1 dia ¦ 1 day ¦ 1 día
+  30 dias ¦ 30 days ¦ 30 días
+  Um resumo por minuto (CPU, memória, swap, disco, rede, térmico e os 10 processos com mais CPU e memória: nome, executável, diretório e origem; nunca argumentos ou ambiente), gravado em uma transação por minuto em ~/Library/Application Support/CoreScope/history.sqlite. Dados além da retenção são apagados automaticamente. Desligar interrompe a gravação; o que já foi salvo fica até você apagar. ¦ One summary per minute (CPU, memory, swap, disk, network, thermal and the 10 processes with the most CPU and memory: name, executable, folder and origin; never arguments or environment), written in one transaction per minute to ~/Library/Application Support/CoreScope/history.sqlite. Data past the retention is deleted automatically. Turning it off stops recording; what was saved stays until you delete it. ¦ Un resumen por minuto (CPU, memoria, swap, disco, red, térmico y los 10 procesos con más CPU y memoria: nombre, ejecutable, carpeta y origen; nunca argumentos ni entorno), escrito en una transacción por minuto en ~/Library/Application Support/CoreScope/history.sqlite. Los datos más antiguos que la retención se borran automáticamente. Desactivarlo detiene la grabación; lo guardado queda hasta que lo borres.
+  Falha ao gravar: %@ ¦ Could not write: %@ ¦ Error al grabar: %@
+  Armazenado ¦ Stored ¦ Almacenado
+  %@ · %@ minutos desde %@ ¦ %@ · %@ minutes since %@ ¦ %@ · %@ minutos desde %@
+  Nada salvo ¦ Nothing saved ¦ Nada guardado
+  Apagar histórico… ¦ Delete history… ¦ Borrar historial…
+  Apagar todo o histórico salvo? ¦ Delete all saved history? ¦ ¿Borrar todo el historial guardado?
+  Apagar histórico ¦ Delete history ¦ Borrar historial
+  Remove o arquivo do disco. A gravação continua se estiver ligada. ¦ Removes the file from disk. Recording continues if it is on. ¦ Elimina el archivo del disco. La grabación continúa si está activada.
+  Consulta ausente ¦ Missing query ¦ Consulta ausente
+  Operação desconhecida ¦ Unknown operation ¦ Operación desconocida
   %@ não está em execução. ¦ %@ is not running. ¦ %@ no se está ejecutando.
   %@ parado. ¦ %@ stopped. ¦ %@ detenido.
   %@ parados ¦ %@ stopped ¦ %@ detenidos
@@ -499,4 +574,25 @@ private let entries = """
   Combinação ¦ Combination ¦ Combinación
   Outro app já usa esta combinação. Escolha outra. ¦ Another app already uses this combination. Pick another one. ¦ Otra app ya usa esta combinación. Elige otra.
   Abre o menu do CoreScope com o campo Porta em foco. Registrado com RegisterEventHotKey: não pede permissão de Acessibilidade e o app recebe só esta combinação. ¦ Opens the CoreScope menu with the Port field focused. Registered with RegisterEventHotKey: no Accessibility permission, and the app receives only this combination. ¦ Abre el menú de CoreScope con el campo Puerto enfocado. Registrado con RegisterEventHotKey: no pide permiso de Accesibilidad y la app recibe solo esta combinación.
+  Núcleo %@ ¦ Core %@ ¦ Núcleo %@
+  Núcleo %@ (%@) ¦ Core %@ (%@) ¦ Núcleo %@ (%@)
+  pior: %@ ¦ worst: %@ ¦ peor: %@
+  Sem projeto ¦ No project ¦ Sin proyecto
+  Tokens ¦ Tokens ¦ Tokens
+  Entrada ¦ Input ¦ Entrada
+  Saída ¦ Output ¦ Salida
+  Cache ¦ Cache ¦ Caché
+  Cache de prompt: %@ gravados · %@ lidos ¦ Prompt cache: %@ written · %@ read ¦ Caché de prompt: %@ escritos · %@ leídos
+  + %@ subagentes ¦ + %@ subagents ¦ + %@ subagentes
+  Tokens desta sessão (subagentes incluídos), lidos do registro local do agente. ¦ Tokens used by this session (subagents included), read from the agent's local log. ¦ Tokens de esta sesión (subagentes incluidos), leídos del registro local del agente.
+  Uso de tokens ¦ Token usage ¦ Uso de tokens
+  Lendo registros locais dos agentes… ¦ Reading local agent logs… ¦ Leyendo registros locales de los agentes…
+  Nenhum token registrado nos últimos 7 dias. ¦ No tokens recorded in the last 7 days. ¦ No hay tokens registrados en los últimos 7 días.
+  Hoje ¦ Today ¦ Hoy
+  Últimos 7 dias ¦ Last 7 days ¦ Últimos 7 días
+  7 dias ¦ 7 days ¦ 7 días
+  Contado dos registros locais do Claude Code e do Codex. Cache = tokens de prompt gravados e lidos do cache. Sem valores em dólar. ¦ Counted from Claude Code and Codex local logs. Cache = prompt tokens written to and read from the cache. No dollar amounts. ¦ Contado de los registros locales de Claude Code y Codex. Caché = tokens de prompt escritos y leídos de la caché. Sin importes en dólares.
+  entrada %@ · saída %@ · cache %@ ¦ input %@ · output %@ · cache %@ ¦ entrada %@ · salida %@ · caché %@
+  Hoje: %@ | 7 dias: %@ ¦ Today: %@ | 7 days: %@ ¦ Hoy: %@ | 7 días: %@
+  + %@ outros projetos ¦ + %@ more projects ¦ + %@ proyectos más
   """

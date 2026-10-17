@@ -8,10 +8,14 @@ pub struct Host {
     pub wired: u64,
     pub compressed: u64,
     pub swap: u64,
+    pub internal: u64,
+    pub purgeable: u64,
+    pub external: u64,
     pub cores: u32,
     pub cpu_ok: c_int,
     pub memory_ok: c_int,
     pub swap_ok: c_int,
+    pub memory_level: i32,
 }
 #[repr(C)]
 pub struct RawProcess {
@@ -107,4 +111,36 @@ pub fn network() -> Option<(u64, u64)> {
     let (mut rx, mut tx) = (0, 0);
     // SAFETY: both pointers reference live u64 values.
     (unsafe { os_network(&mut rx, &mut tx) } == 0).then_some((rx, tx))
+}
+unsafe extern "C" {
+    pub fn os_core_ticks(ticks: *mut u64, capacity: i32) -> i32;
+    pub fn os_core_kinds(out: *mut u8, capacity: i32) -> i32;
+    pub fn os_perflevels(level0: *mut u32, level1: *mut u32);
+}
+/// Cumulative (user, system, idle, nice) ticks per logical CPU; None when Mach refuses.
+pub fn core_ticks() -> Option<Vec<[u64; 4]>> {
+    let mut raw = [0u64; 4 * 256];
+    // SAFETY: raw holds 256 CPUs of four u64 tick counters each.
+    let n = unsafe { os_core_ticks(raw.as_mut_ptr(), 256) };
+    (n > 0).then(|| {
+        raw.as_chunks::<4>()
+            .0
+            .iter()
+            .take(n as usize)
+            .copied()
+            .collect()
+    })
+}
+/// Cluster type per logical CPU (b'P', b'E' or 0) as published in the device tree.
+pub fn core_kinds(count: usize) -> Vec<u8> {
+    let mut out = vec![0u8; count.min(256)];
+    // SAFETY: out is writable for its full length.
+    unsafe { os_core_kinds(out.as_mut_ptr(), out.len() as i32) };
+    out
+}
+pub fn perflevels() -> (u32, u32) {
+    let (mut p, mut e) = (0, 0);
+    // SAFETY: both pointers reference live u32 values.
+    unsafe { os_perflevels(&mut p, &mut e) };
+    (p, e)
 }

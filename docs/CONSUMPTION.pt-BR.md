@@ -29,6 +29,17 @@ A tentativa de minimizar/fechar pela automação continuou retornando a janela d
 
 Os arquivos com “quiet”/“final” preservam os nomes da coleta; “quiet” significa ausência de novas chamadas explícitas nossas durante a janela, não certificação de ambiente ocioso. Não se deve inferir uma melhora percentual entre execuções com cargas, superfícies e interações diferentes.
 
+## Histórico persistente: ligado vs desligado
+
+16/10/2026, mesmo Mac, build release deste branch. Cada execução: lançamento novo do app, janela principal na **Visão geral** (com os novos cards de CPU por núcleo e detalhe da memória), coleta a cada 3 s, 20–25 s de aquecimento e `scripts/measure.c` por 120 s. O histórico foi ligado só pela linha de comando (`-historyEnabled YES`, domínio de argumentos), sem alterar a preferência salva. A máquina estava carregada por builds e agentes de outras sessões (núcleos E perto de 100%), por isso a linha de base fica acima dos 2,8% da tabela anterior; compare as linhas entre si, não com execuções antigas.
+
+| Histórico | CPU de um núcleo | Footprint médio / maior | Despertares de interrupção |
+|---|---:|---:|---:|
+| Desligado | 4.55% | 88.7 / 125.7 MiB | 3.40/s |
+| Ligado (7 dias) | 4.78% | 95.0 / 135.0 MiB | 3.24/s |
+
+Diferença observada: **+0,2 ponto de CPU** (dentro da variação entre execuções: outra execução ligada mediu 4,48%) e **~+6 MiB de footprint** (acumulador do minuto e cache de páginas do SQLite). Escrita: um único commit por minuto no WAL (`stat` do `-wal` muda só na virada do minuto); 20 linhas de top por minuto, identidades de processo deduplicadas (28 após 13 minutos), ~366 KB após 14 minutos com WAL ainda não reciclado. Medição feita com a janela visível; o custo com janela fechada (cadência de 10 s) não foi medido nesta rodada.
+
 ## Metas de engenharia e estado
 
 Metas propostas para aceitação, não requisitos medidos previamente nem promessa de desempenho universal:
@@ -39,6 +50,21 @@ Metas propostas para aceitação, não requisitos medidos previamente nem promes
 - Pacote menor que 10 MiB: observado 2,9 MiB.
 - Histórico limitado por quantidade/tempo: testes passam; não substituem um ensaio prolongado de estabilidade de memória.
 - Energia em watts/joules ou Energy Impact: **indisponível**. Campos brutos de energia não foram interpretados sem unidade/contrato confiável. Não há conclusão sobre autonomia da bateria.
+
+## Uso de tokens dos agentes (2026-10-16)
+
+MacBook Air M4, máquina carregada (load average ~70, várias sessões de agente compilando). Página Agentes aberta, mesma cópia renomeada (`local.corescope.tokenstest`) para baseline (`a854cec`) e build novo, uma instância por vez.
+
+| Medida | Baseline | Com tokens |
+|---|---|---|
+| Footprint médio, janela aberta (120 s / 60 s) | 72,8 MiB e 81,0 MiB em duas rodadas | 82,3 MiB e 83,0 MiB |
+| Heap vivo (`heap`, todas as zonas) | 54,7 MB | 57,2 MB (+2,5 MB) |
+| CPU de um núcleo, janela aberta | 3,4 % | 4,6–4,8 % |
+
+- O ruído do footprint entre rodadas do mesmo build (~8 MiB) é maior que a diferença; o heap vivo é a comparação mais confiável. Os dados de tokens em si somam ~30 KB (buckets por dia de ~180 arquivos); o resto da diferença são as views SwiftUI do novo card e das linhas por sessão.
+- Primeira leitura (só ao abrir a página Agentes): 315–330 transcrições, 2,7 GB, ~4,5–4,8 s de CPU uma única vez, pico de footprint do leitor isolado 7 MB (buffer reutilizável; linhas longas sem uso, como `compacted` de 23 MB do Codex, são puladas sem buffer).
+- Passe incremental a cada 20 s: ~12 ms de CPU (stat de ~315 arquivos + só os bytes novos, ~80 KB no teste) ≈ 0,06 % de um núcleo.
+- A diferença de CPU com a janela aberta não foi isolada do ruído da máquina; o passe incremental medido isoladamente é desprezível.
 
 ## Reproduzir
 
