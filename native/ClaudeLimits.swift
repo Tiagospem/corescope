@@ -13,6 +13,7 @@ enum ClaudeLimitsBridge {
   static let script = support.appendingPathComponent("claude-statusline.sh")
   static let limitsFile = support.appendingPathComponent("claude-limits.json")
   private static let stateFile = support.appendingPathComponent("claude-statusline-state.json")
+  private static let enabledFile = support.appendingPathComponent("claude-statusline-enabled")
   private static let backups = support.appendingPathComponent("backups")
   /// Follows a dotfiles symlink so the real file is edited and the link survives.
   static var settingsFile: URL {
@@ -47,13 +48,15 @@ enum ClaudeLimitsBridge {
     umask 077
     dir="$HOME/Library/Application Support/CoreScope"
     input=$(cat)
-    limits=$(printf '%s' "$input" | /usr/bin/plutil -extract rate_limits json -o - - 2>/dev/null)
-    if [ -n "$limits" ]; then
-      file="$dir/claude-limits.json"
-      if [ "$(cat "$file" 2>/dev/null)" = "$limits" ]; then
-        touch "$file"
-      else
-        mkdir -p "$dir" && printf '%s' "$limits" > "$file.$$" && mv -f "$file.$$" "$file"
+    if [ -f "$dir/claude-statusline-enabled" ]; then
+      limits=$(printf '%s' "$input" | /usr/bin/plutil -extract rate_limits json -o - - 2>/dev/null)
+      if [ -n "$limits" ]; then
+        file="$dir/claude-limits.json"
+        if [ "$(cat "$file" 2>/dev/null)" = "$limits" ]; then
+          touch "$file"
+        else
+          mkdir -p "$dir" && printf '%s' "$limits" > "$file.$$" && mv -f "$file.$$" "$file"
+        fi
       fi
     fi
     if [ "$1" = "--record" ]; then
@@ -90,7 +93,10 @@ enum ClaudeLimitsBridge {
       guard let settings = try? OrderedJSON.parse(text) else { return .failure(.unreadable) }
       guard case .object = settings else { return .failure(.notObject) }
       let link = ClaudeStatusLine.link(of: settings, script: script.path)
-      if link == .installed || link == .chained { return .success(link) }
+      if link == .installed || link == .chained {
+        try write("", to: enabledFile)
+        return .success(link)
+      }
       let previous = settings["statusLine"]
       guard let installed = ClaudeStatusLine.installing(over: previous, script: script.path, chain: chain)
       else { return .success(link) }
@@ -101,6 +107,7 @@ enum ClaudeLimitsBridge {
       if let previous { state.insert(.init(key: "previous", value: previous), at: 0) }
       try write(OrderedJSON.object(state).serialized() + "\n", to: stateFile)
       try write(settings.setting("statusLine", installed).serialized() + trailing(text), to: file)
+      try write("", to: enabledFile)
       return .success(ClaudeStatusLine.link(of: settings.setting("statusLine", installed), script: script.path))
     } catch let failure as Failure {
       return .failure(failure)
@@ -112,7 +119,10 @@ enum ClaudeLimitsBridge {
   /// Puts back the statusLine CoreScope replaced (or removes the one it added) and deletes the
   /// saved limits. A statusLine the user edited since is left alone.
   static func disable() -> Result<ClaudeStatusLine.Link, Failure> {
-    defer { try? FileManager.default.removeItem(at: limitsFile) }
+    defer {
+      try? FileManager.default.removeItem(at: enabledFile)
+      try? FileManager.default.removeItem(at: limitsFile)
+    }
     do {
       let file = settingsFile
       guard let stateText = try? String(contentsOf: stateFile, encoding: .utf8),
