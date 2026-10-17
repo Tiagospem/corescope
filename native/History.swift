@@ -265,26 +265,28 @@ struct HistoryView: View {
         series: [
           ChartSeries(values: p.map(\.cpu_max), color: Tint.cpu.opacity(0.45), name: L("pico"), format: percent),
           ChartSeries(values: p.map(\.cpu), color: Tint.cpu, name: L("média"), format: percent),
-        ], ceiling: 100, legend: [("média", Tint.cpu), ("pico", Tint.cpu.opacity(0.45))], selected: $selected)
+        ], times: p.map(\.at), ceiling: 100, legend: [("média", Tint.cpu), ("pico", Tint.cpu.opacity(0.45))],
+        selected: $selected)
       HistoryChart(
         title: L("Memória"), symbol: "memorychip", value: summary(
           p, \.memory, \.swap, format: formatBytes, labels: ("", L("swap")), secondIsPeak: true),
         series: [
           ChartSeries(values: p.map(\.memory), color: Tint.memory, name: L("usada"), format: formatBytes),
           ChartSeries(values: p.map(\.swap), color: .orange, name: L("swap"), format: formatBytes),
-        ], ceiling: physical, legend: [("usada", Tint.memory), ("swap", .orange)], selected: $selected)
+        ], times: p.map(\.at), ceiling: physical, legend: [("usada", Tint.memory), ("swap", .orange)],
+        selected: $selected)
       HistoryChart(
         title: L("Disco"), symbol: "internaldrive", value: summary(
           p, \.disk_read, \.disk_write, format: formatRate, labels: ("↓", "↑"), secondIsPeak: false),
         series: [
           .diskRead(p.map(\.disk_read)), .diskWrite(p.map(\.disk_write)),
-        ], legend: [("leitura", Tint.diskRead), ("escrita", Tint.diskWrite)], selected: $selected)
+        ], times: p.map(\.at), legend: [("leitura", Tint.diskRead), ("escrita", Tint.diskWrite)], selected: $selected)
       HistoryChart(
         title: L("Rede"), symbol: "arrow.up.arrow.down", value: summary(
           p, \.net_in, \.net_out, format: formatRate, labels: ("↓", "↑"), secondIsPeak: false),
         series: [
           .netIn(p.map(\.net_in)), .netOut(p.map(\.net_out)),
-        ], legend: [("entrada", Tint.netIn), ("saída", Tint.netOut)], selected: $selected)
+        ], times: p.map(\.at), legend: [("entrada", Tint.netIn), ("saída", Tint.netOut)], selected: $selected)
     }
     StateStrips(points: p, selected: $selected)
   }
@@ -375,6 +377,7 @@ private struct HistoryChart: View {
   let symbol: String
   let value: String
   let series: [ChartSeries]
+  let times: [Double]
   var ceiling: Double? = nil
   var legend: [(String, Color)] = []
   @Binding var selected: Int?
@@ -398,19 +401,19 @@ private struct HistoryChart: View {
         .lineLimit(1).minimumScaleFactor(0.7)
       AreaChart(series: series, ceiling: ceiling, capacity: max(2, count), title: title)
         .frame(height: 96)
-        .overlay { SelectionLayer(count: count, selected: $selected) }
-        // VoiceOver: swipe up/down moves the selected moment, like dragging across the chart.
-        .accessibilityAdjustableAction { direction in
-          guard count > 0 else { return }
-          let current = selected ?? count - 1
-          selected = direction == .increment ? min(count - 1, current + 1) : max(0, current - 1)
-        }
+        .overlay { SelectionLayer(times: times, title: title, selected: $selected) }
     }
   }
 }
 private struct SelectionLayer: View {
-  let count: Int
+  let times: [Double]
+  let title: String
   @Binding var selected: Int?
+  private var count: Int { times.count }
+  private var selectedTime: String {
+    guard let selected, times.indices.contains(selected) else { return L("Nenhum momento selecionado") }
+    return Date(timeIntervalSince1970: times[selected]).formatted(date: .complete, time: .shortened)
+  }
   var body: some View {
     GeometryReader { g in
       let step = g.size.width / CGFloat(max(1, count - 1))
@@ -427,6 +430,23 @@ private struct SelectionLayer: View {
             })
       }
     }
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel(L("Selecionar horário de %@", title))
+    .accessibilityValue(selectedTime)
+    .accessibilityHint(L("Use as setas esquerda e direita ou ações do VoiceOver para mudar o horário"))
+    .accessibilityAdjustableAction { direction in
+      moveSelection(increment: direction == .increment)
+    }
+    .focusable()
+    .onMoveCommand { direction in
+      if direction == .left { moveSelection(increment: false) }
+      if direction == .right { moveSelection(increment: true) }
+    }
+  }
+  private func moveSelection(increment: Bool) {
+    guard count > 0 else { return }
+    let current = selected ?? count - 1
+    selected = increment ? min(count - 1, current + 1) : max(0, current - 1)
   }
 }
 
@@ -450,7 +470,8 @@ private struct StateStrips: View {
           series: [
             ChartSeries(values: points.map(\.pressure_pct), color: .orange, format: { String(format: "%.0f%%", $0) })
           ], ceiling: 100, capacity: max(2, points.count), grid: false, title: L("Pressão %")
-        ).frame(height: 36).overlay { SelectionLayer(count: points.count, selected: $selected) }
+        ).frame(height: 36)
+          .overlay { SelectionLayer(times: points.map(\.at), title: L("Pressão %"), selected: $selected) }
       }
       Text(
         L("Térmico: pior estado do macOS no intervalo (não é °C). Eventos: pior aviso Dispatch de pressão. Pressão %: 100 − memória disponível segundo o kernel (kern.memorystatus_level), máximo do intervalo.")
