@@ -647,3 +647,64 @@ func planContainerStop(
   }
   return plan
 }
+
+/// What `machineScript` prints on a remote host, one `key=value` per line.
+struct RemoteStats: Equatable {
+  var os = "", kernel = "", host = ""
+  var load: [Double] = []
+  var cpus = 0
+  var uptime: Double?
+  var memoryTotal: Double?, memoryAvailable: Double?
+  var diskTotal: Double?, diskUsed: Double?
+  var containers: Int?
+  var processes: [(cpu: Double, memory: Double, name: String)] = []
+  static func == (a: Self, b: Self) -> Bool {
+    a.os == b.os && a.host == b.host && a.load == b.load && a.cpus == b.cpus && a.uptime == b.uptime
+      && a.memoryTotal == b.memoryTotal && a.memoryAvailable == b.memoryAvailable && a.diskTotal == b.diskTotal
+      && a.diskUsed == b.diskUsed && a.containers == b.containers && a.processes.map(\.name) == b.processes.map(\.name)
+  }
+  init() {}
+  init(parsing text: String) {
+    for line in text.split(whereSeparator: \.isNewline) {
+      guard let eq = line.firstIndex(of: "=") else { continue }
+      let key = line[..<eq], value = String(line[line.index(after: eq)...]).trimmingCharacters(in: .whitespaces)
+      switch key {
+      case "os": os = value
+      case "kernel": kernel = value
+      case "host": host = value
+      case "load": load = value.split(separator: " ").compactMap { Double($0) }
+      case "cpus": cpus = Int(value) ?? 0
+      case "uptime": uptime = Double(value)
+      case "memtotal": memoryTotal = Double(value)
+      case "memavail": memoryAvailable = Double(value)
+      case "disktotal": diskTotal = Double(value)
+      case "diskused": diskUsed = Double(value)
+      case "containers": containers = Int(value)
+      case "proc":
+        let parts = value.split(separator: "|", maxSplits: 2).map(String.init)
+        if parts.count == 3, let cpu = Double(parts[0]), let mem = Double(parts[1]) {
+          processes.append((cpu, mem, (parts[2] as NSString).lastPathComponent))
+        }
+      default: break
+      }
+    }
+  }
+  var valid: Bool { !os.isEmpty }
+}
+/// An ssh destination CoreScope will pass on: alias, host or user@host[:port-less], never an option.
+func validSSHDestination(_ s: String) -> Bool {
+  !s.isEmpty && !s.hasPrefix("-") && s.count <= 255
+    && s.unicodeScalars.allSatisfy { CharacterSet.alphanumerics.contains($0) || "._-@[]:".unicodeScalars.contains($0) }
+}
+/// `Host` aliases from an ssh config, without patterns.
+func sshConfigHosts(_ config: String) -> [String] {
+  var out: [String] = []
+  for line in config.split(whereSeparator: \.isNewline) {
+    let words = line.split(whereSeparator: { $0 == " " || $0 == "\t" })
+    guard let first = words.first, first.lowercased() == "host" else { continue }
+    for w in words.dropFirst() where !w.contains("*") && !w.contains("?") && !w.hasPrefix("!") {
+      if !out.contains(String(w)) { out.append(String(w)) }
+    }
+  }
+  return out
+}

@@ -41,6 +41,9 @@ section as the GitHub release notes.
   version, uptime, size per database, connections, slow-query counters and queries running over
   5 s, over each wire protocol, read-only and time-capped. Never uses or reads passwords; servers
   that need one are shown as such. Also `corescope db` and the MCP tool `list_databases`.
+- **Machines page**: remote servers over the user's own ssh (BatchMode, no prompts, unknown host
+  keys fail): OS, uptime, load per core, memory, disk, top processes and containers, from a fixed
+  read-only script; aliases suggested from ~/.ssh/config.
 
 ## [0.3.2] - 2026-10-17
 

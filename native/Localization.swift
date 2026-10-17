@@ -803,4 +803,21 @@ private let entries = """
   Slowlog ¦ Slowlog ¦ Slowlog
   contêiner ¦ container ¦ contenedor
   no ar há %@ ¦ up for %@ ¦ activo desde hace %@
+  Abrir no Terminal ¦ Open in Terminal ¦ Abrir en Terminal
+  Acesso negado: o ssh precisa de uma chave (o CoreScope não usa senhas) ¦ Access denied: ssh needs a key (CoreScope does not use passwords) ¦ Acceso denegado: ssh necesita una clave (CoreScope no usa contraseñas)
+  Adicionar máquina ¦ Add machine ¦ Añadir máquina
+  Alias do ~/.ssh/config ou usuario@host ¦ Alias from ~/.ssh/config or user@host ¦ Alias de ~/.ssh/config o usuario@host
+  Carga ¦ Load ¦ Carga
+  Carga / núcleos ¦ Load / cores ¦ Carga / núcleos
+  Chave do host desconhecida: conecte uma vez pelo Terminal para confirmá-la ¦ Unknown host key: connect once from Terminal to confirm it ¦ Clave de host desconocida: conéctate una vez desde Terminal para confirmarla
+  Disco / ¦ Disk / ¦ Disco /
+  Do seu ~/.ssh/config: ¦ From your ~/.ssh/config: ¦ De tu ~/.ssh/config:
+  Falhou (código %@) ¦ Failed (code %@) ¦ Falló (código %@)
+  Host não encontrado ¦ Host not found ¦ Host no encontrado
+  Máquinas ¦ Machines ¦ Máquinas
+  Média de 1 min; %@ núcleos ¦ 1-minute average; %@ cores ¦ Media de 1 min; %@ núcleos
+  Nenhuma máquina. Adicione servidores que você acessa por ssh com chave para ver carga, memória, disco e processos. ¦ No machines. Add servers you reach over ssh with a key to see load, memory, disk and processes. ¦ Ninguna máquina. Añade servidores a los que accedes por ssh con clave para ver carga, memoria, disco y procesos.
+  Sem resposta em 15 s ¦ No answer in 15 s ¦ Sin respuesta en 15 s
+  Usa o seu próprio ssh em BatchMode: chaves e agente ficam com o ssh, nada pede senha e um host com chave desconhecida falha em vez de ser aceito. O comando remoto só lê (uname, carga, memória, df, ps, docker ps). Atualiza a cada 60 s enquanto esta página está aberta. ¦ Uses your own ssh in BatchMode: keys and agent stay with ssh, nothing prompts for a password, and a host with an unknown key fails instead of being accepted. The remote command only reads (uname, load, memory, df, ps, docker ps). Refreshes every 60 s while this page is open. ¦ Usa tu propio ssh en BatchMode: las claves y el agente se quedan en ssh, nada pide contraseña y un host con clave desconocida falla en vez de aceptarse. El comando remoto solo lee (uname, carga, memoria, df, ps, docker ps). Se actualiza cada 60 s mientras esta página está abierta.
+  lido %@ (%@ s) ¦ read %@ (%@ s) ¦ leído %@ (%@ s)
   """

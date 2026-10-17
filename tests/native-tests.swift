@@ -165,8 +165,15 @@ import Foundation
     precondition(plan == ContainerStopPlan(stop: ["redis"], shared: ["mysql": "Shop"], external: ["mailpit"]))
     precondition(
       planContainerStop(["mysql"], running: ["mysql"], startedByProfiles: ["mysql"], otherActive: []).stop == ["mysql"])
+    let remote = RemoteStats(parsing: "os=Linux\nhost=web-1\nload=0.50 0.40 0.30\ncpus=4\nuptime=3600\nmemtotal=8000\nmemavail=2000\ndisktotal=100\ndiskused=40\ncontainers=3\nproc=12.5|3.1|/usr/sbin/mysqld\nnoise\n")
+    precondition(remote.valid && remote.load == [0.5, 0.4, 0.3] && remote.cpus == 4 && remote.containers == 3)
+    precondition(remote.processes.first?.name == "mysqld" && remote.memoryAvailable == 2000)
+    precondition(!RemoteStats(parsing: "garbage").valid)
+    precondition(validSSHDestination("deploy@web-1.example.com") && validSSHDestination("forge-redis"))
+    precondition(!validSSHDestination("-oProxyCommand=x") && !validSSHDestination("a b") && !validSSHDestination("a;rm"))
+    precondition(sshConfigHosts("Host *\n  User x\nHost web db-1 !bad\nhost web\n") == ["web", "db-1"])
     print(
-      "25 native assertions passed: descendants, cycle, ordering, off-screen recovery, negative-origin monitor, forest roots, flatten, collapse, totals, ancestors, filter, formatting, container ports, shared ports, demo paths, debounce, sustained thresholds, new arrivals, port parsing, shortcut label, agent stalls, health targets, shared containers; plus settings JSON, Unicode escapes, status line install/chain, Claude limits"
+      "25 native assertions passed: descendants, cycle, ordering, off-screen recovery, negative-origin monitor, forest roots, flatten, collapse, totals, ancestors, filter, formatting, container ports, shared ports, demo paths, debounce, sustained thresholds, new arrivals, port parsing, shortcut label, agent stalls, health targets, shared containers, ssh stats; plus settings JSON, Unicode escapes, status line install/chain, Claude limits"
     )
     print(
       "token usage assertions passed: timestamps, formatting, Claude block dedupe, embedded entries, partial lines, long-line skip, fast/full parity, Codex repeats and forks"
