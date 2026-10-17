@@ -49,5 +49,5 @@ jobs:
         run: |
           APP=build/CoreScope.app
           /usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" "$APP/Contents/Info.plist"
-          lipo -archs "$APP/Contents/MacOS/CoreScope"
+          test "$(lipo -archs "$APP/Contents/MacOS/CoreScope")" = arm64
           codesign --verify --strict --verbose=2 "$APP"
