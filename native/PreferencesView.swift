@@ -220,5 +220,6 @@ private struct HistorySettings: View {
     }
     .onAppear { store.loadInfo() }
     .onChange(of: p.historyEnabled) { _, _ in store.loadInfo() }
+    .onChange(of: monitor.snapshot.map { Int($0.at / 60) }) { _, _ in store.loadInfo() }
   }
 }
