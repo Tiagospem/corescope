@@ -635,4 +635,13 @@ private let entries = """
   Remover ¦ Remove ¦ Quitar
   Instalar ¦ Install ¦ Instalar
   corescope ports · free-port · kill-port 3000 · agents · orphans · top · kill PID --tree. Todos aceitam --json. Se o terminal não encontrar o comando, adicione ~/.local/bin ao PATH. ¦ corescope ports · free-port · kill-port 3000 · agents · orphans · top · kill PID --tree. All accept --json. If your terminal can't find the command, add ~/.local/bin to PATH. ¦ corescope ports · free-port · kill-port 3000 · agents · orphans · top · kill PID --tree. Todos aceptan --json. Si el terminal no encuentra el comando, añade ~/.local/bin al PATH.
+  Servidor MCP para agentes ¦ MCP server for agents ¦ Servidor MCP para agentes
+  Desativar ¦ Disable ¦ Desactivar
+  Ativar ¦ Enable ¦ Activar
+  Ativo ¦ Active ¦ Activo
+  Não instalado ¦ Not installed ¦ No instalado
+  Aponta para outra cópia do app ¦ Points to another copy of the app ¦ Apunta a otra copia de la app
+  CLI do agente não encontrado. ¦ Agent CLI not found. ¦ No se encontró la CLI del agente.
+  Comando corescope não encontrado no app. ¦ corescope command not found in the app. ¦ No se encontró el comando corescope en la app.
+  Opcional. Registra corescope mcp no Claude Code e no Codex (pelos comandos mcp add deles). Os agentes podem consultar portas, porta livre, maiores processos, sessões e órfãos, e encerrar só o que a própria sessão iniciou — nunca outras sessões, outros usuários ou serviços do sistema. Tudo local, sem rede. ¦ Optional. Registers corescope mcp with Claude Code and Codex (through their own mcp add commands). Agents can query ports, a free port, top processes, sessions and orphans, and stop only what their own session started — never other sessions, other users or system services. Fully local, no network. ¦ Opcional. Registra corescope mcp en Claude Code y Codex (con sus propios comandos mcp add). Los agentes pueden consultar puertos, un puerto libre, los procesos más pesados, sesiones y huérfanos, y detener solo lo que inició su propia sesión — nunca otras sesiones, otros usuarios ni servicios del sistema. Todo local, sin red.
   """

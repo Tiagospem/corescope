@@ -1,6 +1,8 @@
 //! `corescope`: command-line access to CoreScope's process view, for people and for agents.
 //! Same sampling and the same safe termination as the app: only the current user's eligible
 //! processes, identity (PID + start time + executable) revalidated right before each signal.
+mod mcp;
+
 use corescope::{Collector, Config, Process, Snapshot, cs_is_same, signal_process};
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
@@ -92,7 +94,7 @@ fn main() {
                 "usage: corescope kill PID [--tree] [--force] [--yes]",
             ),
         },
-        Some("mcp") => corescope_mcp::serve(),
+        Some("mcp") => mcp::serve(),
         Some(other) => fail(
             json_out,
             &format!("unknown command: {other}. Try `corescope help`."),
@@ -452,14 +454,6 @@ fn print(json_out: bool, value: Value) -> i32 {
         println!("{value}");
     }
     0
-}
-
-/// The MCP server (feature 0) plugs in here; until then `mcp` reports it is unavailable.
-mod corescope_mcp {
-    pub fn serve() -> i32 {
-        eprintln!("corescope: the MCP server is not available in this build");
-        1
-    }
 }
 
 #[cfg(test)]

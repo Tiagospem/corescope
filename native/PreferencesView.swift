@@ -138,6 +138,7 @@ struct PreferencesView: View {
         ).font(.caption).foregroundStyle(.secondary)
       }
       CommandLineSettings()
+      MCPSettings()
       Section(L("Agentes")) {
         Toggle(L("Ler o limite atual pelo Codex"), isOn: $p.codexLiveLimits)
           .onChange(of: p.codexLiveLimits) { _, on in if on { AgentStore.shared.refreshCodexLive() } }

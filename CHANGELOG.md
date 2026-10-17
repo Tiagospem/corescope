@@ -15,6 +15,11 @@ section as the GitHub release notes.
   `~/.local/bin`): `ports`, `free-port`, `kill-port`, `agents`, `orphans`, `top`, `kill
   [--tree]`, all with `--json`. Same safe termination as the app; refuses without `--yes` when
   there is no terminal to confirm in, and never signals its own ancestors.
+- **Local MCP server (opt-in)**: `corescope mcp`, registered with Claude Code and/or Codex from
+  *Settings › MCP server for agents*. Tools for ports, a free port, top processes, a system
+  summary, agent sessions, orphans and the session's own processes; `stop_port`/`stop_process`
+  stop only what the calling agent session started (children, or servers it detached inside its
+  folder when no other session could claim them).
 
 ## [0.3.2] - 2026-10-17
 
