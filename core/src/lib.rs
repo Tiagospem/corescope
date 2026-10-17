@@ -1,4 +1,5 @@
 //! CoreScope: bounded local telemetry and explicitly authorized process control.
+pub mod containers;
 mod os;
 use os::*;
 use serde::{Deserialize, Serialize};
@@ -1155,7 +1156,7 @@ pub extern "C" fn cs_reset() {
     });
 }
 /// # Safety
-/// Null or a pointer returned by cs_snapshot/cs_signal, not freed before; no borrowed references survive.
+/// Null or a pointer returned by a cs_* function, not freed before; no borrowed references survive.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cs_free(pointer: *mut c_char) {
     if !pointer.is_null() {
@@ -1167,6 +1168,42 @@ pub unsafe extern "C" fn cs_free(pointer: *mut c_char) {
 #[unsafe(no_mangle)]
 pub extern "C" fn cs_is_same(pid: i32, start: u64) -> i32 {
     catch_unwind(|| i32::from(process(pid).is_some_and(|p| p.start == start))).unwrap_or(-1)
+}
+
+/// Separate lock from the process collector: a slow engine never delays system samples.
+static CONTAINERS: OnceLock<Mutex<containers::Reader>> = OnceLock::new();
+/// Lists containers from local engine sockets; `stats` != 0 adds CPU and memory per running container.
+#[unsafe(no_mangle)]
+pub extern "C" fn cs_containers(stats: i32) -> *mut c_char {
+    response(|| {
+        let report = CONTAINERS
+            .get_or_init(|| Mutex::new(containers::Reader::default()))
+            .lock()
+            .map_err(|_| "Leitor de contêineres indisponível")?
+            .read(stats != 0);
+        serde_json::to_string(&report).map_err(|e| e.to_string())
+    })
+}
+/// # Safety
+/// `id` and `action` are valid NUL-terminated strings. User must have confirmed this container and action.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cs_container_action(
+    id: *const c_char,
+    action: *const c_char,
+) -> *mut c_char {
+    response(|| {
+        if id.is_null() || action.is_null() {
+            return Err("Ação de contêiner inválida".into());
+        }
+        let id = unsafe { CStr::from_ptr(id) }
+            .to_str()
+            .map_err(|_| "Identificador de contêiner inválido")?;
+        let action = unsafe { CStr::from_ptr(action) }
+            .to_str()
+            .map_err(|_| "Ação de contêiner inválida")?;
+        containers::act(id, action)?;
+        Ok("{\"ok\":true}".into())
+    })
 }
 
 #[cfg(test)]

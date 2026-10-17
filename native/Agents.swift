@@ -349,6 +349,7 @@ struct AgentsView: View {
           ForEach(sessions) { root in
             SessionCard(root: root, tree: s.subtree(of: root), meta: agents.claudeSessions[root.pid])
           }
+          ContainersSection()
           let orphans = s.orphans
           if !orphans.isEmpty {
             Card {

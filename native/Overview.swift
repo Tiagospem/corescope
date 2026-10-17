@@ -98,6 +98,7 @@ struct OverviewView: View {
           }
           if Preferences.shared.limitsInOverview { LimitsCard() }
           AgentSessionsCard(snapshot: s)
+          ContainersCard()
           LazyVGrid(
             columns: Array(repeating: GridItem(.flexible(), spacing: 12, alignment: .top), count: 2),
             alignment: .leading, spacing: 12
@@ -175,33 +176,38 @@ func devSubtitle(_ p: ProcessItem) -> String {
 
 private struct ServersCard: View {
   let groups: [(ProcessItem, Int)]
+  @ObservedObject var containers = ContainerStore.shared
   var body: some View {
+    let entries = serverEntries(groups, owners: containers.owners)
     Card {
-      CardHeader(title: L("Servidores em escuta"), symbol: "network", tint: Tint.netIn, count: groups.count) {
+      CardHeader(title: L("Servidores em escuta"), symbol: "network", tint: Tint.netIn, count: entries.count) {
         Button(L("Ver todos")) { navigate(.processes) }.buttonStyle(.link).font(.caption)
       }
-      if groups.isEmpty {
+      if entries.isEmpty {
         EmptyNote(text: L("Nenhuma porta TCP aberta por processos seus."))
       }
-      ForEach(groups.prefix(7), id: \.0.id) { p, instances in
-        ProcessLine(process: p, subtitle: devSubtitle(p)) {
-          HStack(spacing: 3) {
-            if instances > 1 {
-              Text(L("×%@", "\(instances)")).font(.caption2).foregroundStyle(.secondary)
-                .help(L("%@ processos compartilham estas portas", "\(instances)"))
+      ForEach(entries.prefix(7)) { entry in
+        switch entry {
+        case .container(let c, let via, let ports):
+          ContainerServerLine(container: c, via: via, ports: ports)
+        case .process(let p, let instances, let ports):
+          ProcessLine(process: p, subtitle: devSubtitle(p)) {
+            HStack(spacing: 3) {
+              if instances > 1 {
+                Text(L("×%@", "\(instances)")).font(.caption2).foregroundStyle(.secondary)
+                  .help(L("%@ processos compartilham estas portas", "\(instances)"))
+              }
+              ForEach(ports.prefix(2), id: \.port) { port in PortBadge(port: port) }
+              if let port = ports.first?.port { OpenPortButton(port: port) }
+              KillButton(process: p)
             }
-            ForEach(p.ports.prefix(2), id: \.port) { port in
-              PortBadge(port: port)
-            }
-            if let port = p.ports.first?.port { OpenPortButton(port: port) }
-            KillButton(process: p)
           }
         }
       }
-      if groups.count > 7 {
-        Text(L("+ %@ servidores", "\(groups.count - 7)")).font(.caption).foregroundStyle(.secondary)
+      if entries.count > 7 {
+        Text(L("+ %@ servidores", "\(entries.count - 7)")).font(.caption).foregroundStyle(.secondary)
       }
-    }
+    }.watchesContainers(stats: false)
   }
 }
 
