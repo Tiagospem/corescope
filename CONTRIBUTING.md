@@ -93,7 +93,8 @@ compares the build number.
 every update must be signed with the project's EdDSA key:
 
 1. Once, on the maintainer's Mac: `build/vendor/Sparkle-*/bin/generate_keys` (after any build) —
-   the private key goes to the login Keychain and the public key is printed.
+   the private key goes to the login Keychain and the public key is printed. (Done: the key in
+   `scripts/build.sh` was generated this way; keep that Keychain item backed up.)
 2. Put the public key in `UPDATE_PUBLIC_KEY` in `scripts/build.sh` (it becomes `SUPublicEDKey`).
 3. Export the private key with `generate_keys -x private-key.txt`, store its contents as the
    repository secret `SPARKLE_ED_PRIVATE_KEY` (`gh secret set SPARKLE_ED_PRIVATE_KEY < private-key.txt`),

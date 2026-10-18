@@ -26,7 +26,7 @@ done
 # Sparkle installs updates (Settings › Updates, opt-in). Its EdDSA public key: every update
 # archive and the appcast itself must be signed by the matching private key (a CI secret).
 SPARKLE=$(./scripts/sparkle.sh)
-UPDATE_PUBLIC_KEY=""
+UPDATE_PUBLIC_KEY="bxj8UTY/IIWBqAcQxflL60mwUToQ3Tc3PJPLkI5QluI="
 APPS=() CLIS=()
 for arch in $ARCHS; do
   lib="core/target/$(rust_target "$arch")/release"
