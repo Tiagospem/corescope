@@ -164,6 +164,7 @@ struct FloatingView: View {
   @ObservedObject var monitor = Monitor.shared
   @ObservedObject var prefs = Preferences.shared
   @ObservedObject var agents = AgentStore.shared
+  @ObservedObject var machines = MachineStore.shared
   @Environment(\.accessibilityReduceTransparency) var reduceTransparency
   private var k: CGFloat { CGFloat(prefs.panelScale) }
   /// The panel is sized to its content, so flexible children need explicit widths.
@@ -198,6 +199,19 @@ struct FloatingView: View {
     .onPreferenceChange(PanelSizeKey.self) { size in
       DispatchQueue.main.async { FloatingController.shared.fit(size) }
     }
+    // The panel's machines are read once a minute while it shows them; the Machines page shares
+    // the cadence (refreshStale), so both open never probe a host more often.
+    .task(id: polledMachines) {
+      let hosts = polledMachines
+      guard !hosts.isEmpty else { return }
+      while !Task.isCancelled {
+        MachineStore.shared.refreshStale(hosts)
+        try? await Task.sleep(nanoseconds: 60_000_000_000)
+      }
+    }
+  }
+  private var polledMachines: [String] {
+    prefs.panelVisible && prefs.panelMachines ? machines.panelHosts : []
   }
 
   // MARK: Compact strip
@@ -222,6 +236,24 @@ struct FloatingView: View {
         if prefs.limitsInPanel, let w = agents.claude.weekly {
           stripMetric("CLAUDE", String(format: "%.0f%%", w.usedPercent), w.color, w.usedPercent / 100)
         }
+        if prefs.panelAgents {
+          let rows = panelAgents(s)
+          let stuck = rows.filter { $0.state == .stuck }.count
+          stripMetric(
+            L("AGENTES"), "\(rows.count)",
+            stuck > 0 ? .orange : rows.contains { $0.state == .busy } ? Tint.brand : .secondary, nil
+          ).help(agentsSummary(rows))
+        }
+        if prefs.panelMachines {
+          ForEach(machines.panelHosts.prefix(3), id: \.self) { host in
+            let state = machines.states[host]
+            stripMetric(
+              String(host.uppercased().prefix(12)),
+              state?.stats?.loadFraction.map { String(format: "%.0f%%", $0 * 100) } ?? "—",
+              machineTint(state), state?.stats?.loadFraction.map { min(1, $0) }
+            ).help(machineHelp(host, state))
+          }
+        }
         if !s.orphans.isEmpty {
           Badge(text: "\(s.orphans.count)", color: .orange, symbol: "exclamationmark.triangle.fill")
             .help(L("%@ possíveis órfãos", "\(s.orphans.count)"))
@@ -239,6 +271,7 @@ struct FloatingView: View {
   {
     VStack(alignment: .leading, spacing: 2 * k) {
       Text(label).font(.system(size: 8.5 * k, weight: .bold)).foregroundStyle(color.opacity(0.9))
+        .lineLimit(1).fixedSize()
       Text(value).font(.system(size: 13 * k, weight: .semibold, design: .rounded)).monospacedDigit()
         .lineLimit(1)
       if let fraction { MeterBar(fraction: fraction, color: color).frame(width: 44 * k) }
@@ -302,10 +335,12 @@ struct FloatingView: View {
               .netOut(s.history.map(\.net_out)),
             ])
         }
-        if prefs.limitsInPanel {
+        if prefs.limitsInPanel && !prefs.panelAgents {
           ForEach(agents.limits) { row in LimitBar(title: row.title, window: row.window, compact: true) }
         }
         statusLine(s)
+        if prefs.panelAgents { agentsSection(s) }
+        if prefs.panelMachines { machinesSection }
         if prefs.panelMode == "detailed" { detail(s) }
       } else {
         ProgressView(L("Coletando…")).controlSize(.small)
@@ -389,6 +424,189 @@ struct FloatingView: View {
       KillButton(process: p)
     }.font(.system(size: 11 * k)).frame(height: 22 * k)
   }
+
+  // MARK: Agents
+  /// Agent sessions with a process (terminal, editor, desktop) and Codex desktop threads,
+  /// most urgent first; the order inside a state follows the Agents page.
+  private func panelAgents(_ s: Snapshot) -> [PanelAgent] {
+    var out: [PanelAgent] = []
+    for root in s.agentSessions {
+      let meta = agents.claudeSessions[root.pid]
+      let stall = StallWatch.shared.stall(root: root, tree: s.subtree(of: root), meta: meta)
+      let title = meta?.name ?? root.project ?? root.host ?? root.name
+      let context = [root.host, title == root.project ? nil : root.project].compactMap { $0 }
+      out.append(
+        PanelAgent(
+          id: "pid:\(root.pid)", title: title, subtitle: context.joined(separator: " · "),
+          state: agentPanelState(status: meta?.status, stall: stall), stall: stall, process: root,
+          open: .session(root, meta)))
+    }
+    // Desktop threads have no process of their own; shown while the Codex app is open.
+    if s.processes.contains(where: { $0.host == "Codex Desktop" }) {
+      for t in agents.codexThreads {
+        let stall = StallWatch.shared.stall(thread: t)
+        out.append(
+          PanelAgent(
+            id: "codex:\(t.id)", title: t.title, subtitle: ["Codex", t.project].compactMap { $0 }.joined(separator: " · "),
+            state: t.running ? agentPanelState(status: "busy", stall: stall) : .waiting, stall: stall, process: nil,
+            open: t.url.map { .url($0) }))
+      }
+    }
+    return out.enumerated().sorted { ($0.element.state, $0.offset) < ($1.element.state, $1.offset) }.map(\.element)
+  }
+  private func agentsSummary(_ rows: [PanelAgent]) -> String {
+    rows.isEmpty
+      ? L("Nenhum agente em execução")
+      : rows.map { "\($0.title): \($0.stateText)" }.joined(separator: "\n")
+  }
+  private func agentsSection(_ s: Snapshot) -> some View {
+    let rows = panelAgents(s)
+    return VStack(alignment: .leading, spacing: 5 * k) {
+      Divider().opacity(0.5)
+      sectionTitle(L("AGENTES"), count: rows.count, page: .agents)
+      if prefs.limitsInPanel {
+        ForEach(agents.limits) { row in LimitBar(title: row.title, window: row.window, compact: true) }
+      }
+      if rows.isEmpty {
+        Text(L("Nenhum agente em execução")).font(.system(size: 10.5 * k)).foregroundStyle(.secondary)
+      }
+      ForEach(rows.prefix(5)) { row in agentLine(row) }
+      if rows.count > 5 {
+        Button(L("+ %@ na página Agentes", "\(rows.count - 5)")) { WindowOpener.shared.showMain(page: .agents) }
+          .buttonStyle(.plain).font(.system(size: 10 * k)).foregroundStyle(.secondary)
+      }
+    }
+  }
+  private func agentLine(_ a: PanelAgent) -> some View {
+    Button {
+      a.open?.perform()
+    } label: {
+      HStack(spacing: 6 * k) {
+        if let p = a.process {
+          ProcessIcon(process: p, size: 14 * k)
+        } else {
+          Image(systemName: "sparkles").font(.system(size: 10 * k, weight: .semibold)).foregroundStyle(Tint.netIn)
+            .frame(width: 14 * k, height: 14 * k)
+        }
+        // The project/host goes when it does not fit whole, instead of shrinking to one letter.
+        ViewThatFits(in: .horizontal) {
+          HStack(spacing: 5 * k) {
+            Text(a.title).lineLimit(1).fixedSize()
+            Text(a.subtitle).font(.system(size: 9.5 * k)).foregroundStyle(.secondary).lineLimit(1).fixedSize()
+            Spacer(minLength: 0)
+          }
+          HStack(spacing: 0) {
+            Text(a.title).lineLimit(1)
+            Spacer(minLength: 0)
+          }
+        }
+        Spacer(minLength: 4)
+        HStack(spacing: 3 * k) {
+          Image(systemName: a.symbol).font(.system(size: 8 * k, weight: .bold))
+          Text(a.shortStateText).lineLimit(1)
+        }
+        .font(.system(size: 10 * k, weight: .medium)).monospacedDigit().foregroundStyle(a.color)
+        .fixedSize()
+      }
+      .font(.system(size: 11 * k)).frame(height: 22 * k).contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .help([a.title, a.subtitle, a.stateText].filter { !$0.isEmpty }.joined(separator: "\n"))
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel(a.title)
+    .accessibilityValue(a.stateText)
+    .accessibilityAddTraits(.isButton)
+  }
+
+  // MARK: Remote machines
+  private var machinesSection: some View {
+    let hosts = machines.panelHosts
+    return VStack(alignment: .leading, spacing: 5 * k) {
+      Divider().opacity(0.5)
+      sectionTitle(L("MÁQUINAS"), count: hosts.count, page: .machines)
+      if hosts.isEmpty {
+        Button(L("Escolha as máquinas em Ajustes › Painel flutuante")) {
+          WindowOpener.shared.showMain(page: .settings)
+        }.buttonStyle(.plain).font(.system(size: 10.5 * k)).foregroundStyle(.secondary)
+      }
+      ForEach(hosts, id: \.self) { host in machineLine(host, machines.states[host]) }
+    }
+  }
+  private func machineLine(_ host: String, _ state: MachineState?) -> some View {
+    Button {
+      WindowOpener.shared.showMain(page: .machines)
+    } label: {
+      HStack(spacing: 6 * k) {
+        Image(systemName: "server.rack").font(.system(size: 9.5 * k, weight: .semibold))
+          .foregroundStyle(machineTint(state)).frame(width: 14 * k, height: 14 * k)
+        Text(host).lineLimit(1)
+        Spacer(minLength: 4)
+        if let s = state?.stats {
+          HStack(spacing: 7 * k) {
+            machineValue("cpu", s.loadFraction)
+            machineValue("memorychip", s.memoryFraction)
+            machineValue("internaldrive", s.diskFraction)
+          }.opacity(state?.error == nil ? 1 : 0.5)
+        } else if state?.error != nil {
+          Text(L("sem conexão")).font(.system(size: 10 * k)).foregroundStyle(.orange)
+        } else if machines.probing.contains(host) {
+          ProgressView().controlSize(.mini)
+        } else {
+          Text("—").foregroundStyle(.secondary)
+        }
+        if let alerts = state?.alerts, !alerts.isEmpty {
+          Label("\(alerts.count)", systemImage: "exclamationmark.octagon.fill").labelStyle(CompactLabel())
+            .font(.system(size: 10 * k, weight: .semibold)).foregroundStyle(.red)
+        }
+      }
+      .font(.system(size: 11 * k)).frame(height: 22 * k).contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .help(machineHelp(host, state))
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel(host)
+    .accessibilityValue(machineHelp(host, state))
+    .accessibilityAddTraits(.isButton)
+  }
+  private func machineValue(_ symbol: String, _ fraction: Double?) -> some View {
+    HStack(spacing: 2 * k) {
+      Image(systemName: symbol).font(.system(size: 8.5 * k)).foregroundStyle(.secondary)
+      Text(fraction.map { String(format: "%.0f%%", $0 * 100) } ?? "—")
+        .font(.system(size: 10.5 * k, weight: .medium, design: .rounded)).monospacedDigit()
+        .foregroundStyle(fraction.map { $0 > 0.9 ? Color.red : $0 > 0.75 ? .orange : .primary } ?? .secondary)
+    }.fixedSize()
+  }
+  private func machineTint(_ state: MachineState?) -> Color {
+    if !(state?.alerts.isEmpty ?? true) { return .red }
+    return state?.error != nil ? .orange : state?.stats != nil ? Tint.brand : .secondary
+  }
+  private func machineHelp(_ host: String, _ state: MachineState?) -> String {
+    var lines = [host]
+    if let s = state?.stats {
+      if let load = s.load.first { lines.append(L("Carga %@ em %@ núcleos", String(format: "%.2f", load), "\(s.cpus)")) }
+      if let total = s.memoryTotal, let available = s.memoryAvailable {
+        lines.append(L("Memória %@ de %@", formatBytes(total - available), formatBytes(total)))
+      }
+      if let total = s.diskTotal, let used = s.diskUsed {
+        lines.append(L("Disco / %@ de %@", formatBytes(used), formatBytes(total)))
+      }
+    }
+    if let error = state?.error { lines.append(error) }
+    lines += (state?.alerts ?? []).map(\.text)
+    if let at = state?.at { lines.append(L("lido %@", at.formatted(date: .omitted, time: .shortened))) }
+    return lines.joined(separator: "\n")
+  }
+  private func sectionTitle(_ title: String, count: Int, page: Page) -> some View {
+    Button {
+      WindowOpener.shared.showMain(page: page)
+    } label: {
+      HStack(spacing: 4 * k) {
+        Text(title)
+        if count > 0 { Text("\(count)").foregroundStyle(.tertiary) }
+      }.font(.system(size: 9 * k, weight: .bold)).foregroundStyle(.secondary)
+    }.buttonStyle(.plain).help(L("Abrir %@", page.title))
+  }
+
   private var menuButton: some View {
     Menu {
       PanelMenu()
@@ -398,6 +616,66 @@ struct FloatingView: View {
     .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
     .help(L("Layout, tamanho, opacidade e opções"))
     .accessibilityLabel(L("Opções do painel"))
+  }
+}
+/// One row of the panel's Agents section.
+private struct PanelAgent: Identifiable {
+  enum Open {
+    case session(ProcessItem, ClaudeSessionMeta?)
+    case url(URL)
+    /// Resolved on click: walking up to the hosting app costs too much for every redraw.
+    func perform() {
+      switch self {
+      case .session(let root, let meta):
+        if let jump = SessionJump.target(for: root, meta: meta, in: Monitor.shared.snapshot) {
+          jump.open()
+        } else {
+          WindowOpener.shared.showMain(page: .agents)
+        }
+      case .url(let url): NSWorkspace.shared.open(url)
+      }
+    }
+  }
+  let id: String
+  let title: String
+  let subtitle: String
+  let state: AgentPanelState
+  let stall: AgentStall?
+  let process: ProcessItem?
+  let open: Open?
+  var color: Color {
+    switch state {
+    case .stuck: .orange
+    case .longCommand: .yellow
+    case .busy: Tint.brand
+    case .waiting, .unknown: .secondary
+    }
+  }
+  var symbol: String {
+    switch state {
+    case .stuck: "exclamationmark.triangle.fill"
+    case .longCommand: "hourglass"
+    case .busy: "bolt.fill"
+    case .waiting: "moon.fill"
+    case .unknown: "circle.fill"
+    }
+  }
+  var shortStateText: String {
+    switch state {
+    case .stuck: L("Parece travada · %@ min", "\(stall?.minutes ?? 1)")
+    case .longCommand: L("Comando longo · %@ min", "\(stall?.minutes ?? 1)")
+    case .busy: L("Trabalhando")
+    case .waiting: L("Aguardando")
+    case .unknown: L("Ativa")
+    }
+  }
+  var stateText: String {
+    if let stall { return stall.summary }
+    switch state {
+    case .waiting: return L("Aguardando sua próxima mensagem")
+    case .unknown: return L("Em execução (o agente não informa o estado)")
+    default: return shortStateText
+    }
   }
 }
 private struct CompactLabel: LabelStyle {
@@ -437,6 +715,8 @@ struct PanelMenu: View {
     Toggle(L("Mostrar rede"), isOn: $prefs.panelNetwork)
     Toggle(L("Mostrar estado térmico"), isOn: $prefs.thermalInPanel)
     Toggle(L("Mostrar limites dos agentes"), isOn: $prefs.limitsInPanel)
+    Toggle(L("Mostrar agentes"), isOn: $prefs.panelAgents)
+    Toggle(L("Mostrar máquinas remotas"), isOn: $prefs.panelMachines)
     Divider()
     Button(L("Abrir CoreScope")) { WindowOpener.shared.showMain() }
     Button(L("Ver processos")) { WindowOpener.shared.showMain(page: .processes) }

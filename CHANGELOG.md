@@ -11,6 +11,16 @@ section as the GitHub release notes.
 ## [Unreleased]
 
 ### Added
+- Floating panel, opt-in **Agents** section: running Claude Code, Codex and other agent sessions
+  with their project and whether each is working, waiting or looks stuck (from the stall
+  watcher), plus the usage limits; a click opens the session. Compact layout shows the count.
+- Floating panel, opt-in **Remote machines** section: the ssh machines you check in Settings ›
+  Floating panel (or "Show in the floating panel" on a Machines card), each with load per core,
+  memory, disk and alerts. Checked machines are read every 60 s while the panel is visible,
+  sharing one cadence with the Machines page so both open never probe a host more often; the
+  extra reads show in CoreScope's own cost.
+- MCP `get_settings` / `set_setting`: `panel_agents`, `panel_machines` and
+  `panel_machine_hosts`; `list_machines` says which machines the panel shows.
 - **Updates (opt-in, off by default)**: *Settings › Updates* checks the latest GitHub release once
   a day, or when you click *Check now*. A new version shows its changelog in Settings, `↑ <version>`
   next to the version in the sidebar and the menu bar popover, and one notification; **Install and
@@ -29,6 +39,8 @@ section as the GitHub release notes.
   runs), a big average per group, and one tile per core that fills up and turns from green to amber
   to orange with load, the percentage written inside; a colour legend replaces the data-source
   line (still on hover).
+- Turning on a setting that posts no notifications (the floating panel ones) through MCP no
+  longer asks for notification permission.
 
 ## [0.5.1] - 2026-10-17
 

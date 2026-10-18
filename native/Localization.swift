@@ -1021,6 +1021,25 @@ private let entries = """
   Primeira medição em %@: o crescimento aparece a partir da próxima. ¦ First measurement %@: growth shows from the next one. ¦ Primera medición el %@: el crecimiento aparece desde la próxima.
   mede no máximo a cada 6 h, alguns segundos de disco ¦ measures at most every 6 h, a few seconds of disk ¦ mide como máximo cada 6 h, unos segundos de disco
   Versão %@ (build %@) ¦ Version %@ (build %@) ¦ Versión %@ (build %@)
+  AGENTES ¦ AGENTS ¦ AGENTES
+  MÁQUINAS ¦ MACHINES ¦ MÁQUINAS
+  Nenhum agente em execução ¦ No agents running ¦ Ningún agente en ejecución
+  + %@ na página Agentes ¦ + %@ on the Agents page ¦ + %@ en la página Agentes
+  Escolha as máquinas em Ajustes › Painel flutuante ¦ Choose machines in Settings › Floating panel ¦ Elige las máquinas en Ajustes › Panel flotante
+  sem conexão ¦ unreachable ¦ sin conexión
+  Memória %@ de %@ ¦ Memory %@ of %@ ¦ Memoria %@ de %@
+  Disco / %@ de %@ ¦ Disk / %@ of %@ ¦ Disco / %@ de %@
+  Ativa ¦ Running ¦ Activa
+  Aguardando sua próxima mensagem ¦ Waiting for your next message ¦ Esperando tu próximo mensaje
+  Em execução (o agente não informa o estado) ¦ Running (this agent does not report its state) ¦ En ejecución (el agente no informa su estado)
+  Mostrar agentes ¦ Show agents ¦ Mostrar agentes
+  Mostrar máquinas remotas ¦ Show remote machines ¦ Mostrar máquinas remotas
+  Sessões do Claude Code, Codex e outros agentes: projeto, se está trabalhando, aguardando ou parece travada, e os limites de uso. ¦ Claude Code, Codex and other agent sessions: project, whether each is working, waiting or looks stuck, and the usage limits. ¦ Sesiones de Claude Code, Codex y otros agentes: proyecto, si trabaja, espera o parece atascada, y los límites de uso.
+  Nenhuma máquina ainda. ¦ No machines yet. ¦ Aún no hay máquinas.
+  Abrir Máquinas ¦ Open Machines ¦ Abrir Máquinas
+  As máquinas marcadas são lidas pelo ssh a cada 60 s enquanto o painel está visível, no mesmo ritmo da página Máquinas (as duas abertas não leem mais vezes). ¦ Checked machines are read over ssh every 60 s while the panel is visible, on the same schedule as the Machines page (both open never read more often). ¦ Las máquinas marcadas se leen por ssh cada 60 s mientras el panel está visible, al mismo ritmo que la página Máquinas (las dos abiertas no leen más veces).
+  Mostrar no painel flutuante ¦ Show in the floating panel ¦ Mostrar en el panel flotante
+  %@ hosts a cada 60 s com a página aberta; %@ sempre, pelo painel flutuante ¦ %@ hosts every 60 s with the page open; %@ always, for the floating panel ¦ %@ hosts cada 60 s con la página abierta; %@ siempre, por el panel flotante
   Atualizações ¦ Updates ¦ Actualizaciones
   Procurar atualizações (uma vez por dia) ¦ Check for updates (once a day) ¦ Buscar actualizaciones (una vez al día)
   Procurar atualizações ¦ Update check ¦ Búsqueda de actualizaciones

@@ -187,6 +187,10 @@ struct PreferencesView: View {
         Toggle(L("Manter acima das janelas"), isOn: $p.panelTop)
         Toggle(L("Travar posição"), isOn: $p.panelLocked)
         Toggle(L("Mostrar rede"), isOn: $p.panelNetwork)
+        Toggle(L("Mostrar agentes"), isOn: $p.panelAgents)
+          .help(L("Sessões do Claude Code, Codex e outros agentes: projeto, se está trabalhando, aguardando ou parece travada, e os limites de uso."))
+        Toggle(L("Mostrar máquinas remotas"), isOn: $p.panelMachines)
+        if p.panelMachines { PanelMachinesPicker() }
         Text(L("Todas essas opções também ficam no próprio painel: botão ⋯ ou clique com o botão direito."))
           .font(.caption).foregroundStyle(.secondary)
         Button(L("Trazer painel para a tela principal")) { FloatingController.shared.recover() }
@@ -338,5 +342,35 @@ private struct HistorySettings: View {
     .onAppear { store.loadInfo() }
     .onChange(of: p.historyEnabled) { _, _ in store.loadInfo() }
     .onChange(of: monitor.snapshot.map { Int($0.at / 60) }) { _, _ in store.loadInfo() }
+  }
+}
+
+/// Which machines from the Machines page the floating panel shows. Its own view, so readings
+/// arriving from ssh redraw only this list.
+private struct PanelMachinesPicker: View {
+  @ObservedObject var store = MachineStore.shared
+  @ObservedObject var p = Preferences.shared
+  var body: some View {
+    if store.hosts.isEmpty {
+      HStack {
+        Text(L("Nenhuma máquina ainda.")).foregroundStyle(.secondary)
+        Button(L("Abrir Máquinas")) { WindowOpener.shared.showMain(page: .machines) }
+      }
+    } else {
+      ForEach(store.hosts, id: \.self) { host in
+        Toggle(host, isOn: shown(host)).toggleStyle(.checkbox)
+      }
+    }
+    Text(
+      L("As máquinas marcadas são lidas pelo ssh a cada 60 s enquanto o painel está visível, no mesmo ritmo da página Máquinas (as duas abertas não leem mais vezes).")
+    ).font(.caption).foregroundStyle(.secondary)
+  }
+  private func shown(_ host: String) -> Binding<Bool> {
+    Binding(
+      get: { p.panelMachineHosts.contains(host) },
+      set: { on in
+        let selected = on ? p.panelMachineHosts + [host] : p.panelMachineHosts.filter { $0 != host }
+        p.panelMachineHosts = panelMachineHosts(selected: selected, hosts: store.hosts)
+      })
   }
 }

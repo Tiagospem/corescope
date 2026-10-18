@@ -71,6 +71,8 @@ final class MachineStore: ObservableObject {
     didSet {
       UserDefaults.standard.set(hosts, forKey: "sshHosts")
       states = states.filter { hosts.contains($0.key) }
+      let shown = panelMachineHosts(selected: Preferences.shared.panelMachineHosts, hosts: hosts)
+      if shown != Preferences.shared.panelMachineHosts { Preferences.shared.panelMachineHosts = shown }
     }
   }
   @Published private(set) var states: [String: MachineState] = [:]
@@ -81,6 +83,8 @@ final class MachineStore: ObservableObject {
       if let data = try? JSONEncoder().encode(customRecipes) { UserDefaults.standard.set(data, forKey: "sshRecipes") }
     }
   }
+  /// When each host was last probed (main thread), so the page and the panel share one cadence.
+  private var lastProbe: [String: Date] = [:]
   /// Alerts already notified, so each one alerts once until it clears.
   private var notified: [String: Set<String>] = [:]
   private let queue = DispatchQueue(label: "app.corescope.machines", qos: .userInitiated, attributes: .concurrent)
@@ -99,10 +103,21 @@ final class MachineStore: ObservableObject {
     return sshConfigHosts(config).filter { !hosts.contains($0) && validSSHDestination($0) }
   }
 
+  /// The machines the floating panel shows, in this page's order.
+  var panelHosts: [String] { panelMachineHosts(selected: Preferences.shared.panelMachineHosts, hosts: hosts) }
+  /// Probes the hosts not read in the last minute. The Machines page and the floating panel both
+  /// call it once a minute, so having both open never reads a host more often.
+  func refreshStale(_ list: [String]) {
+    let now = Date().timeIntervalSince1970
+    for host in list where machineProbeDue(lastProbe: lastProbe[host]?.timeIntervalSince1970, now: now) {
+      refresh(host)
+    }
+  }
   func refreshAll() { hosts.forEach(refresh) }
   func refresh(_ host: String) {
     guard validSSHDestination(host), !probing.contains(host) else { return }
     probing.insert(host)
+    lastProbe[host] = Date()
     queue.async {
       let cost = CostMeter.begin()
       defer { CostMeter.end("machines", cost) }
@@ -253,7 +268,7 @@ struct MachinesView: View {
     }
     .task {
       while !Task.isCancelled {
-        store.refreshAll()
+        store.refreshStale(store.hosts)
         try? await Task.sleep(nanoseconds: 60_000_000_000)
       }
     }
@@ -307,6 +322,8 @@ private struct MachineCard: View {
           Label(L("Receitas"), systemImage: "list.bullet.rectangle")
         }.controlSize(.small).help(L("Comandos de leitura que rodam sob demanda (journal, df, contêineres…)"))
         Menu {
+          Toggle(L("Mostrar no painel flutuante"), isOn: inPanel)
+          Divider()
           Button(L("Abrir no Terminal")) { openSSH() }
           Button(L("Remover"), role: .destructive, action: remove)
         } label: {
@@ -373,6 +390,17 @@ private struct MachineCard: View {
       }
     }
     .sheet(isPresented: $recipesOpen) { RecipesSheet(host: host) }
+  }
+  /// Choosing a machine for the panel also turns the panel's machines section on.
+  private var inPanel: Binding<Bool> {
+    let prefs = Preferences.shared
+    return Binding(
+      get: { prefs.panelMachines && prefs.panelMachineHosts.contains(host) },
+      set: { on in
+        let selected = on ? prefs.panelMachineHosts + [host] : prefs.panelMachineHosts.filter { $0 != host }
+        prefs.panelMachineHosts = panelMachineHosts(selected: selected, hosts: MachineStore.shared.hosts)
+        if on { prefs.panelMachines = true }
+      })
   }
   private var tint: Color {
     if !(state?.alerts.isEmpty ?? true) { return .red }
