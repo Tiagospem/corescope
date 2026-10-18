@@ -4,8 +4,7 @@
 //! working tree a folder belongs to, so sessions sharing one can be flagged.
 use serde::Serialize;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
 pub struct Worktree {
@@ -51,39 +50,12 @@ pub fn agent_of(path: &str) -> Option<&'static str> {
     }
 }
 
-/// Runs git read-only (no optional locks, no fsmonitor) with a time limit.
+/// Runs git read-only (no optional locks, no fsmonitor) with a time limit; stdout on success.
 pub fn git(repo: &Path, args: &[&str], timeout: Duration) -> Option<String> {
-    let mut child = Command::new("/usr/bin/git")
-        .arg("-C")
-        .arg(repo)
-        .args(["-c", "core.fsmonitor=false"])
-        .args(args)
-        .env("GIT_OPTIONAL_LOCKS", "0")
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .ok()?;
-    let started = Instant::now();
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => {
-                let mut out = String::new();
-                use std::io::Read;
-                child.stdout.take()?.read_to_string(&mut out).ok()?;
-                return status.success().then_some(out);
-            }
-            Ok(None) if started.elapsed() < timeout => {
-                std::thread::sleep(Duration::from_millis(20))
-            }
-            _ => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return None;
-            }
-        }
-    }
+    crate::git::run(repo, args, true, timeout)
+        .ok()
+        .filter(crate::git::Output::ok)
+        .map(|o| o.stdout)
 }
 
 /// `git worktree list --porcelain` → linked worktrees (the main one excluded).
@@ -228,6 +200,7 @@ pub fn repos_under(roots: &[PathBuf]) -> Vec<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::process::{Command, Stdio};
 
     #[test]
     fn porcelain_list_and_agents() {

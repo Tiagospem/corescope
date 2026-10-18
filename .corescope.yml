@@ -1,0 +1,3 @@
+# CoreScope project file: profiles, ports, Services checks, logs and agent limits.
+# https://github.com/Tiagospem/corescope#profiles-as-code
+name: CoreScope

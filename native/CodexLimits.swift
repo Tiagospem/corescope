@@ -21,6 +21,29 @@ enum CodexAppServer {
 
   /// Blocking: call from a background queue. Nil when Codex is missing, signed out or slow.
   static func readLimits(timeout: TimeInterval = 20) -> CodexUsage? {
+    call("account/rateLimits/read", timeout: timeout).flatMap(parse)
+  }
+
+  /// Trust of CoreScope's hooks as Codex sees them (`hooks/list`, local, no network): event name
+  /// ("preToolUse", "sessionStart") → "trusted", "untrusted", "modified" or "managed".
+  static func coreScopeHookTrust(timeout: TimeInterval = 15) -> [String: String]? {
+    guard let result = call("hooks/list", params: #"{"cwds":["/"]}"#, timeout: timeout),
+      let data = result["data"] as? [[String: Any]]
+    else { return nil }
+    var out: [String: String] = [:]
+    for entry in data {
+      for hook in entry["hooks"] as? [[String: Any]] ?? [] {
+        guard let command = hook["command"] as? String, command.contains("corescope"),
+          let event = hook["eventName"] as? String, let trust = hook["trustStatus"] as? String
+        else { continue }
+        out[event] = trust
+      }
+    }
+    return out
+  }
+
+  /// One JSON-RPC request to a short-lived `codex app-server` (initialize, then `method`).
+  private static func call(_ method: String, params: String? = nil, timeout: TimeInterval) -> [String: Any]? {
     guard let binary else { return nil }
     let process = Process()
     process.executableURL = binary
@@ -63,10 +86,11 @@ enum CodexAppServer {
       }
     }
     do { try process.run() } catch { return nil }
+    let request = params.map { #"{"id":2,"method":"\#(method)","params":\#($0)}"# } ?? #"{"id":2,"method":"\#(method)"}"#
     let messages = [
       #"{"id":1,"method":"initialize","params":{"clientInfo":{"name":"corescope","title":"CoreScope","version":"1"}}}"#,
       #"{"method":"initialized"}"#,
-      #"{"id":2,"method":"account/rateLimits/read"}"#,
+      request,
     ]
     input.fileHandleForWriting.write(Data((messages.joined(separator: "\n") + "\n").utf8))
     _ = done.wait(timeout: .now() + timeout)
@@ -76,7 +100,7 @@ enum CodexAppServer {
     lock.lock()
     let response = result
     lock.unlock()
-    return response.flatMap(parse)
+    return response
   }
 
   /// `rateLimits.primary/secondary` → windows; plan, credit balance and free reset credits.

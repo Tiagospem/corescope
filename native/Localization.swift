@@ -1205,4 +1205,222 @@ private let entries = """
   As configurações atuais são substituídas pelas do backup e o CoreScope reinicia. ¦ The current settings are replaced by the backup's and CoreScope restarts. ¦ La configuración actual se reemplaza por la de la copia y CoreScope se reinicia.
   Restaurar e reiniciar ¦ Restore and restart ¦ Restaurar y reiniciar
   alguns segundos depois de uma mudança, só se mudou algo ¦ a few seconds after a change, only if something changed ¦ unos segundos después de un cambio, solo si cambió algo
+  %@ logs ¦ %@ logs ¦ %@ logs
+  %@ serviços ¦ %@ services ¦ %@ servicios
+  .corescope.yml válido, só com o nome ¦ Valid .corescope.yml, name only ¦ .corescope.yml válido, solo con el nombre
+  .corescope.yml, linha %@ ¦ .corescope.yml, line %@ ¦ .corescope.yml, línea %@
+  Abrir ¦ Open ¦ Abrir
+  Adicionar projeto ¦ Add project ¦ Añadir proyecto
+  Adicionar projeto… ¦ Add project… ¦ Añadir proyecto…
+  Criar .corescope.yml e adicionar ¦ Create .corescope.yml and add ¦ Crear .corescope.yml y añadir
+  Criar .corescope.yml? ¦ Create .corescope.yml? ¦ ¿Crear .corescope.yml?
+  Criar e adicionar ¦ Create and add ¦ Crear y añadir
+  Dentro do repositório %@ ¦ Inside the repository %@ ¦ Dentro del repositorio %@
+  Escolha a pasta do projeto (a raiz do repositório ou uma subpasta). ¦ Choose the project folder (the repository root or a subfolder). ¦ Elige la carpeta del proyecto (la raíz del repositorio o una subcarpeta).
+  Escolher pasta ¦ Choose folder ¦ Elegir carpeta
+  Esta pasta já está na lista. ¦ This folder is already in the list. ¦ Esta carpeta ya está en la lista.
+  Esta pasta não tem .corescope.yml. O CoreScope cria um modelo mínimo (só o nome) com o mesmo gravador do resto do app; sem ele o projeto não é adicionado. ¦ This folder has no .corescope.yml. CoreScope creates a minimal one (just the name) with the same writer the rest of the app uses; without it the project is not added. ¦ Esta carpeta no tiene .corescope.yml. CoreScope crea uno mínimo (solo el nombre) con el mismo escritor que el resto de la app; sin él el proyecto no se añade.
+  HEAD destacado em %@ ¦ Detached HEAD at %@ ¦ HEAD separado en %@
+  Inicializar repositório ¦ Initialize repository ¦ Inicializar repositorio
+  Inicializar repositório… ¦ Initialize repository… ¦ Inicializar repositorio…
+  Inicializar um repositório git aqui? ¦ Initialize a git repository here? ¦ ¿Inicializar un repositorio git aquí?
+  Nenhum projeto ainda. Adicione a pasta de um repositório: o CoreScope lê o .corescope.yml (ou oferece criar um) e o git dela, sem abrir uma IDE. ¦ No projects yet. Add a repository folder: CoreScope reads its .corescope.yml (or offers to create one) and its git, without opening an IDE. ¦ Aún no hay proyectos. Añade la carpeta de un repositorio: CoreScope lee su .corescope.yml (u ofrece crear uno) y su git, sin abrir un IDE.
+  Não adicionar ¦ Don't add ¦ No añadir
+  Remover %@ da lista? ¦ Remove %@ from the list? ¦ ¿Quitar %@ de la lista?
+  Remover da lista… ¦ Remove from list… ¦ Quitar de la lista…
+  Renomear ¦ Rename ¦ Renombrar
+  Repositórios locais que você acompanha: a configuração do .corescope.yml e o estado do git. ¦ Local repositories you follow: their .corescope.yml configuration and git state. ¦ Repositorios locales que sigues: la configuración de .corescope.yml y el estado de git.
+  Roda git init em %@. Nada é commitado. ¦ Runs git init in %@. Nothing is committed. ¦ Ejecuta git init en %@. No se hace ningún commit.
+  Sem repositório git ¦ No git repository ¦ Sin repositorio git
+  Só sai do CoreScope: a pasta, o .corescope.yml e o repositório ficam como estão. ¦ It only leaves CoreScope: the folder, the .corescope.yml and the repository stay as they are. ¦ Solo sale de CoreScope: la carpeta, el .corescope.yml y el repositorio quedan como están.
+  Um arquivo mínimo com o nome do projeto. Se você recusar, o projeto não é adicionado. ¦ A minimal file with the project's name. If you decline, the project is not added. ¦ Un archivo mínimo con el nombre del proyecto. Si lo rechazas, el proyecto no se añade.
+  Worktree do repositório %@ ¦ Worktree of the repository %@ ¦ Worktree del repositorio %@
+  agentes esperam capacidade ¦ agents wait for capacity ¦ los agentes esperan capacidad
+  perfis: %@ ¦ profiles: %@ ¦ perfiles: %@
+  portas: %@ ¦ ports: %@ ¦ puertos: %@
+  sem commits ainda ¦ no commits yet ¦ sin commits todavía
+  subpasta %@ ¦ subfolder %@ ¦ subcarpeta %@
+  worktree ¦ worktree ¦ worktree
+  Conflitos ¦ Conflicts ¦ Conflictos
+  Staged ¦ Staged ¦ Preparados
+  Modificados ¦ Modified ¦ Modificados
+  Novos ¦ New ¦ Nuevos
+  Removidos/Renomeados ¦ Removed/Renamed ¦ Eliminados/Renombrados
+  Não foi possível mover para o Lixo: %@ ¦ Couldn't move to the Trash: %@ ¦ No se pudo mover a la Papelera: %@
+  Outro processo git está usando este repositório (index.lock). Espere ele terminar ou remova o lock antigo. ¦ Another git process is using this repository (index.lock). Wait for it to finish or remove the stale lock. ¦ Otro proceso git está usando este repositorio (index.lock). Espera a que termine o elimina el lock antiguo.
+  %@ arquivos selecionados ¦ %@ files selected ¦ %@ archivos seleccionados
+  Selecione um arquivo para ver o diff. ¦ Select a file to see its diff. ¦ Selecciona un archivo para ver su diff.
+  Descartar ¦ Discard ¦ Descartar
+  Commits à frente / atrás do upstream ¦ Commits ahead / behind the upstream ¦ Commits por delante / por detrás del upstream
+  sem upstream ¦ no upstream ¦ sin upstream
+  Último commit ¦ Last commit ¦ Último commit
+  Sem commits ainda ¦ No commits yet ¦ Aún sin commits
+  %@ alterações ¦ %@ changes ¦ %@ cambios
+  Stage em tudo ¦ Stage all ¦ Preparar todo
+  Unstage em tudo ¦ Unstage all ¦ Quitar todo de preparados
+  Nada para commitar: a árvore de trabalho está limpa. ¦ Nothing to commit: the working tree is clean. ¦ Nada que commitear: el árbol de trabajo está limpio.
+  … e mais %@ (limite de exibição) ¦ … and %@ more (display limit) ¦ … y %@ más (límite de visualización)
+  Stage (%@) ¦ Stage (%@) ¦ Preparar (%@)
+  Stage ¦ Stage ¦ Preparar
+  Unstage (%@) ¦ Unstage (%@) ¦ Quitar de preparados (%@)
+  Unstage ¦ Unstage ¦ Quitar de preparados
+  Marcar como resolvido (stage) ¦ Mark as resolved (stage) ¦ Marcar como resuelto (preparar)
+  Abrir no editor ¦ Open in editor ¦ Abrir en el editor
+  App padrão do arquivo ¦ The file's default app ¦ App predeterminada del archivo
+  Descartar alterações (%@)… ¦ Discard changes (%@)… ¦ Descartar cambios (%@)…
+  Descartar alterações… ¦ Discard changes… ¦ Descartar cambios…
+  Descartar as alterações de %@? ¦ Discard the changes to %@? ¦ ¿Descartar los cambios de %@?
+  Descartar as alterações de %@ arquivos? ¦ Discard the changes to %@ files? ¦ ¿Descartar los cambios de %@ archivos?
+  %@ arquivo(s) voltam ao último commit, incluindo o que está em stage. Não dá para desfazer. ¦ %@ file(s) go back to the last commit, including what is staged. This can't be undone. ¦ %@ archivo(s) vuelven al último commit, incluido lo preparado. No se puede deshacer.
+  %@ arquivo(s) novo(s) vão para o Lixo. ¦ %@ new file(s) go to the Trash. ¦ %@ archivo(s) nuevo(s) van a la Papelera.
+  Mensagem do commit ¦ Commit message ¦ Mensaje del commit
+  Commit (%@) ¦ Commit (%@) ¦ Commit (%@)
+  Commit ¦ Commit ¦ Commit
+  ⌘↩ faz o commit do que está em stage ¦ ⌘↩ commits what is staged ¦ ⌘↩ hace commit de lo preparado
+  Resolva os conflitos antes de commitar. ¦ Resolve the conflicts before committing. ¦ Resuelve los conflictos antes de hacer commit.
+  Nada em stage: marque os arquivos que entram no commit. ¦ Nothing staged: tick the files that go into the commit. ¦ Nada preparado: marca los archivos que entran en el commit.
+  Os hooks e a assinatura do seu git rodam normalmente. ¦ Your git hooks and signing run as usual. ¦ Los hooks y la firma de tu git se ejecutan como siempre.
+  Tirar do stage ¦ Unstage ¦ Quitar de preparados
+  Colocar em stage ¦ Stage ¦ Preparar
+  binário ¦ binary ¦ binario
+  O diff fica oculto no modo de demonstração. ¦ The diff is hidden in demo mode. ¦ El diff se oculta en el modo de demostración.
+  Sem diferenças de texto (só o modo do arquivo mudou, ou é binário). ¦ No text differences (only the file mode changed, or it is binary). ¦ Sin diferencias de texto (solo cambió el modo del archivo, o es binario).
+  Nenhum projeto chamado %@. ¦ No project called %@. ¦ Ningún proyecto llamado %@.
+  Alterações ¦ Changes ¦ Cambios
+  Projetos (git) ¦ Projects (git) ¦ Proyectos (git)
+  só com as alterações de um projeto abertas: FSEvents, recarrega no máximo a cada 0,5 s e ignora o que o .gitignore cobre ¦ only while a project's changes are open: FSEvents, reloads at most every 0.5 s and ignores what .gitignore covers ¦ solo con los cambios de un proyecto abiertos: FSEvents, recarga como mucho cada 0,5 s e ignora lo que cubre .gitignore
+  Mostrar todas (%@) ¦ Show all (%@) ¦ Mostrar todas (%@)
+  Branches locais ¦ Local branches ¦ Ramas locales
+  Em uso no worktree %@ ¦ Checked out in worktree %@ ¦ En uso en el worktree %@
+  Upstream: %@ ¦ Upstream: %@ ¦ Upstream: %@
+  upstream removido ¦ upstream gone ¦ upstream eliminado
+  em dia ¦ up to date ¦ al día
+  Só o working tree principal: nenhum git worktree add neste repositório. ¦ Only the main working tree: no git worktree add in this repository. ¦ Solo el working tree principal: ningún git worktree add en este repositorio.
+  Limpar worktrees na Limpeza ¦ Clean up worktrees in Cleanup ¦ Limpiar worktrees en Limpieza
+  principal ¦ main ¦ principal
+  este projeto ¦ this project ¦ este proyecto
+  pasta sumiu ¦ folder gone ¦ carpeta eliminada
+  O git ainda lista este worktree; git worktree prune (ou a Limpeza) tira da lista. ¦ Git still lists this worktree; git worktree prune (or Cleanup) takes it off the list. ¦ Git aún lista este worktree; git worktree prune (o Limpieza) lo quita de la lista.
+  Medindo o tamanho… ¦ Measuring the size… ¦ Midiendo el tamaño…
+  mergeado ¦ merged ¦ fusionado
+  não mergeado ¦ not merged ¦ sin fusionar
+  em uso ¦ in use ¦ en uso
+  Em uso por %@ ¦ In use by %@ ¦ En uso por %@
+  bloqueado ¦ locked ¦ bloqueado
+  git worktree lock: o git não remove este worktree ¦ git worktree lock: git won't remove this worktree ¦ git worktree lock: git no elimina este worktree
+  Instruções para agentes ¦ Agent instructions ¦ Instrucciones para agentes
+  O que o .corescope.yml deste projeto pede aos agentes. Com o hook de contexto ligado (Ajustes › Servidor MCP), Claude Code e Codex recebem isto no início de cada sessão; para outros agentes, grave como uma seção marcada no CLAUDE.md / AGENTS.md (o resto do arquivo fica como está). ¦ What this project's .corescope.yml asks of agents. With the context hook on (Settings › MCP server), Claude Code and Codex get this at the start of every session; for other agents, write it as a marked section in CLAUDE.md / AGENTS.md (the rest of the file stays as it is). ¦ Lo que el .corescope.yml de este proyecto pide a los agentes. Con el hook de contexto activado (Ajustes › Servidor MCP), Claude Code y Codex lo reciben al inicio de cada sesión; para otros agentes, guárdalo como una sección marcada en CLAUDE.md / AGENTS.md (el resto del archivo queda igual).
+  O texto fica oculto no modo de demonstração. ¦ The text is hidden in demo mode. ¦ El texto se oculta en el modo de demostración.
+  Remover seção ¦ Remove section ¦ Quitar sección
+  Gravar seção ¦ Write section ¦ Guardar sección
+  arquivo não existe (será criado) ¦ file doesn't exist (will be created) ¦ el archivo no existe (se creará)
+  seção em dia ¦ section up to date ¦ sección al día
+  seção desatualizada ¦ section outdated ¦ sección desactualizada
+  sem a seção ¦ no section ¦ sin la sección
+  Instruções para agentes… ¦ Agent instructions… ¦ Instrucciones para agentes…
+  Hooks dos agentes ¦ Agent hooks ¦ Hooks de los agentes
+  %@ não está configurado neste Mac ¦ %@ isn't set up on this Mac ¦ %@ no está configurado en este Mac
+  Os hooks rodam o corescope deste app; cada arquivo ganha um backup antes de mudar e só as entradas do CoreScope são mexidas. Agentes sem hooks recebem o mesmo pelo MCP (agent_context) ou pela seção no CLAUDE.md / AGENTS.md de cada projeto. ¦ The hooks run this app's corescope; each file is backed up before it changes and only CoreScope's entries are touched. Agents without hooks get the same through MCP (agent_context) or the section in each project's CLAUDE.md / AGENTS.md. ¦ Los hooks ejecutan el corescope de esta app; cada archivo recibe una copia de seguridad antes de cambiar y solo se tocan las entradas de CoreScope. Los agentes sin hooks reciben lo mismo por MCP (agent_context) o por la sección en el CLAUDE.md / AGENTS.md de cada proyecto.
+  Contexto do projeto no início da sessão ¦ Project context at session start ¦ Contexto del proyecto al iniciar la sesión
+  Esperar folga antes de comandos pesados ¦ Wait for room before heavy commands ¦ Esperar holgura antes de comandos pesados
+  O agente recebe o que o .corescope.yml pede: capacidade, portas, perfis, serviços e logs. ¦ The agent gets what the .corescope.yml asks for: capacity, ports, profiles, services and logs. ¦ El agente recibe lo que pide el .corescope.yml: capacidad, puertos, perfiles, servicios y logs.
+  Builds e testes esperam CPU e memória normalizarem nos projetos com agents.wait_for_capacity. ¦ Builds and tests wait for CPU and memory to settle in projects with agents.wait_for_capacity. ¦ Builds y tests esperan a que la CPU y la memoria se normalicen en los proyectos con agents.wait_for_capacity.
+  O Codex só roda hooks que você aprovou: abra o Codex, digite /hooks e confie nos do CoreScope (de novo se o app mudar de lugar). ¦ Codex only runs hooks you approved: open Codex, type /hooks and trust CoreScope's (again if the app moves). ¦ Codex solo ejecuta hooks que aprobaste: abre Codex, escribe /hooks y confía en los de CoreScope (de nuevo si la app cambia de lugar).
+  O Codex confia nos hooks do CoreScope. ¦ Codex trusts CoreScope's hooks. ¦ Codex confía en los hooks de CoreScope.
+  O Codex ainda não roda estes hooks: abra o Codex, digite /hooks e confie nos do CoreScope. Depois disso eles rodam em toda sessão. ¦ Codex doesn't run these hooks yet: open Codex, type /hooks and trust CoreScope's. After that they run in every session. ¦ Codex aún no ejecuta estos hooks: abre Codex, escribe /hooks y confía en los de CoreScope. Después se ejecutan en cada sesión.
+  Não foi possível ler %@ ¦ Couldn't read %@ ¦ No se pudo leer %@
+  %@ não é um JSON válido; corrija o arquivo antes. ¦ %@ isn't valid JSON; fix the file first. ¦ %@ no es un JSON válido; corrige el archivo antes.
+  1 arquivo ¦ 1 file ¦ 1 archivo
+  %@ arquivos ¦ %@ files ¦ %@ archivos
+  Alteração anterior ¦ Previous change ¦ Cambio anterior
+  Próxima alteração ¦ Next change ¦ Siguiente cambio
+  novo ¦ new ¦ nuevo
+  removido ¦ deleted ¦ eliminado
+  Arquivo binário: sem diff de texto. ¦ Binary file: no text diff. ¦ Archivo binario: sin diff de texto.
+  Só renomeado, sem mudar o conteúdo. ¦ Only renamed, content unchanged. ¦ Solo renombrado, sin cambiar el contenido.
+  Sem diferenças de texto (só o modo do arquivo mudou). ¦ No text differences (only the file mode changed). ¦ Sin diferencias de texto (solo cambió el modo del archivo).
+  Diff cortado: o arquivo tem alterações demais para mostrar. ¦ Diff cut: the file has too many changes to show. ¦ Diff recortado: el archivo tiene demasiados cambios para mostrar.
+  1 linha sem mudança ¦ 1 unchanged line ¦ 1 línea sin cambios
+  %@ linhas sem mudança ¦ %@ unchanged lines ¦ %@ líneas sin cambios
+  Mostrar o arquivo inteiro ¦ Show the whole file ¦ Mostrar el archivo entero
+  Sem alterações ¦ No changes ¦ Sin cambios
+  %@ conflitos ¦ %@ conflicts ¦ %@ conflictos
+  %@ em stage ¦ %@ staged ¦ %@ preparados
+  %@ modificados ¦ %@ modified ¦ %@ modificados
+  %@ novos ¦ %@ new ¦ %@ nuevos
+  %@ removidos ¦ %@ deleted ¦ %@ eliminados
+  Abrir as alterações ¦ Open the changes ¦ Abrir los cambios
+  Nada para mostrar. ¦ Nothing to show. ¦ Nada que mostrar.
+  Clique para abrir as alterações ¦ Click to open the changes ¦ Haz clic para abrir los cambios
+  PROJETOS ¦ PROJECTS ¦ PROYECTOS
+  Projetos no painel ¦ Projects in the panel ¦ Proyectos en el panel
+  Adicionar projetos… ¦ Add projects… ¦ Añadir proyectos…
+  conflitos ¦ conflicts ¦ conflictos
+  em stage ¦ staged ¦ preparados
+  modificados ¦ modified ¦ modificados
+  novos ¦ new ¦ nuevos
+  removidos ¦ deleted ¦ eliminados
+  branch: %@ → %@ ¦ branch: %@ → %@ ¦ rama: %@ → %@
+  novo commit em %@ ¦ new commit on %@ ¦ nuevo commit en %@
+  novo commit ¦ new commit ¦ nuevo commit
+  sem alterações agora ¦ no changes now ¦ sin cambios ahora
+  1 alteração agora ¦ 1 change now ¦ 1 cambio ahora
+  %@ alterações agora ¦ %@ changes now ¦ %@ cambios ahora
+  Notificar alterações ¦ Notify changes ¦ Notificar cambios
+  Desligado ¦ Off ¦ Desactivado
+  A cada 1 min ¦ Every 1 min ¦ Cada 1 min
+  A cada 5 min ¦ Every 5 min ¦ Cada 5 min
+  A cada 15 min ¦ Every 15 min ¦ Cada 15 min
+  Alterações nos projetos ¦ Project changes ¦ Cambios en los proyectos
+  Alterações em %@ ¦ Changes in %@ ¦ Cambios en %@
+  Desligadas por padrão. Uma notificação local por projeto no máximo a cada intervalo, só quando algo mudou desde a última (novos, modificados, em stage, commits, troca de branch) — salvar um arquivo já modificado não conta. Clicar abre as alterações. ¦ Off by default. At most one local notification per project per interval, only when something changed since the last one (new, modified, staged, commits, branch switch) — saving an already modified file doesn't count. Clicking opens the changes. ¦ Desactivadas por defecto. Como mucho una notificación local por proyecto por intervalo, solo cuando algo cambió desde la última (nuevos, modificados, preparados, commits, cambio de rama) — guardar un archivo ya modificado no cuenta. Al hacer clic se abren los cambios.
+  Notifica alterações a cada %@ min ¦ Notifies changes every %@ min ¦ Notifica cambios cada %@ min
+  Claude Code instalado (claude -p) ¦ Installed Claude Code (claude -p) ¦ Claude Code instalado (claude -p)
+  Codex instalado (codex exec) ¦ Installed Codex (codex exec) ¦ Codex instalado (codex exec)
+  Ollama (local) ¦ Ollama (local) ¦ Ollama (local)
+  LM Studio (local) ¦ LM Studio (local) ¦ LM Studio (local)
+  Crie uma chave em platform.claude.com › API keys. ¦ Create a key at platform.claude.com › API keys. ¦ Crea una clave en platform.claude.com › API keys.
+  Crie uma chave em platform.openai.com › API keys. ¦ Create a key at platform.openai.com › API keys. ¦ Crea una clave en platform.openai.com › API keys.
+  Crie uma chave em aistudio.google.com › Get API key. ¦ Create a key at aistudio.google.com › Get API key. ¦ Crea una clave en aistudio.google.com › Get API key.
+  Usa o login do próprio Claude Code; nenhuma chave aqui. ¦ Uses Claude Code's own login; no key here. ¦ Usa el inicio de sesión de Claude Code; ninguna clave aquí.
+  Usa o login do próprio Codex; nenhuma chave aqui. ¦ Uses Codex's own login; no key here. ¦ Usa el inicio de sesión de Codex; ninguna clave aquí.
+  Roda no seu Mac; nada sai da máquina. ¦ Runs on your Mac; nothing leaves it. ¦ Se ejecuta en tu Mac; nada sale de la máquina.
+  O Codex não devolveu uma mensagem. ¦ Codex returned no message. ¦ Codex no devolvió ningún mensaje.
+  Falta a chave da API no Keychain. ¦ The API key is missing from the Keychain. ¦ Falta la clave de la API en el Llavero.
+  Endereço inválido: %@ ¦ Invalid address: %@ ¦ Dirección no válida: %@
+  Sem resposta. ¦ No response. ¦ Sin respuesta.
+  A resposta veio sem texto. ¦ The response had no text. ¦ La respuesta llegó sin texto.
+  %@ não foi encontrado neste Mac. ¦ %@ wasn't found on this Mac. ¦ No se encontró %@ en este Mac.
+  %@ demorou demais. ¦ %@ took too long. ¦ %@ tardó demasiado.
+  IA (opcional) ¦ AI (optional) ¦ IA (opcional)
+  Gerar mensagens de commit com IA ¦ Generate commit messages with AI ¦ Generar mensajes de commit con IA
+  Desligado por padrão: é o único recurso do CoreScope que pode mandar código para fora do Mac. Ligado, nada é enviado sozinho — só quando você clica em Gerar mensagem, e na primeira vez com cada provedor o CoreScope mostra exatamente o que vai: o nome do repositório, a branch, a lista de arquivos e o diff em stage (sem lockfiles nem binários, cortado no limite abaixo). O commit continua sendo um clique seu. ¦ Off by default: it is the only CoreScope feature that can send code off the Mac. When on, nothing is sent by itself — only when you click Generate message, and the first time with each provider CoreScope shows exactly what goes: the repository's name, the branch, the file list and the staged diff (no lockfiles or binaries, cut at the limit below). Committing is still your click. ¦ Desactivado por defecto: es la única función de CoreScope que puede enviar código fuera del Mac. Activado, nada se envía solo — solo cuando haces clic en Generar mensaje, y la primera vez con cada proveedor CoreScope muestra exactamente lo que se envía: el nombre del repositorio, la rama, la lista de archivos y el diff preparado (sin lockfiles ni binarios, recortado al límite de abajo). El commit sigue siendo un clic tuyo.
+  Provedor ¦ Provider ¦ Proveedor
+  Modelo ¦ Model ¦ Modelo
+  padrão do provedor ¦ provider's default ¦ predeterminado del proveedor
+  Sugestões de modelos rápidos e baratos; confira os nomes atuais na documentação do provedor. ¦ Suggestions of fast, inexpensive models; check the current names in the provider's documentation. ¦ Sugerencias de modelos rápidos y baratos; comprueba los nombres actuales en la documentación del proveedor.
+  Chave da API ¦ API key ¦ Clave de la API
+  salva no Keychain ¦ saved in the Keychain ¦ guardada en el Llavero
+  cole a chave ¦ paste the key ¦ pega la clave
+  Endereço ¦ Address ¦ Dirección
+  A chave fica só no Keychain do macOS, nunca em preferências, arquivos ou logs. ¦ The key lives only in the macOS Keychain, never in preferences, files or logs. ¦ La clave vive solo en el Llavero de macOS, nunca en preferencias, archivos ni logs.
+  Idioma da mensagem ¦ Message language ¦ Idioma del mensaje
+  O do app ¦ The app's ¦ El de la app
+  Limite do diff enviado ¦ Diff size limit ¦ Límite del diff enviado
+  Instruções ¦ Instructions ¦ Instrucciones
+  Restaurar padrão ¦ Restore default ¦ Restaurar predeterminado
+  Testar conexão ¦ Test connection ¦ Probar conexión
+  Pedir confirmação de novo ¦ Ask again ¦ Volver a pedir confirmación
+  Mostra outra vez o que será enviado antes do próximo envio a cada provedor. ¦ Shows again what will be sent before the next request to each provider. ¦ Vuelve a mostrar lo que se enviará antes del próximo envío a cada proveedor.
+  O teste manda só uma frase curta, nenhum código. ¦ The test sends one short sentence, no code. ¦ La prueba envía solo una frase corta, nada de código.
+  Respondeu: %@ ¦ Replied: %@ ¦ Respondió: %@
+  Enviar para %@? ¦ Send to %@? ¦ ¿Enviar a %@?
+  Isto sai do seu Mac e vai para o provedor escolhido, que processa conforme os termos dele. Só desta vez a cada provedor o CoreScope pergunta; depois, Gerar mensagem envia direto. ¦ This leaves your Mac for the provider you chose, which processes it under its own terms. CoreScope asks only this once per provider; after that, Generate message sends right away. ¦ Esto sale de tu Mac hacia el proveedor elegido, que lo procesa según sus términos. CoreScope pregunta solo esta vez por proveedor; después, Generar mensaje envía directamente.
+  Vai para o servidor local configurado; nada sai do Mac. ¦ Goes to the configured local server; nothing leaves the Mac. ¦ Va al servidor local configurado; nada sale del Mac.
+  Repositório %@ · %@ arquivos · %@ do diff%@ ¦ Repository %@ · %@ files · %@ of diff%@ ¦ Repositorio %@ · %@ archivos · %@ de diff%@
+  (cortado) ¦ (cut) ¦ (recortado)
+  Enviar e gerar ¦ Send and generate ¦ Enviar y generar
+  Gerar mensagem ¦ Generate message ¦ Generar mensaje
+  Escreve a mensagem a partir do diff em stage (%@). Você revisa antes de commitar. ¦ Writes the message from the staged diff (%@). You review it before committing. ¦ Escribe el mensaje a partir del diff preparado (%@). Lo revisas antes del commit.
+  Não deu para gerar a mensagem: %@ ¦ Couldn't generate the message: %@ ¦ No se pudo generar el mensaje: %@
   """

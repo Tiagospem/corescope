@@ -1,4 +1,5 @@
 //! CoreScope: bounded local telemetry and explicitly authorized process control.
+pub mod agentcontext;
 pub mod capacity;
 pub mod cleanplan;
 pub mod containers;
@@ -9,12 +10,16 @@ pub mod diskgrowth;
 pub mod diskhealth;
 pub mod eject;
 pub mod exposure;
+pub mod git;
+pub mod gitbranches;
+pub mod gitchanges;
 pub mod history;
 pub mod largefiles;
 pub mod logs;
 mod os;
 pub use os::{local_format, parse_moment};
 pub mod projectconfig;
+pub mod projects;
 mod sqlite;
 pub mod worktrees;
 use os::*;
@@ -1788,6 +1793,156 @@ pub fn db_tool(v: &serde_json::Value) -> Result<serde_json::Value, String> {
         }
         _ => Err("unknown operation".into()),
     }
+}
+/// Projects shared by the app, the CLI and MCP. `op`: list, check {folder}, add {folder, name,
+/// template}, rename {id, name}, set {id, show_in_panel, notify_minutes}, remove {id},
+/// init {folder}; and the repository's changes: status {folder}, diff {folder, path, staged},
+/// stage/unstage/discard {folder, paths}, commit {folder, message}, ignored {folder, paths};
+/// branches {folder}, worktrees {folder}, worktree_size {folder, path}; agent context {folder},
+/// instructions {folder}, write_instructions {folder, files, remove}.
+pub fn projects_tool(v: &serde_json::Value) -> Result<serde_json::Value, String> {
+    use serde_json::json;
+    let file = projects::default_path(&home());
+    let folder = || {
+        v["folder"]
+            .as_str()
+            .map(std::path::PathBuf::from)
+            .filter(|p| p.is_absolute())
+            .ok_or_else(|| "folder must be an absolute path".to_string())
+    };
+    let id = || v["id"].as_str().ok_or_else(|| "id is required".to_string());
+    match v["op"].as_str().unwrap_or("") {
+        "list" => Ok(json!(projects::load(&file))),
+        "check" => Ok(json!(projects::check(&folder()?, &projects::load(&file)))),
+        "add" => {
+            let name = v["name"].as_str().unwrap_or("");
+            let template = v["template"].as_bool().unwrap_or(false);
+            Ok(json!(projects::add(
+                &file,
+                &folder()?,
+                name,
+                template,
+                now() as i64
+            )?))
+        }
+        "rename" => {
+            let name = v["name"].as_str().unwrap_or("").to_string();
+            Ok(json!(projects::update(&file, id()?, |p| p.name = name)?))
+        }
+        "set" => {
+            let show = v["show_in_panel"].as_bool();
+            let notify = v
+                .get("notify_minutes")
+                .map(|n| n.as_u64().map(|m| m as u32));
+            Ok(json!(projects::update(&file, id()?, |p| {
+                if let Some(s) = show {
+                    p.show_in_panel = s;
+                }
+                if let Some(n) = notify {
+                    p.notify_minutes = n;
+                }
+            })?))
+        }
+        "remove" => {
+            projects::remove(&file, id()?)?;
+            Ok(json!({"removed": id()?}))
+        }
+        "init" => Ok(json!(git::init(&folder()?)?)),
+        "status" => Ok(json!(gitchanges::status(&folder()?)?)),
+        "summary" => Ok(json!(gitchanges::summary(&folder()?)?)),
+        "commit_context" => {
+            let max = v["max_bytes"].as_u64().unwrap_or(24 * 1024) as usize;
+            Ok(json!(gitchanges::commit_context(&folder()?, max)?))
+        }
+        "notify_check" => {
+            let now = gitchanges::summary(&folder()?)?;
+            let before: Option<gitchanges::Summary> =
+                serde_json::from_value(v["before"].clone()).ok();
+            let delta = before.as_ref().and_then(|b| gitchanges::delta(b, &now));
+            Ok(json!({"summary": now, "delta": delta}))
+        }
+        "file_diffs" => {
+            let paths: Vec<String> = v["paths"]
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|p| p.as_str().map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let mode = v["mode"].as_str().unwrap_or("head");
+            let context = v["context"].as_u64().unwrap_or(3) as u32;
+            Ok(json!({"files": gitchanges::file_diffs(&folder()?, &paths, mode, context)?}))
+        }
+        "branches" => Ok(json!(gitbranches::branches(&folder()?)?)),
+        "context" => Ok(json!({"context": agentcontext::for_folder(&folder()?)})),
+        "instructions" => Ok(json!(agentcontext::instructions(&folder()?)?)),
+        "write_instructions" => {
+            let files: Vec<String> = v["files"]
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|p| p.as_str().map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let remove = v["remove"].as_bool().unwrap_or(false);
+            Ok(json!(agentcontext::write_instructions(
+                &folder()?,
+                &files,
+                remove
+            )?))
+        }
+        "worktrees" => Ok(json!(gitbranches::worktrees(&folder()?, &processes_now())?)),
+        "worktree_size" => {
+            let path = v["path"].as_str().ok_or("path is required")?;
+            Ok(json!({"path": path, "bytes": gitbranches::worktree_size(&folder()?, path)?}))
+        }
+        "diff" => {
+            let path = v["path"].as_str().ok_or("path is required")?;
+            let staged = v["staged"].as_bool().unwrap_or(false);
+            Ok(json!({"diff": gitchanges::diff(&folder()?, path, staged)?}))
+        }
+        "stage" | "unstage" | "discard" | "ignored" => {
+            let paths: Vec<String> = v["paths"]
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|p| p.as_str().map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let dir = folder()?;
+            match v["op"].as_str().unwrap_or("") {
+                "stage" => gitchanges::stage(&dir, &paths)?,
+                "unstage" => gitchanges::unstage(&dir, &paths)?,
+                "discard" => gitchanges::discard(&dir, &paths)?,
+                _ => return Ok(json!({"ignored": gitchanges::ignored(&dir, &paths)?})),
+            }
+            Ok(json!({"done": paths.len()}))
+        }
+        "commit" => {
+            let message = v["message"].as_str().unwrap_or("");
+            Ok(json!({"output": gitchanges::commit(&folder()?, message)?}))
+        }
+        _ => Err("unknown operation".into()),
+    }
+}
+/// `projects_tool` for the app.
+///
+/// # Safety
+/// `request` is a valid NUL-terminated UTF-8 JSON pointer for the duration of this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cs_projects(request: *const c_char) -> *mut c_char {
+    response(|| {
+        if request.is_null() {
+            return Err("Consulta ausente".into());
+        }
+        let v: serde_json::Value =
+            serde_json::from_slice(unsafe { CStr::from_ptr(request) }.to_bytes())
+                .map_err(|e| e.to_string())?;
+        projects_tool(&v).map(|v| v.to_string())
+    })
 }
 /// `db_tool` for the app.
 ///

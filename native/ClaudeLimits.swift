@@ -186,14 +186,14 @@ enum ClaudeLimitsBridge {
     }
   }
   /// settings-<timestamp>.json next to the other CoreScope files; the newest 10 are kept.
-  static func backup(_ text: String) throws {
+  static func backup(_ text: String, prefix: String = "settings") throws {
     let fm = FileManager.default
     try fm.createDirectory(at: backups, withIntermediateDirectories: true)
     let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
-    try write(text, to: backups.appendingPathComponent("settings-\(stamp)-\(UUID().uuidString).json"))
+    try write(text, to: backups.appendingPathComponent("\(prefix)-\(stamp)-\(UUID().uuidString).json"))
     let old = ((try? fm.contentsOfDirectory(
       at: backups, includingPropertiesForKeys: [.contentModificationDateKey])) ?? [])
-      .filter { $0.lastPathComponent.hasPrefix("settings-") }
+      .filter { $0.lastPathComponent.hasPrefix(prefix + "-") }
       .sorted {
         let left = (try? $0.resourceValues(forKeys: [.contentModificationDateKey]))?
           .contentModificationDate ?? .distantPast

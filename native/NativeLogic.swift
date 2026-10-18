@@ -753,40 +753,51 @@ func sshConfigHosts(_ config: String) -> [String] {
 /// CoreScope's Claude Code PreToolUse hook (`corescope gate`) inside ~/.claude/settings.json:
 /// added as its own matcher group, recognized by its command, removed without touching other
 /// hooks.
-enum ClaudeGateHook {
-  static func command(binary: String) -> String { ClaudeStatusLine.shellQuote(binary) + " gate" }
-  private static func isOurs(_ hook: OrderedJSON) -> Bool {
-    hook["command"]?.stringValue?.hasSuffix(" gate") == true && hook["command"]?.stringValue?.contains("corescope") == true
+/// CoreScope's hooks in an agent's hooks file. Claude Code (`~/.claude/settings.json`) and Codex
+/// (`~/.codex/hooks.json`) use the same shape: `hooks.<Event>[] = {matcher?, hooks: [{type,
+/// command, timeout, statusMessage?}]}`. Only CoreScope's own entries are added or removed.
+enum AgentHook: String, CaseIterable {
+  /// PreToolUse on Bash: heavy commands wait for room (`corescope gate`).
+  case gate
+  /// SessionStart: the project's .corescope.yml summed up as context (`corescope context --hook`).
+  case context
+  var event: String { self == .gate ? "PreToolUse" : "SessionStart" }
+  var matcher: String? { self == .gate ? "Bash" : nil }
+  private var suffix: String { self == .gate ? " gate" : " context --hook" }
+  var timeout: Int { self == .gate ? 3600 : 15 }
+  func command(binary: String) -> String { ClaudeStatusLine.shellQuote(binary) + suffix }
+  private func isOurs(_ hook: OrderedJSON) -> Bool {
+    guard let command = hook["command"]?.stringValue else { return false }
+    return command.hasSuffix(suffix) && command.contains("corescope")
   }
-  static func installed(in settings: OrderedJSON?) -> Bool {
-    guard case .array(let groups)? = settings?["hooks"]?["PreToolUse"] else { return false }
+  func installed(in settings: OrderedJSON?) -> Bool {
+    guard case .array(let groups)? = settings?["hooks"]?[event] else { return false }
     return groups.contains { group in
       guard case .array(let hooks)? = group["hooks"] else { return false }
       return hooks.contains(where: isOurs)
     }
   }
   /// Settings with the hook (replacing an older CoreScope entry, e.g. after the app moved).
-  static func installing(into settings: OrderedJSON, binary: String, timeout: Int = 3600) -> OrderedJSON {
+  func installing(into settings: OrderedJSON, binary: String, statusMessage: String? = nil) -> OrderedJSON {
     let cleaned = removing(from: settings)
-    let group = OrderedJSON.object([
-      .init(key: "matcher", value: .string("Bash")),
-      .init(key: "hooks", value: .array([
-        .object([
-          .init(key: "type", value: .string("command")),
-          .init(key: "command", value: .string(command(binary: binary))),
-          .init(key: "timeout", value: .number(String(timeout))),
-        ])
-      ])),
-    ])
+    var handler: [OrderedJSON.Member] = [
+      .init(key: "type", value: .string("command")),
+      .init(key: "command", value: .string(command(binary: binary))),
+      .init(key: "timeout", value: .number(String(timeout))),
+    ]
+    if let statusMessage { handler.append(.init(key: "statusMessage", value: .string(statusMessage))) }
+    var groupMembers: [OrderedJSON.Member] = []
+    if let matcher { groupMembers.append(.init(key: "matcher", value: .string(matcher))) }
+    groupMembers.append(.init(key: "hooks", value: .array([.object(handler)])))
     let hooks = cleaned["hooks"] ?? .object([])
     var groups: [OrderedJSON] = []
-    if case .array(let existing)? = hooks["PreToolUse"] { groups = existing }
-    groups.append(group)
-    return cleaned.setting("hooks", hooks.setting("PreToolUse", .array(groups)))
+    if case .array(let existing)? = hooks[event] { groups = existing }
+    groups.append(.object(groupMembers))
+    return cleaned.setting("hooks", hooks.setting(event, .array(groups)))
   }
   /// Settings without CoreScope's hook; groups and sections left empty by it are dropped.
-  static func removing(from settings: OrderedJSON) -> OrderedJSON {
-    guard let hooks = settings["hooks"], case .array(let groups)? = hooks["PreToolUse"] else { return settings }
+  func removing(from settings: OrderedJSON) -> OrderedJSON {
+    guard let hooks = settings["hooks"], case .array(let groups)? = hooks[event] else { return settings }
     var kept: [OrderedJSON] = []
     for group in groups {
       guard case .array(let list)? = group["hooks"] else {
@@ -800,7 +811,7 @@ enum ClaudeGateHook {
         kept.append(group.setting("hooks", .array(remaining)))
       }
     }
-    let nextHooks = hooks.setting("PreToolUse", kept.isEmpty ? nil : .array(kept))
+    let nextHooks = hooks.setting(event, kept.isEmpty ? nil : .array(kept))
     return settings.setting("hooks", nextHooks == .object([]) ? nil : nextHooks)
   }
 }
@@ -1146,8 +1157,10 @@ func isCoreScopeHelper(path: String) -> Bool {
 /// A `corescope://` link, from Shortcuts, Raycast, scripts or a browser.
 ///   corescope://open/ports · corescope://profile/start?name=Shop · corescope://lookup?port=8000
 ///   corescope://services/check · corescope://happened?at=14:05 · corescope://palette
+///   corescope://project/<id or name> (the project's changes)
 enum AppLink: Equatable {
   case open(page: String?)
+  case project(String)
   case profile(action: String, name: String)
   case lookup(port: UInt16?)
   case checkServices
@@ -1178,6 +1191,9 @@ enum AppLink: Equatable {
       guard let at = query["at"] ?? path.first else { return nil }
       self = .happened(at: at)
     case "palette": self = .palette
+    case "project", "projects":
+      guard let project = path.first ?? query["name"] else { return nil }
+      self = .project(project)
     default: return nil
     }
   }
@@ -1275,4 +1291,10 @@ enum SettingsBackupLogic {
     let dated = names.filter { $0.hasPrefix("settings-") && $0.hasSuffix(".plist") }.sorted()
     return Array(dated.dropLast(keep))
   }
+}
+
+/// "a/b/c.txt" → ["a", "a/b"]: the folders above a repository-relative path.
+func pathAncestors(_ path: String) -> [String] {
+  let parts = path.split(separator: "/").dropLast()
+  return parts.indices.map { parts[parts.startIndex...$0].joined(separator: "/") }
 }

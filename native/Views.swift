@@ -48,6 +48,7 @@ enum Page: String, CaseIterable, Identifiable {
   case overview = "Visão geral"
   case processes = "Processos"
   case agents = "Agentes"
+  case projects = "Projetos"
   case containers = "Contêineres"
   case history = "Histórico"
   case storage = "Armazenamento"
@@ -69,6 +70,7 @@ enum Page: String, CaseIterable, Identifiable {
     case .overview: "overview"
     case .processes: "processes"
     case .agents: "agents"
+    case .projects: "projects"
     case .containers: "containers"
     case .history: "history"
     case .storage: "storage"
@@ -89,6 +91,7 @@ enum Page: String, CaseIterable, Identifiable {
     case .overview: "gauge.with.dots.needle.50percent"
     case .processes: "list.bullet.indent"
     case .agents: "sparkles"
+    case .projects: "folder.badge.gearshape"
     case .containers: "shippingbox"
     case .history: "clock.arrow.circlepath"
     case .storage: "internaldrive"
@@ -163,6 +166,7 @@ struct MainView: View {
           case .overview: OverviewView()
           case .processes: ProcessesView()
           case .agents: AgentsView()
+          case .projects: ProjectsView()
           case .containers: ContainersView()
           case .history: HistoryView()
           case .storage: StorageView()

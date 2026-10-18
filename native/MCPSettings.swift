@@ -101,7 +101,8 @@ struct MCPSettings: View {
   @ViewState private var states: [MCPRegistration.Agent: MCPRegistration.State] = [:]
   @ViewState private var busy = Set<MCPRegistration.Agent>()
   @ViewState private var error: String?
-  @ViewState private var gateHook = false
+  @ViewState private var hooks: [String: Bool] = [:]
+  @ViewState private var codexTrust: [String: String]?
   @ObservedObject var prefs = Preferences.shared
   private let queue = DispatchQueue(label: "app.corescope.mcp", qos: .userInitiated)
   var body: some View {
@@ -126,21 +127,18 @@ struct MCPSettings: View {
         }
       }
       Toggle(L("Agentes podem usar o app pelo MCP"), isOn: $prefs.mcpAppAccess)
-      Toggle(L("Claude Code espera a máquina ter folga antes de comandos pesados"), isOn: Binding(
-        get: { gateHook },
-        set: { on in
-          queue.async {
-            let failure = ClaudeGateBridge.set(on)
-            let now = ClaudeGateBridge.installed()
-            DispatchQueue.main.async {
-              gateHook = now
-              error = failure
-            }
+      AgentHooksTable(hooks: hooks, codexTrust: codexTrust) { hook, host, on in
+        queue.async {
+          let failure = AgentHooksBridge.set(hook, in: host, on)
+          let now = AgentHooksBridge.installed(hook, in: host)
+          let trust = host == .codex ? CodexAppServer.coreScopeHookTrust() : nil
+          DispatchQueue.main.async {
+            hooks[hookKey(hook, host)] = now
+            if host == .codex { codexTrust = trust }
+            error = failure.map { "\(host.rawValue): \($0)" }
           }
-        }))
-      Text(
-        L("Instala um hook em ~/.claude/settings.json (com backup) que roda corescope gate antes de cada comando: nos projetos cujo .corescope.yml define agents.wait_for_capacity, builds e testes esperam a CPU e a memória normalizarem. Nos outros não faz nada. Codex e outros agentes usam a ferramenta MCP wait_for_capacity.")
-      ).font(.caption).foregroundStyle(.secondary)
+        }
+      }
       Text(
         L("Perfis (criar, iniciar, parar, logs), Serviços, Máquinas, limpeza (analisar e mover para a Lixeira o que a análise encontrou) e ajustes de notificação. Pelo socket local do app, só para o seu usuário. O agente pede a sua aprovação antes de cada ação.")
       ).font(.caption).foregroundStyle(.secondary)
@@ -163,8 +161,16 @@ struct MCPSettings: View {
   }
   private func reload() {
     queue.async {
-      let hook = ClaudeGateBridge.installed()
-      DispatchQueue.main.async { gateHook = hook }
+      var installed: [String: Bool] = [:]
+      for host in HookHost.allCases {
+        for hook in AgentHook.allCases { installed[hookKey(hook, host)] = AgentHooksBridge.installed(hook, in: host) }
+      }
+      // Codex's own view of their trust, only when one of CoreScope's hooks is there to ask about.
+      let trust = AgentHook.allCases.contains { installed[hookKey($0, .codex)] == true } ? CodexAppServer.coreScopeHookTrust() : nil
+      DispatchQueue.main.async {
+        hooks = installed
+        codexTrust = trust
+      }
       var next: [MCPRegistration.Agent: MCPRegistration.State] = [:]
       for agent in MCPRegistration.Agent.allCases { next[agent] = MCPRegistration.state(agent) }
       DispatchQueue.main.async { states = next }
@@ -181,5 +187,59 @@ struct MCPSettings: View {
         error = failure.map { "\(agent.rawValue): \($0)" }
       }
     }
+  }
+}
+
+func hookKey(_ hook: AgentHook, _ host: HookHost) -> String { "\(host.rawValue)-\(hook.rawValue)" }
+
+/// Which CoreScope hooks each agent has, with a switch per cell, and Codex's trust step.
+private struct AgentHooksTable: View {
+  let hooks: [String: Bool]
+  let codexTrust: [String: String]?
+  let set: (AgentHook, HookHost, Bool) -> Void
+  /// Separate Form rows (a Grid inside one row mis-measures its height).
+  var body: some View {
+    ForEach(AgentHook.allCases, id: \.self) { hook in
+      VStack(alignment: .leading, spacing: 6) {
+        Text(title(hook))
+        Text(detail(hook)).font(.caption).foregroundStyle(.secondary)
+        HStack(spacing: 18) {
+          ForEach(HookHost.allCases) { host in
+            Toggle(host.rawValue, isOn: Binding(get: { hooks[hookKey(hook, host)] == true }, set: { set(hook, host, $0) }))
+              .toggleStyle(.switch).controlSize(.small).disabled(!host.available)
+              .help(host.available ? host.shortPath : L("%@ não está configurado neste Mac", host.rawValue))
+          }
+        }
+      }
+      .padding(.vertical, 2)
+    }
+    if AgentHook.allCases.contains(where: { hooks[hookKey($0, .codex)] == true }) { codexNote }
+    Text(L("Os hooks rodam o corescope deste app; cada arquivo ganha um backup antes de mudar e só as entradas do CoreScope são mexidas. Agentes sem hooks recebem o mesmo pelo MCP (agent_context) ou pela seção no CLAUDE.md / AGENTS.md de cada projeto."))
+      .font(.caption).foregroundStyle(.secondary)
+  }
+  private func title(_ hook: AgentHook) -> String {
+    hook == .context ? L("Contexto do projeto no início da sessão") : L("Esperar folga antes de comandos pesados")
+  }
+  private func detail(_ hook: AgentHook) -> String {
+    hook == .context
+      ? L("O agente recebe o que o .corescope.yml pede: capacidade, portas, perfis, serviços e logs.")
+      : L("Builds e testes esperam CPU e memória normalizarem nos projetos com agents.wait_for_capacity.")
+  }
+  /// Codex runs a user hook only after it is reviewed in its /hooks screen.
+  @ViewBuilder private var codexNote: some View {
+    let states = AgentHook.allCases.filter { hooks[hookKey($0, .codex)] == true }
+      .map { codexTrust?[$0 == .gate ? "preToolUse" : "sessionStart"] }
+    let trusted = states.allSatisfy { $0 == "trusted" || $0 == "managed" }
+    HStack(alignment: .firstTextBaseline, spacing: 6) {
+      Image(systemName: trusted ? "checkmark.seal.fill" : "hand.raised.fill").foregroundStyle(trusted ? .green : .orange)
+      if codexTrust == nil {
+        Text(L("O Codex só roda hooks que você aprovou: abra o Codex, digite /hooks e confie nos do CoreScope (de novo se o app mudar de lugar)."))
+      } else if trusted {
+        Text(L("O Codex confia nos hooks do CoreScope."))
+      } else {
+        Text(L("O Codex ainda não roda estes hooks: abra o Codex, digite /hooks e confie nos do CoreScope. Depois disso eles rodam em toda sessão."))
+      }
+    }
+    .font(.caption)
   }
 }

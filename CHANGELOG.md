@@ -10,6 +10,76 @@ section as the GitHub release notes.
 
 ## [Unreleased]
 
+### Added
+- **Projects page** (phase 1 of the Projects epic): register local repositories by folder, with a
+  default name from `.corescope.yml` (or the folder) that stays editable; the file is validated
+  with errors placed on their line and summarized (profiles, ports, Services, logs, capacity), a
+  minimal one is offered when missing (decline and nothing is added); git root, linked worktree
+  and main repository, subfolder, branch or detached HEAD; `git init` after a confirmation;
+  rename and remove (files are never touched). `corescope://open/projects`, `corescope projects`,
+  MCP `list_projects`. The list lives in `Application Support/CoreScope/projects.json` and is part
+  of the settings backup.
+- **Projects › Changes and commit** (phase 2): a commit panel per repository — branch, upstream
+  and ahead/behind, last commit; files grouped into Conflicts, Staged, Modified, New and Removed
+  with status and +/− lines (`git status --porcelain=v2` plus `git diff --numstat`); checkbox
+  stage/unstage, multi-select, *Stage all* / *Unstage all*; unified diff; open in an installed
+  editor or Finder; *Discard changes…* after a confirmation (tracked files back to HEAD, new files
+  to the Trash); commit with ⌘↩, disabled without a message, staged files or with conflicts, hooks
+  and signing as configured and a failing hook's output shown. `index.lock` and conflicts are
+  explained, never a crash. The diff reads like Zed's uncommitted-changes view: all changes
+  stacked by file (or the selected files) under pinned headers with a stage checkbox and *Open*,
+  green/red/yellow gutter bars, line numbers, syntax colors, folded unchanged stretches and
+  ↑/↓ between changes. Each card shows the change counts and ahead/behind without opening it,
+  live while the page is open. FSEvents refreshes the panel only while it is open (`.git` reduced to
+  HEAD/index/refs, `.gitignore`d paths dropped, at most two reloads a second), measured as
+  *Projects (git)* in CoreScope's own cost. `corescope status`, `corescope://project/NAME`, MCP
+  `project_git_status`, `project_git_diff`, `project_git_stage`, `project_git_commit`,
+  `project_git_discard`.
+- **Projects › Branches and worktrees** (phase 3, view only): collapsible sections on each
+  repository's card, closed by default and read only when opened. Local branches (`git branch
+  --format`): current first, last commit, ahead/behind or upstream gone, checked out in another
+  worktree. Worktrees (`git worktree list --porcelain`, main included): branch, agent, merged,
+  uncommitted changes, process working in it, lock, folder gone, last commit and a size measured
+  in the background and cached for 10 minutes, without counting nested worktrees twice. Removal
+  stays on the Cleanup page, linked from the section. `corescope branches`, `corescope worktrees`
+  accepts a project name, MCP `project_branches` / `project_worktrees`.
+- Demo mode also anonymizes project names and branch names on the Projects page.
+- **Projects in the floating panel and the menu bar** (phase 4): *Show in panel* per project (card
+  menu, the panel's menu, MCP `set_project`) adds a row with name, branch and change counts to
+  every panel layout and to the menu bar popover, read when they appear and kept live by file
+  watchers only while visible; a click opens the project's changes in a window of their own.
+- **Change notifications per project** (phase 5, opt-in, off by default): every 1, 5 or 15 min
+  (card menu, Settings › Notifications, MCP `set_project`). Watchers only mark a project as
+  touched; at its interval it is read once and compared with the last notification (core
+  `delta`, tested), so it says what moved — new/modified/staged/deleted/conflict counts, a new
+  commit or a branch switch — and never fires for a save that changes nothing. Clicking opens the
+  changes.
+- **AI commit message** (phase 6, opt-in, off by default): *Generate message* in the changes
+  panel writes the message from the staged diff only (core `commit_context`: lockfiles and
+  binaries left out, cut at a configurable size, tested) with the provider set in *Settings › AI*:
+  Claude Code `claude -p` or Codex `codex exec` already signed in (no tools, no MCP, outside any
+  project), the Anthropic / OpenAI (Responses) / Gemini API with the key in the Keychain only, or
+  Ollama / LM Studio. Editable instructions (Conventional Commits, title up to 72 characters),
+  message language, model as free text with suggestions, *Test connection*, and a one-time
+  consent per provider showing exactly what is sent. The message is editable and nothing commits
+  on its own. MCP `generate_commit_message`. CONTRIBUTING and Privacy document the exception to
+  local-only.
+- **Agents follow the project's `.corescope.yml` on their own**: *Settings › MCP server › Agent
+  hooks* installs, per agent (Claude Code `~/.claude/settings.json`, Codex `~/.codex/hooks.json`,
+  each backed up first), a SessionStart hook (`corescope context --hook`) that gives each new
+  session a summary of the nearest `.corescope.yml` — capacity rule and heavy commands, ports,
+  profiles, services, logs, a snapshot before wiping a database, or the file's error with its
+  line — and the capacity gate (`corescope gate`), which now also covers Codex (same payload). The
+  settings show whether Codex trusts the hooks (it runs user hooks only after `/hooks`). For
+  agents without hooks: MCP `agent_context`, and a marked section in the project's `CLAUDE.md` /
+  `AGENTS.md` (*Agent instructions…* on the project card, `corescope context --write`, MCP
+  `write_agent_instructions`), leaving the rest of the file alone. MCP `agent_hooks` reports and
+  changes the hooks; the MCP instructions ask agents to read `agent_context` when no session
+  context came.
+
+### Fixed
+- The Navigate menu gives ⌘1–⌘9 to the first nine pages only; more pages would have crashed it.
+
 ## [0.7.0] - 2026-10-18
 
 ### Added

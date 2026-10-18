@@ -60,6 +60,12 @@ USAGE:
                                         age and the app that manages it (read-only)
   corescope eject-check VOLUME          what keeps a volume from ejecting: programs running from it,
                                         open files and working folders (read-only)
+  corescope projects                    registered projects: branch, worktree, .corescope.yml status
+  corescope context [FOLDER]            what the project's .corescope.yml asks of agents (capacity, ports,
+                                        profiles, services, logs); --write CLAUDE.md|AGENTS.md|all puts it
+                                        in a marked section, --remove takes it out; --hook for SessionStart
+  corescope status [PROJECT|FOLDER]     git changes of a project (or this folder): branch, staged, modified, new
+  corescope branches [PROJECT|FOLDER]   local branches: current, last commit, ahead/behind, worktree
   corescope disk-health                 SSD health from NVMe SMART: wear, data written, power-on
                                         hours, unsafe shutdowns, media errors and a verdict
   corescope mcp                         run the local MCP server on stdio
@@ -236,10 +242,19 @@ fn main() {
         }
         Some("containers") => print(json_out, containers()),
         Some("worktrees") => {
-            let folders: Vec<std::path::PathBuf> = positional[1..].iter().map(Into::into).collect();
+            // A registered project's name stands for its folder.
+            let folders: Vec<std::path::PathBuf> = positional[1..]
+                .iter()
+                .map(|t| {
+                    project_folder(Some(t))
+                        .unwrap_or_else(|_| t.to_string())
+                        .into()
+                })
+                .collect();
             print(json_out, worktrees(&folders))
         }
         Some("gate") => gate(),
+        Some("context") => context(&args, &positional, json_out),
         Some("wait") => {
             let folder = positional
                 .get(1)
@@ -338,6 +353,166 @@ fn main() {
                         } else {
                             String::new()
                         }
+                    );
+                }
+                0
+            }
+        }
+        Some("status") => (|| -> i32 {
+            let folder = match project_folder(positional.get(1).copied()) {
+                Ok(f) => f,
+                Err(e) => {
+                    eprintln!("{e}");
+                    return 1;
+                }
+            };
+            let s = match corescope::projects_tool(&json!({"op": "status", "folder": folder})) {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("{e}");
+                    return 1;
+                }
+            };
+            if json_out {
+                return print(true, s);
+            }
+            let b = &s["branch"];
+            let mut head = b["head"].as_str().unwrap_or("(detached)").to_string();
+            if let Some(up) = b["upstream"].as_str() {
+                head += &format!(
+                    " → {up} ↑{} ↓{}",
+                    b["ahead"].as_u64().unwrap_or(0),
+                    b["behind"].as_u64().unwrap_or(0)
+                );
+            }
+            println!("{head}");
+            if let Some(c) = s["last_commit"].as_object() {
+                println!(
+                    "last commit {} {} ({})",
+                    c["short"].as_str().unwrap_or(""),
+                    c["subject"].as_str().unwrap_or(""),
+                    c["author"].as_str().unwrap_or("")
+                );
+            }
+            if s["locked"].as_bool() == Some(true) {
+                println!("another git process holds index.lock");
+            }
+            let n = |k: &str| s[k].as_u64().unwrap_or(0);
+            println!(
+                "{} staged, {} modified, {} new, {} removed, {} conflicts",
+                n("staged"),
+                n("modified"),
+                n("untracked"),
+                n("removed_renamed"),
+                n("conflicts")
+            );
+            let lines = |a: &Value, r: &Value| match (a.as_u64(), r.as_u64()) {
+                (Some(a), Some(r)) => format!("+{a} -{r}"),
+                _ => String::new(),
+            };
+            for f in s["files"].as_array().into_iter().flatten() {
+                let code = format!(
+                    "{}{}",
+                    f["index"].as_str().unwrap_or("."),
+                    f["worktree"].as_str().unwrap_or(".")
+                );
+                let mut path = f["path"].as_str().unwrap_or("").to_string();
+                if let Some(o) = f["orig_path"].as_str() {
+                    path = format!("{o} → {path}");
+                }
+                let changes = if f["staged_added"].is_null() {
+                    lines(&f["added"], &f["removed"])
+                } else {
+                    lines(&f["staged_added"], &f["staged_removed"])
+                };
+                println!("  {code} {path} {changes}");
+            }
+            if n("truncated") > 0 {
+                println!("  … and {} more", n("truncated"));
+            }
+            0
+        })(),
+        Some("branches") => (|| -> i32 {
+            let folder = match project_folder(positional.get(1).copied()) {
+                Ok(f) => f,
+                Err(e) => {
+                    eprintln!("{e}");
+                    return 1;
+                }
+            };
+            let v = match corescope::projects_tool(&json!({"op": "branches", "folder": folder})) {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!("{e}");
+                    return 1;
+                }
+            };
+            if json_out {
+                return print(true, v);
+            }
+            for b in v["branches"].as_array().into_iter().flatten() {
+                let mut sync = match (b["ahead"].as_u64(), b["behind"].as_u64()) {
+                    _ if b["gone"].as_bool() == Some(true) => "upstream gone".to_string(),
+                    (Some(a), Some(r)) => format!("↑{a} ↓{r}"),
+                    _ => "no upstream".into(),
+                };
+                if let Some(w) = b["worktree"].as_str() {
+                    sync += &format!("  (worktree {w})");
+                }
+                println!(
+                    "{} {:<32} {:<9} {:<14} {}",
+                    if b["current"].as_bool() == Some(true) {
+                        "*"
+                    } else {
+                        " "
+                    },
+                    b["name"].as_str().unwrap_or(""),
+                    b["head"].as_str().unwrap_or(""),
+                    sync,
+                    b["subject"].as_str().unwrap_or("")
+                );
+            }
+            if let Some(n) = v["truncated"].as_u64().filter(|n| *n > 0) {
+                println!("  … and {n} more");
+            }
+            0
+        })(),
+        Some("projects") => {
+            let list = corescope::projects_tool(&json!({"op": "list"})).unwrap_or(json!([]));
+            let rows: Vec<Value> = list
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|p| {
+                    let folder = p["folder"].as_str().unwrap_or("");
+                    let check = corescope::projects_tool(&json!({"op": "check", "folder": folder}))
+                        .unwrap_or(Value::Null);
+                    json!({"project": p, "git": check["git"], "config": check["config"]})
+                })
+                .collect();
+            if json_out {
+                print(true, json!(rows))
+            } else {
+                if rows.is_empty() {
+                    println!("No projects yet: add one on the Projects page.");
+                }
+                for r in &rows {
+                    let git = &r["git"];
+                    let branch = if git["is_repo"].as_bool() == Some(true) {
+                        git["branch"].as_str().unwrap_or("(detached)").to_string()
+                    } else {
+                        "no git".into()
+                    };
+                    let config = match r["config"]["error"].as_str() {
+                        Some(e) => format!("yml error: {e}"),
+                        None => "yml ok".into(),
+                    };
+                    println!(
+                        "{:<24} {:<20} {:<10} {}",
+                        r["project"]["name"].as_str().unwrap_or(""),
+                        branch,
+                        config,
+                        r["project"]["folder"].as_str().unwrap_or("")
                     );
                 }
                 0
@@ -913,14 +1088,10 @@ fn gate() -> i32 {
     let mut input = String::new();
     let _ = std::io::stdin().take(1 << 20).read_to_string(&mut input);
     let call: Value = serde_json::from_str(&input).unwrap_or_default();
-    if call["tool_name"].as_str() != Some("Bash") {
+    let Some((command, folder)) = gate_request(&call) else {
         return 0;
-    }
-    let command = call["tool_input"]["command"].as_str().unwrap_or("");
-    let folder = call["cwd"]
-        .as_str()
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+    };
+    let command = command.as_str();
     let Some(spec) = capacity_spec(&folder) else {
         return 0;
     };
@@ -956,6 +1127,105 @@ fn gate() -> i32 {
         );
     }
     0
+}
+
+/// The shell command and working folder of a PreToolUse hook call. Claude Code and Codex send
+/// the same shape: `tool_name` "Bash", `tool_input.command`, `cwd`.
+fn gate_request(call: &Value) -> Option<(String, std::path::PathBuf)> {
+    if call["tool_name"].as_str() != Some("Bash") {
+        return None;
+    }
+    let command = call["tool_input"]["command"].as_str()?.to_string();
+    let folder = call["cwd"]
+        .as_str()
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+    Some((command, folder))
+}
+
+/// `corescope context`: what the project's `.corescope.yml` asks of agents. `--hook` is the
+/// SessionStart hook (Claude Code, Codex): the folder comes from the hook's JSON and the answer
+/// is the hook's additional context; it never fails a session. `--write FILE` (CLAUDE.md,
+/// AGENTS.md or all) puts the text in a marked section; `--remove` takes it out.
+fn context(args: &[String], positional: &[&str], json_out: bool) -> i32 {
+    use std::io::{IsTerminal, Read};
+    let flag = |name: &str| args.iter().any(|a| a == name);
+    if flag("--hook") {
+        let mut input = String::new();
+        if !std::io::stdin().is_terminal() {
+            let _ = std::io::stdin().take(1 << 20).read_to_string(&mut input);
+        }
+        let call: Value = serde_json::from_str(&input).unwrap_or_default();
+        let folder = call["cwd"]
+            .as_str()
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+        if let Some(text) = corescope::agentcontext::for_folder(&folder) {
+            println!("{}", corescope::agentcontext::hook_output(&text));
+        }
+        return 0;
+    }
+    let folder = positional
+        .get(1)
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+    let writes: Vec<String> = args
+        .iter()
+        .enumerate()
+        .filter(|(_, a)| *a == "--write")
+        .filter_map(|(i, _)| args.get(i + 1))
+        .flat_map(|f| {
+            if f == "all" {
+                corescope::agentcontext::INSTRUCTION_FILES
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect()
+            } else {
+                vec![f.clone()]
+            }
+        })
+        .collect();
+    let remove = flag("--remove");
+    if !writes.is_empty() || remove {
+        let files = if writes.is_empty() {
+            corescope::agentcontext::INSTRUCTION_FILES
+                .iter()
+                .map(|s| s.to_string())
+                .collect()
+        } else {
+            writes
+        };
+        return match corescope::agentcontext::write_instructions(&folder, &files, remove) {
+            Ok(state) => {
+                if json_out {
+                    print(true, json!(state))
+                } else {
+                    for f in &state.files {
+                        println!("{:<9} {}", f.state, f.file);
+                    }
+                    0
+                }
+            }
+            Err(e) => {
+                eprintln!("corescope: {e}");
+                1
+            }
+        };
+    }
+    match corescope::agentcontext::for_folder(&folder) {
+        Some(text) if json_out => print(true, json!({"context": text})),
+        Some(text) => {
+            println!("{text}");
+            0
+        }
+        None => {
+            eprintln!(
+                "corescope: no .corescope.yml in {} or above it",
+                folder.display()
+            );
+            1
+        }
+    }
 }
 
 /// The project file in `folder` (or the nearest parent with one), parsed and validated.
@@ -1525,8 +1795,56 @@ fn print(json_out: bool, value: Value) -> i32 {
     0
 }
 
+/// A registered project's folder (id or name), a folder given on the command line, or the
+/// current folder.
+fn project_folder(target: Option<&str>) -> Result<String, String> {
+    let Some(t) = target else {
+        return std::env::current_dir()
+            .map(|d| d.to_string_lossy().into_owned())
+            .map_err(|e| e.to_string());
+    };
+    if std::path::Path::new(t).is_dir() {
+        return Ok(std::fs::canonicalize(t)
+            .map(|d| d.to_string_lossy().into_owned())
+            .unwrap_or_else(|_| t.to_string()));
+    }
+    let list = corescope::projects_tool(&json!({"op": "list"})).unwrap_or(json!([]));
+    list.as_array()
+        .into_iter()
+        .flatten()
+        .find(|p| {
+            p["id"].as_str() == Some(t)
+                || p["name"]
+                    .as_str()
+                    .is_some_and(|n| n.eq_ignore_ascii_case(t))
+        })
+        .and_then(|p| p["folder"].as_str().map(str::to_string))
+        .ok_or_else(|| format!("No project or folder called {t}."))
+}
+
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn gate_reads_claude_code_and_codex_calls() {
+        let claude = json!({"session_id": "s", "cwd": "/repo", "hook_event_name": "PreToolUse",
+            "tool_name": "Bash", "tool_input": {"command": "npm test", "description": "x"}});
+        let codex = json!({"session_id": "s", "turn_id": "t", "cwd": "/repo", "model": "gpt",
+            "permission_mode": "default", "hook_event_name": "PreToolUse", "tool_name": "Bash",
+            "tool_use_id": "u", "tool_input": {"command": "cargo build"}});
+        assert_eq!(
+            gate_request(&claude),
+            Some(("npm test".into(), "/repo".into()))
+        );
+        assert_eq!(
+            gate_request(&codex),
+            Some(("cargo build".into(), "/repo".into()))
+        );
+        let patch =
+            json!({"tool_name": "apply_patch", "tool_input": {"command": "*** Begin Patch"}});
+        assert_eq!(gate_request(&patch), None, "only shell commands");
+    }
+
     use super::*;
     #[test]
     fn plist_string_reads_the_value_after_its_key() {

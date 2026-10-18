@@ -97,6 +97,9 @@ enum AppLinks {
       happened(at)
     case .palette:
       PortLookup.open()
+    case .project(let key):
+      show(.projects)
+      ProjectsStore.shared.open(key)
     }
   }
   static func show(_ page: Page?) {

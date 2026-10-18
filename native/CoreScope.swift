@@ -42,6 +42,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     FloatingController.shared.apply()
     Hotkey.shared.apply()
     Notifier.shared.activate()
+    ProjectNotifier.shared.sync()
     _ = HealthStore.shared
     _ = ProjectFileStore.shared
     _ = DiskGrowthStore.shared
@@ -105,9 +106,14 @@ struct CoreScopeApp: App {
           }.keyboardShortcut(" ", modifiers: [.command, .shift])
         }
         CommandMenu("Navegar") {
+          // ⌘1…⌘9 for the first nine pages; `Character("10")` would trap.
           ForEach(Array(Page.allCases.enumerated()), id: \.element) { index, page in
-            Button(page.title) { navigate(page) }
-              .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: .command)
+            if index < 9 {
+              Button(page.title) { navigate(page) }
+                .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: .command)
+            } else {
+              Button(page.title) { navigate(page) }
+            }
           }
         }
       }
@@ -243,6 +249,7 @@ struct MenuSummary: View {
       if let s = monitor.snapshot {
         PortQuickLookup(snapshot: s)
         MenuProfilesAndServices()
+        MenuProjects()
         Grid(horizontalSpacing: 8, verticalSpacing: 8) {
           GridRow {
             MiniTile(
@@ -354,6 +361,8 @@ struct MenuSummary: View {
         Button(L("Sair")) { NSApp.terminate(nil) }.keyboardShortcut("q")
       }.controlSize(.regular)
     }.padding(14).frame(width: 372).id(prefs.language).watchesContainers(stats: false)
+      .onAppear { PanelProjectsStore.shared.use("menu", true) }
+      .onDisappear { PanelProjectsStore.shared.use("menu", false) }
   }
   private func open(_ page: Page?) {
     // The popover is the key window at click time; dismiss it before showing the main window.
