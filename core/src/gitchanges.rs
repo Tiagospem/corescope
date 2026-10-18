@@ -286,6 +286,44 @@ pub fn status(folder: &Path) -> Result<Status, String> {
     })
 }
 
+/// What a compact row needs (floating panel, menu bar): branch and counts, from one
+/// `git status` (no line counts).
+#[derive(Clone, Debug, Serialize, PartialEq, Default)]
+pub struct Summary {
+    pub branch: Branch,
+    pub staged: usize,
+    pub modified: usize,
+    pub untracked: usize,
+    pub removed: usize,
+    pub conflicts: usize,
+}
+pub fn summarize(branch: Branch, files: &[FileChange]) -> Summary {
+    let count = |f: &dyn Fn(&FileChange) -> bool| files.iter().filter(|x| f(x)).count();
+    Summary {
+        staged: count(&|f| f.staged()),
+        modified: count(&|f| !f.conflict && !f.untracked && matches!(f.worktree, 'M' | 'T')),
+        untracked: count(&|f| f.untracked),
+        removed: count(&|f| !f.conflict && f.worktree == 'D'),
+        conflicts: count(&|f| f.conflict),
+        branch,
+    }
+}
+pub fn summary(folder: &Path) -> Result<Summary, String> {
+    let root = root_of(folder)?;
+    let raw = read(
+        &root,
+        &[
+            "status",
+            "--porcelain=v2",
+            "-z",
+            "--branch",
+            "--untracked-files=all",
+        ],
+    )?;
+    let (branch, files) = parse_status(&raw);
+    Ok(summarize(branch, &files))
+}
+
 /// Paths given to git: relative to the repository, never escaping it.
 pub fn valid_paths(paths: &[String]) -> Result<Vec<&str>, String> {
     if paths.is_empty() {
@@ -464,6 +502,12 @@ mod tests {
         );
         assert!(files[3].conflict && !files[3].staged());
         assert!(files[4].untracked && files[4].path == "untracked file.txt");
+        let sum = summarize(b.clone(), &files);
+        assert_eq!(
+            (sum.staged, sum.modified, sum.untracked, sum.conflicts),
+            (2, 1, 1, 1),
+            "the rename counts as staged"
+        );
         let (initial, _) = parse_status("# branch.oid (initial)\0# branch.head main\0");
         assert!(initial.oid.is_none() && initial.ahead.is_none());
     }

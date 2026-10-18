@@ -106,8 +106,7 @@ final class ProjectChangesStore: ObservableObject {
   @Published private(set) var diffFor: String?
   @Published private(set) var busy = false
   private let queue = DispatchQueue(label: "app.corescope.project-changes", qos: .userInitiated)
-  private var watcher: FileWatcher?
-  private var ignoredDirs: [String: Bool] = [:]
+  private var watcher: RepoWatcher?
   private var reloadPending = false
 
   init(folder: String) { self.folder = folder }
@@ -147,19 +146,11 @@ final class ProjectChangesStore: ObservableObject {
     }
   }
 
-  private var reloadScheduled = false
-  /// File events reload at most every half second.
-  private func scheduleReload() {
-    if reloadScheduled { return }
-    reloadScheduled = true
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-      self.reloadScheduled = false
-      if self.active { self.reload() }
-    }
-  }
-
   private func watch(_ root: String) {
-    watcher = FileWatcher(path: root) { [weak self] paths in self?.changed(paths) }
+    watcher = RepoWatcher(folder: folder, root: root) { [weak self] in
+      guard let self, self.active else { return }
+      self.reload()
+    }
   }
 
   func loadDiff(_ row: ChangeRow?) {
@@ -239,11 +230,38 @@ final class ProjectChangesStore: ObservableObject {
       }
     }
   }
+}
 
-  /// File events, debounced by the watcher: changes inside `.git` count only for HEAD, the index
-  /// and refs; anything git ignores (build output, node_modules) is dropped before a reload.
+/// A repository's working tree watched for changes that matter to git: inside `.git` only HEAD,
+/// the index, refs and MERGE_HEAD count, and paths `.gitignore` covers are dropped (one
+/// `git check-ignore` per folder, cached). Calls `onChange` at most every half second.
+final class RepoWatcher {
+  private let folder: String
+  private let root: String
+  private let onChange: () -> Void
+  private var watcher: FileWatcher?
+  private var ignoredDirs: [String: Bool] = [:]
+  private var scheduled = false
+  private let queue = DispatchQueue(label: "app.corescope.repo-watcher", qos: .utility)
+
+  init(folder: String, root: String, onChange: @escaping () -> Void) {
+    self.folder = folder
+    self.root = root
+    self.onChange = onChange
+    watcher = FileWatcher(path: root) { [weak self] paths in self?.changed(paths) }
+  }
+
+  private func schedule() {
+    if scheduled { return }
+    scheduled = true
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+      guard let self else { return }
+      self.scheduled = false
+      self.onChange()
+    }
+  }
+
   private func changed(_ paths: [String]) {
-    guard let root else { return }
     let prefix = root.hasSuffix("/") ? root : root + "/"
     var relevant: [String] = []
     var gitState = false
@@ -258,28 +276,30 @@ final class ProjectChangesStore: ObservableObject {
       if !rel.isEmpty { relevant.append(rel) }
     }
     if gitState {
-      scheduleReload()
+      schedule()
       return
     }
     // Under a folder already known to be ignored: nothing to ask.
     relevant.removeAll { path in pathAncestors(path).contains { ignoredDirs[$0] == true } }
     guard !relevant.isEmpty else { return }
     let unknown = Set(relevant.flatMap(pathAncestors)).filter { ignoredDirs[$0] == nil }
-    queue.async {
+    let folder = folder
+    queue.async { [weak self] in
       var answers: [String: Bool] = [:]
       var ignoredFiles = Set<String>()
       let ask = Array(unknown.map { $0 + "/" }) + relevant
-      if let r = try? ProjectsTool.call(["op": "ignored", "folder": self.folder, "paths": Array(ask.prefix(500))], as: GitIgnored.self).get() {
+      if let r = try? ProjectsTool.call(["op": "ignored", "folder": folder, "paths": Array(ask.prefix(500))], as: GitIgnored.self).get() {
         let hits = Set(r.ignored)
         for dir in unknown { answers[dir] = hits.contains(dir + "/") }
         ignoredFiles = hits
       }
       DispatchQueue.main.async {
+        guard let self else { return }
         self.ignoredDirs.merge(answers) { $1 }
         let kept = relevant.filter { path in
           !ignoredFiles.contains(path) && !pathAncestors(path).contains { self.ignoredDirs[$0] == true }
         }
-        if !kept.isEmpty { self.scheduleReload() }
+        if !kept.isEmpty { self.schedule() }
       }
     }
   }

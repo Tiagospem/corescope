@@ -1849,6 +1849,7 @@ pub fn projects_tool(v: &serde_json::Value) -> Result<serde_json::Value, String>
         }
         "init" => Ok(json!(git::init(&folder()?)?)),
         "status" => Ok(json!(gitchanges::status(&folder()?)?)),
+        "summary" => Ok(json!(gitchanges::summary(&folder()?)?)),
         "branches" => Ok(json!(gitbranches::branches(&folder()?)?)),
         "context" => Ok(json!({"context": agentcontext::for_folder(&folder()?)})),
         "instructions" => Ok(json!(agentcontext::instructions(&folder()?)?)),
