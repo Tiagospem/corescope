@@ -1082,4 +1082,73 @@ private let entries = """
   folga ¦ calm ¦ holgado
   ocupado ¦ busy ¦ ocupado
   no limite ¦ at the limit ¦ al límite
+  %@ arquivos abertos ¦ %@ open files ¦ %@ archivos abiertos
+  %@ arquivos verificados em %@ s, %@. ¦ %@ files checked in %@ s, %@. ¦ %@ archivos revisados en %@ s, %@.
+  %@ ciclos ¦ %@ power cycles ¦ %@ ciclos
+  %@ da vida útil usada ¦ %@ of rated life used ¦ %@ de la vida útil usada
+  %@ desligamentos inesperados ¦ %@ unsafe shutdowns ¦ %@ apagados inesperados
+  %@ erros de mídia ¦ %@ media errors ¦ %@ errores de medio
+  %@ escritos ¦ %@ written ¦ %@ escritos
+  %@ h ligado ¦ %@ h powered on ¦ %@ h encendido
+  %@ liberados. ¦ %@ freed. ¦ %@ liberados.
+  %@ lidos ¦ %@ read ¦ %@ leídos
+  %@ na Lixeira. ¦ %@ in the Trash. ¦ %@ en la Papelera.
+  %@ processos usam este volume: ¦ %@ processes are using this volume: ¦ %@ procesos usan este volumen:
+  %@/h em média ¦ %@/h on average ¦ %@/h de media
+  Arquivos grandes ¦ Large files ¦ Archivos grandes
+  Bytes lidos e escritos por processo desde a última amostra (rusage). Também: corescope top --disk e MCP top_processes by: disk. ¦ Bytes read and written per process since the last sample (rusage). Also: corescope top --disk and MCP top_processes by: disk. ¦ Bytes leídos y escritos por proceso desde la última muestra (rusage). También: corescope top --disk y MCP top_processes by: disk.
+  Concluído. %@ ¦ Done. %@ ¦ Listo. %@
+  Ejetado. Já pode desconectar. ¦ Ejected. You can disconnect it now. ¦ Expulsado. Ya puedes desconectarlo.
+  Ejetar ¦ Eject ¦ Expulsar
+  Ejetar %@ ¦ Eject %@ ¦ Expulsar %@
+  Ejetar… ¦ Eject… ¦ Expulsar…
+  Executar ¦ Run ¦ Ejecutar
+  Executar %@ (%@) ¦ Run %@ (%@) ¦ Ejecutar %@ (%@)
+  Executar %@ ações? ¦ Run %@ actions? ¦ ¿Ejecutar %@ acciones?
+  Falhou (código %@): %@ ¦ Failed (code %@): %@ ¦ Falló (código %@): %@
+  Falhou ao ejetar. ¦ Failed to eject. ¦ No se pudo expulsar.
+  Gerenciado por %@: remova pelo próprio app. ¦ Managed by %@: remove it from that app. ¦ Gestionado por %@: elimínalo desde esa app.
+  Já em execução. ¦ Already running. ¦ Ya en ejecución.
+  Liberar %@ ¦ Free %@ ¦ Liberar %@
+  Liberar espaço com segurança ¦ Free up space safely ¦ Liberar espacio con seguridad
+  Marca "%@" no plano de limpeza abaixo. ¦ Checks "%@" in the cleanup plan below. ¦ Marca "%@" en el plan de limpieza de abajo.
+  Mostra o que usa o volume antes de ejetar ¦ Shows what is using the volume before ejecting ¦ Muestra qué usa el volumen antes de expulsar
+  Mover %@ para a Lixeira ¦ Move %@ to the Trash ¦ Mover %@ a la Papelera
+  Mover para a Lixeira ¦ Move to the Trash ¦ Mover a la Papelera
+  Mover para a Lixeira? ¦ Move to the Trash? ¦ ¿Mover a la Papelera?
+  Nada a liberar agora. ¦ Nothing to free now. ¦ Nada que liberar ahora.
+  Nada a liberar nos caches conhecidos. ¦ Nothing to free in the known caches. ¦ Nada que liberar en las cachés conocidas.
+  Nenhum arquivo acima do tamanho escolhido. ¦ No file above the chosen size. ¦ Ningún archivo por encima del tamaño elegido.
+  Nenhum processo lendo ou escrevendo mais de 64 KB/s. ¦ No process reading or writing more than 64 KB/s. ¦ Ningún proceso leyendo o escribiendo más de 64 KB/s.
+  Nenhum processo seu usa este volume. ¦ None of your processes is using this volume. ¦ Ningún proceso tuyo usa este volumen.
+  Não executado: %@ está em uso. ¦ Not run: %@ is in use. ¦ No ejecutado: %@ está en uso.
+  Núcleo %@ (%@): %@ ¦ Core %@ (%@): %@ ¦ Núcleo %@ (%@): %@
+  Parou no limite de tempo: pode faltar algum. ¦ Stopped at the time limit: some may be missing. ¦ Se detuvo en el límite de tiempo: puede faltar alguno.
+  Pastas vão para a Lixeira (recuperáveis); comandos rodam no seu shell com o caminho completo da ferramenta; dados do Docker são removidos pelo motor (sem volta). Uma ação cuja ferramenta está rodando não é executada. Também: corescope space --plan e MCP cleanup_plan / run_cleanup_plan. ¦ Folders go to the Trash (recoverable); commands run in your shell with the tool's full path; Docker data is removed by the engine (permanent). An action whose tool is running is not run. Also: corescope space --plan and MCP cleanup_plan / run_cleanup_plan. ¦ Las carpetas van a la Papelera (recuperables); los comandos se ejecutan en tu shell con la ruta completa de la herramienta; los datos de Docker los elimina el motor (sin vuelta atrás). No se ejecuta una acción cuya herramienta está en uso. También: corescope space --plan y MCP cleanup_plan / run_cleanup_plan.
+  Procura na sua pasta pessoal (e nas pastas que ela aponta para outros discos) os maiores arquivos: imagens de disco, vídeos, VMs, dumps e modelos. Fica fora: nuvem (OneDrive, iCloud), node_modules, .git e outros volumes montados. ¦ Searches your home folder (and folders it points to on other drives) for the largest files: disk images, videos, VMs, dumps and models. Left out: cloud storage (OneDrive, iCloud), node_modules, .git and other mounted volumes. ¦ Busca en tu carpeta personal (y en las carpetas que apuntan a otros discos) los archivos más grandes: imágenes de disco, vídeos, VMs, dumps y modelos. Quedan fuera: la nube (OneDrive, iCloud), node_modules, .git y otros volúmenes montados.
+  Procurando o que usa o volume… ¦ Looking for what is using the volume… ¦ Buscando qué usa el volumen…
+  Procurar ¦ Search ¦ Buscar
+  Procurar de novo ¦ Search again ¦ Buscar de nuevo
+  Pré-visualizar (Quick Look) ¦ Preview (Quick Look) ¦ Previsualizar (Quick Look)
+  Página SMART/Health do NVMe: percentual da resistência nominal usado, blocos de reserva, dados escritos e lidos (unidades de 512 000 bytes), ciclos, horas ligado, desligamentos inesperados e erros de mídia. ¦ NVMe SMART/Health page: share of rated endurance used, spare blocks, data written and read (512,000-byte units), power cycles, power-on hours, unsafe shutdowns and media errors. ¦ Página SMART/Health del NVMe: porcentaje de la resistencia nominal usado, bloques de reserva, datos escritos y leídos (unidades de 512 000 bytes), ciclos, horas encendido, apagados inesperados y errores de medio.
+  Saúde do SSD (SMART) ¦ SSD health (SMART) ¦ Salud del SSD (SMART)
+  Sem dados de saúde (SMART NVMe %@). ¦ No health data (NVMe SMART %@). ¦ Sin datos de salud (SMART NVMe %@).
+  Serviços do sistema (como o Spotlight) também podem segurar um volume; o macOS diz quais se a ejeção falhar. ¦ System services (like Spotlight) can also hold a volume; macOS names them if the eject fails. ¦ Los servicios del sistema (como Spotlight) también pueden retener un volumen; macOS dice cuáles si la expulsión falla.
+  Subpastas que mais cresceram ¦ Subfolders that grew the most ¦ Subcarpetas que más crecieron
+  Também: corescope large-files e MCP large_files. Arquivos de apps (Docker, OrbStack, Claude, Photos, Hugging Face…) só aparecem: remova pelo próprio app. ¦ Also: corescope large-files and MCP large_files. Files owned by apps (Docker, OrbStack, Claude, Photos, Hugging Face…) are only shown: remove them from that app. ¦ También: corescope large-files y MCP large_files. Los archivos de apps (Docker, OrbStack, Claude, Photos, Hugging Face…) solo se muestran: elimínalos desde esa app.
+  Tempo esgotado (10 min). ¦ Timed out (10 min). ¦ Tiempo agotado (10 min).
+  Tentar ejetar mesmo assim ¦ Try to eject anyway ¦ Intentar expulsar de todos modos
+  Usando o disco agora ¦ Using the disk now ¦ Usando el disco ahora
+  Ver no Histórico ¦ See in History ¦ Ver en el Historial
+  arquivo aberto ¦ open file ¦ archivo abierto
+  atenção ¦ watch ¦ atención
+  em uso: %@ ¦ in use: %@ ¦ en uso: %@
+  lê ao abrir Armazenamento, no máximo a cada 10 min ¦ reads when Storage opens, at most every 10 min ¦ lee al abrir Almacenamiento, como máximo cada 10 min
+  pasta de trabalho no volume ¦ working folder on the volume ¦ carpeta de trabajo en el volumen
+  permanente ¦ permanent ¦ permanente
+  reserva %@ (mín. %@) ¦ spare %@ (min. %@) ¦ reserva %@ (mín. %@)
+  roda a partir do volume ¦ runs from the volume ¦ se ejecuta desde el volumen
+  saudável ¦ healthy ¦ saludable
+  trocar ¦ replace ¦ reemplazar
+  não exposto por este disco ou adaptador ¦ not exposed by this disk or adapter ¦ no expuesto por este disco o adaptador
   """

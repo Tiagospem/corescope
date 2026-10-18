@@ -32,3 +32,7 @@ void cs_free(char *pointer);
 
 int32_t cs_is_same(int32_t pid, uint64_t start);
 char *cs_disk_growth(const char *request);
+char *cs_disk_health(void);
+char *cs_cleanup_plan(int32_t docker);
+char *cs_large_files(uint64_t min_mb, uint32_t limit);
+char *cs_volume_holders(const char *mount);

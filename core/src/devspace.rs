@@ -543,7 +543,7 @@ pub fn parse_df(body: &Value) -> [u64; 3] {
     out
 }
 const DOCKER_KINDS: [&str; 3] = ["docker_dangling", "docker_unused", "docker_build_cache"];
-fn docker(home: &Path) -> (Vec<Item>, Option<String>) {
+pub fn docker(home: &Path) -> (Vec<Item>, Option<String>) {
     let host = std::env::var("DOCKER_HOST").ok();
     let mut items = vec![];
     let mut error = None;

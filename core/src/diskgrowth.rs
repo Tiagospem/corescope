@@ -15,13 +15,30 @@ pub struct Measurement {
     pub free: Option<u64>,
     /// Path → allocated bytes.
     pub sizes: BTreeMap<String, u64>,
+    /// Path → its largest direct entries (name → bytes), to tell which one grew.
+    #[serde(default)]
+    pub children: BTreeMap<String, BTreeMap<String, u64>>,
 }
+/// Direct entries kept per watched folder.
+const CHILDREN: usize = 25;
 #[derive(Clone, Debug, Serialize, PartialEq)]
 pub struct Growth {
     pub label: String,
     pub path: String,
     pub bytes: u64,
     /// Since the baseline; negative when it shrank. None: not measured then.
+    pub change: Option<i64>,
+    /// Direct entries that changed the most (largest growth first), when both measurements
+    /// recorded them.
+    pub children: Vec<ChildGrowth>,
+    /// A Cleanup plan action that frees this folder, when there is one.
+    pub cleanup: Option<&'static str>,
+}
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct ChildGrowth {
+    pub name: String,
+    pub path: String,
+    pub bytes: u64,
     pub change: Option<i64>,
 }
 #[derive(Clone, Debug, Serialize, PartialEq)]
@@ -130,18 +147,56 @@ pub fn thin(mut list: Vec<Measurement>) -> Vec<Measurement> {
 
 /// Measures every spot (seconds on a large home; run off the main thread).
 pub fn measure(home: &Path, now: i64) -> Measurement {
-    let sizes = spots(home)
-        .into_iter()
-        .map(|(_, p)| {
-            let bytes = crate::devspace::measure(&p).0;
-            (p.to_string_lossy().into_owned(), bytes)
-        })
-        .collect();
+    let mut sizes = BTreeMap::new();
+    let mut children = BTreeMap::new();
+    for (_, p) in spots(home) {
+        let (total, kids) = measure_children(&p);
+        let key = p.to_string_lossy().into_owned();
+        sizes.insert(key.clone(), total);
+        children.insert(key, kids);
+    }
     Measurement {
         at: now,
         free: crate::volume_free(home),
         sizes,
+        children,
     }
+}
+/// A folder's size and its largest direct entries, in one walk.
+pub fn measure_children(path: &Path) -> (u64, BTreeMap<String, u64>) {
+    use std::os::unix::fs::MetadataExt;
+    let mut all: Vec<(String, u64)> = vec![];
+    let mut total = 0;
+    for e in std::fs::read_dir(path).into_iter().flatten().flatten() {
+        let Ok(meta) = e.metadata() else { continue };
+        let bytes = if meta.is_dir() {
+            crate::devspace::measure(&e.path()).0 + meta.blocks() * 512
+        } else {
+            meta.blocks() * 512
+        };
+        total += bytes;
+        all.push((e.file_name().to_string_lossy().into_owned(), bytes));
+    }
+    all.sort_by_key(|(_, b)| std::cmp::Reverse(*b));
+    all.truncate(CHILDREN);
+    (total, all.into_iter().collect())
+}
+/// The Cleanup plan action that frees a watched folder (see cleanplan).
+pub fn cleanup_for(label: &str) -> Option<&'static str> {
+    Some(match label {
+        "Xcode DerivedData" => "xcode-derived-data",
+        "Simulators" => "simulators-unavailable",
+        "npm" => "npm-cache",
+        "pnpm" => "pnpm-store",
+        "Yarn" => "yarn-cache",
+        "Cargo" => "cargo-registry",
+        "Go modules" => "go-modcache",
+        "Gradle" => "gradle-caches",
+        "Composer" => "composer-cache",
+        "Docker Desktop" | "OrbStack" | "Colima" => "docker-build-cache",
+        "Caches" => "brew-cleanup",
+        _ => return None,
+    })
 }
 
 /// Today's growth: the latest measurement against the last one before `day_start` (local
@@ -168,13 +223,36 @@ pub fn report(list: &[Measurement], home: &Path, day_start: i64) -> Report {
     let mut folders: Vec<Growth> = latest
         .sizes
         .iter()
-        .map(|(path, bytes)| Growth {
-            label: labels.get(path).copied().unwrap_or("").to_string(),
-            path: path.clone(),
-            bytes: *bytes,
-            change: baseline
-                .and_then(|b| b.sizes.get(path))
-                .map(|before| *bytes as i64 - *before as i64),
+        .map(|(path, bytes)| {
+            let label = labels.get(path).copied().unwrap_or("").to_string();
+            let before_kids = baseline.and_then(|b| b.children.get(path));
+            let mut children: Vec<ChildGrowth> = latest
+                .children
+                .get(path)
+                .into_iter()
+                .flatten()
+                .map(|(name, b)| ChildGrowth {
+                    name: name.clone(),
+                    path: format!("{path}/{name}"),
+                    bytes: *b,
+                    // An entry missing from the baseline's top list is new or was small: its
+                    // whole size counts as growth only when the baseline recorded children.
+                    change: before_kids
+                        .map(|k| *b as i64 - k.get(name).copied().unwrap_or(0) as i64),
+                })
+                .collect();
+            children.sort_by_key(|c| std::cmp::Reverse((c.change.unwrap_or(0), c.bytes as i64)));
+            children.truncate(8);
+            Growth {
+                cleanup: cleanup_for(&label),
+                label,
+                path: path.clone(),
+                bytes: *bytes,
+                change: baseline
+                    .and_then(|b| b.sizes.get(path))
+                    .map(|before| *bytes as i64 - *before as i64),
+                children,
+            }
         })
         .collect();
     // Changes under 1 MB are noise (a log line, a cache entry): those sort by size.
@@ -207,6 +285,7 @@ mod tests {
                 .iter()
                 .map(|(p, b)| (p.to_string(), *b << 20))
                 .collect(),
+            children: BTreeMap::new(),
         }
     }
 
@@ -281,6 +360,16 @@ mod tests {
         let r = report(&list, &home, 150);
         assert_eq!(r.folders[0].label, "npm");
         assert!(r.folders[0].change.unwrap() >= 128 * 1024);
+        assert_eq!(r.folders[0].cleanup, Some("npm-cache"));
+        let kid = &r.folders[0].children[0];
+        assert_eq!(kid.name, "_cacache", "the subfolder that grew");
+        assert!(kid.change.unwrap() >= 128 * 1024);
+        let (total, kids) = measure_children(&home.join(".npm"));
+        assert_eq!(
+            total,
+            kids.values().sum::<u64>(),
+            "entries add up to the folder"
+        );
         std::fs::remove_dir_all(home).unwrap();
     }
 }

@@ -319,6 +319,22 @@ enum ControlAPI {
     case "cleanup.list": reply(cleanupJSON())
     case "cleanup.scan":
       CleanupStore.shared.scan { error in reply(error.map { ["error": $0] } ?? cleanupJSON()) }
+    case "volumes.eject":
+      guard let mount = args["mount"] as? String, mount.hasPrefix("/Volumes/") else {
+        return reply(["error": "mount must be an external volume under /Volumes/"])
+      }
+      DispatchQueue.global(qos: .userInitiated).async {
+        let holders = VolumeEject.holders(mount)
+        let error = VolumeEject.eject(mount)
+        reply(error == nil ? ["ejected": true] : [
+          "ejected": false, "error": error ?? "",
+          "holders": holders.map { ["pid": $0.pid, "name": $0.name, "reason": $0.reason, "example": $0.example] },
+        ])
+      }
+    case "cleanup.run_plan":
+      let ids = Set(args["ids"] as? [String] ?? [])
+      guard !ids.isEmpty else { return reply(["error": "ids is required; cleanup_plan lists them"]) }
+      CleanupPlanStore.shared.run(ids) { outcomes in reply(["results": outcomes]) }
     case "cleanup.clean":
       let paths = Set(args["paths"] as? [String] ?? [])
       let items = (CleanupStore.shared.report?.items ?? []).filter { paths.contains($0.id) }

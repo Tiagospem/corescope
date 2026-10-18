@@ -1,11 +1,15 @@
 //! CoreScope: bounded local telemetry and explicitly authorized process control.
 pub mod capacity;
+pub mod cleanplan;
 pub mod containers;
 pub mod databases;
 pub mod devspace;
 pub mod diskgrowth;
+pub mod diskhealth;
+pub mod eject;
 pub mod exposure;
 pub mod history;
+pub mod largefiles;
 pub mod logs;
 mod os;
 pub use os::{local_format, parse_moment};
@@ -1531,6 +1535,46 @@ pub(crate) fn volume_free(path: &std::path::Path) -> Option<u64> {
         .filter(|(mount, _)| path.starts_with(mount))
         .max_by_key(|(mount, _)| mount.len())
         .map(|(_, free)| free)
+}
+/// The safe cleanup plan with estimates (`docker`: also ask the container engines).
+#[unsafe(no_mangle)]
+pub extern "C" fn cs_cleanup_plan(docker: i32) -> *mut c_char {
+    response(|| json(Ok(cleanplan::plan(&home(), &processes_now(), docker != 0))))
+}
+/// Files of at least `min_mb` MB in the home folder (and folders it links elsewhere), largest
+/// first; the walk stops after 90 s.
+#[unsafe(no_mangle)]
+pub extern "C" fn cs_large_files(min_mb: u64, limit: u32) -> *mut c_char {
+    response(|| {
+        let roots = largefiles::default_roots(&home());
+        json(Ok(largefiles::scan(
+            &roots,
+            min_mb.max(1) << 20,
+            limit.clamp(1, 500) as usize,
+            std::time::Duration::from_secs(90),
+        )))
+    })
+}
+/// Processes holding a volume (open files, working folder, program), for "eject".
+///
+/// # Safety
+/// `mount` is a valid NUL-terminated UTF-8 path pointer for the duration of this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cs_volume_holders(mount: *const c_char) -> *mut c_char {
+    response(|| {
+        if mount.is_null() {
+            return Err("Volume ausente".into());
+        }
+        let mount = unsafe { CStr::from_ptr(mount) }
+            .to_str()
+            .map_err(|_| "Volume inválido")?;
+        json(Ok(eject::holders(mount, &processes_now())))
+    })
+}
+/// SSD health of every physical disk (NVMe SMART log page), read on demand.
+#[unsafe(no_mangle)]
+pub extern "C" fn cs_disk_health() -> *mut c_char {
+    response(|| json(Ok(diskhealth::read())))
 }
 /// Disk growth: `report` reads the saved measurements; `measure` measures now (seconds), saves
 /// and reports.
