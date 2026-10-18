@@ -917,6 +917,21 @@ private let entries = """
   Disco %@ em %@%% ¦ Disk %@ at %@%% ¦ Disco %@ al %@%%
   Carga %@ em %@ núcleos ¦ Load %@ on %@ cores ¦ Carga %@ en %@ núcleos
   Serviços do systemd com falha: %@ ¦ Failed systemd units: %@ ¦ Servicios de systemd con fallo: %@
+  Serviços do systemd com falha: ¦ Failed systemd units: ¦ Servicios de systemd con fallo:
+  Ver por que falhou (systemctl status e journalctl, só leitura) ¦ See why it failed (systemctl status and journalctl, read-only) ¦ Ver por qué falló (systemctl status y journalctl, solo lectura)
+  Nome de serviço inválido ¦ Invalid unit name ¦ Nombre de servicio no válido
+  Lendo status e journal… ¦ Reading status and journal… ¦ Leyendo estado y journal…
+  Só leitura: roda systemctl status e journalctl pelo seu ssh em BatchMode, sem sudo. As dicas só explicam; o CoreScope nunca altera o servidor. ¦ Read-only: runs systemctl status and journalctl through your ssh in BatchMode, without sudo. Hints only explain; CoreScope never changes the server. ¦ Solo lectura: ejecuta systemctl status y journalctl con tu ssh en BatchMode, sin sudo. Las pistas solo explican; CoreScope nunca cambia el servidor.
+  Serviço não encontrado nesta máquina (pode ter sido removido desde a última leitura). ¦ Unit not found on this machine (it may have been removed since the last reading). ¦ Servicio no encontrado en esta máquina (puede haberse eliminado desde la última lectura).
+  O journald não mostrou nada a este usuário do ssh: para ler o log dos serviços do sistema ele precisa estar no grupo adm ou systemd-journal. ¦ journald showed nothing to this ssh user: to read system units' logs it needs to be in the adm or systemd-journal group. ¦ journald no mostró nada a este usuario de ssh: para leer el log de los servicios del sistema necesita estar en el grupo adm o systemd-journal.
+  Erros da última execução ¦ Errors from the last run ¦ Errores de la última ejecución
+  Nenhuma linha de erro na última execução. ¦ No error lines in the last run. ¦ Ninguna línea de error en la última ejecución.
+  Exemplos ¦ Examples ¦ Ejemplos
+  Saída completa ¦ Full output ¦ Salida completa
+  Um arquivo do logrotate cita um usuário que não existe mais — normalmente sobra de um usuário de site removido (o Laravel Forge deixa /etc/logrotate.d/forge-*). O logrotate o pula e a execução falha; remova ou corrija ¦ A logrotate config names a user that no longer exists — usually left behind when a site user was deleted (Laravel Forge leaves /etc/logrotate.d/forge-*). logrotate skips it and the run fails; remove or fix ¦ Un archivo de logrotate nombra a un usuario que ya no existe — normalmente restos de un usuario de sitio eliminado (Laravel Forge deja /etc/logrotate.d/forge-*). logrotate lo omite y la ejecución falla; elimina o corrige
+  Dois arquivos do logrotate rodam o mesmo log e o logrotate recusa o segundo (muitas vezes um arquivo antigo do Forge ao lado de um novo). Mantenha só um de ¦ Two logrotate configs rotate the same log file and logrotate refuses the second (often an old Forge config next to a newer one). Keep one of ¦ Dos archivos de logrotate rotan el mismo log y logrotate rechaza el segundo (a menudo un archivo antiguo de Forge junto a uno nuevo). Deja solo uno de
+  Um script postrotate (normalmente o reload de um serviço) falhou depois de rodar os logs — veja se o serviço que ele recarrega está no ar ¦ A postrotate script (usually a service reload) failed after rotating — check that the service it reloads is running ¦ Un script postrotate (normalmente el reload de un servicio) falló después de rotar los logs — comprueba que el servicio que recarga esté en marcha
+  O teste de configuração do nginx (nginx -t) falhou; a linha diz qual arquivo e linha. O nginx continua com a configuração antiga até passar ¦ nginx's configuration test (nginx -t) failed; the line says which file and line. nginx keeps the old config until it passes ¦ La prueba de configuración de nginx (nginx -t) falló; la línea indica qué archivo y línea. nginx mantiene la configuración anterior hasta que pase
   Contêiner %@ parou (%@) ¦ Container %@ stopped (%@) ¦ El contenedor %@ se detuvo (%@)
   Contêiner %@ com falha no health check ¦ Container %@ is failing its health check ¦ El contenedor %@ falla su health check
   %@ precisa de atenção ¦ %@ needs attention ¦ %@ necesita atención

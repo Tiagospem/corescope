@@ -10,6 +10,17 @@ section as the GitHub release notes.
 
 ## [Unreleased]
 
+### Added
+- **Machines › why a systemd unit failed**: the units in a *Failed systemd units* alert are
+  clickable. CoreScope runs `systemctl status <unit> --no-pager -n 0` and the unit's journal over
+  your BatchMode ssh (read-only, no sudo, unit name validated), groups the last run's
+  `error`/`failed` lines with counts and shows a hint for well-known causes — logrotate
+  `unknown user` (a config left for a deleted site user, e.g. Laravel Forge's
+  `/etc/logrotate.d/forge-*`), logrotate `duplicate log entry`, postrotate failures and `nginx -t`
+  errors. Says when journald hides system logs from the ssh user (not in `adm`/`systemd-journal`).
+  Hints only explain; CoreScope never changes the server.
+- MCP `explain_failed_unit {host, unit}`: the same status, grouped errors and hints for agents.
+
 ## [0.6.0] - 2026-10-18
 
 ### Added

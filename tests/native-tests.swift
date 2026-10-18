@@ -36,6 +36,7 @@ import Foundation
     precondition(projectName("/") == nil && projectName("/tmp/app") == "app")
     tokenTests()
     updateTests()
+    failedUnitTests()
     // VM helper ports split among the containers that published them.
     let split = splitPorts([6379, 3306, 8025, 1025, 5555]) {
       [6379: "redis", 3306: "mysql", 8025: "mail", 1025: "mail"][$0]
@@ -236,7 +237,7 @@ import Foundation
     precondition(looksLikeTime("14:05") && looksLikeTime("2:05 pm") && looksLikeTime("14h05") && looksLikeTime("ontem 9:30"))
     precondition(!looksLikeTime("8000") && !looksLikeTime("redis") && !looksLikeTime("14"))
     print(
-      "28 native assertions passed: descendants, cycle, ordering, off-screen recovery, negative-origin monitor, forest roots, flatten, collapse, totals, ancestors, filter, formatting, container ports, shared ports, demo paths, debounce, sustained thresholds, new arrivals, port parsing, shortcut label, agent stalls, health targets, shared containers, ssh stats, gate hook, machine alerts, service history, own cost, links, palette; plus settings JSON, Unicode escapes, status line install/chain, Claude limits, update versions, release notes, appcast"
+      "29 native assertions passed: descendants, cycle, ordering, off-screen recovery, negative-origin monitor, forest roots, flatten, collapse, totals, ancestors, filter, formatting, container ports, shared ports, demo paths, debounce, sustained thresholds, new arrivals, port parsing, shortcut label, agent stalls, health targets, shared containers, ssh stats, gate hook, machine alerts, failed unit explanations, service history, own cost, links, palette; plus settings JSON, Unicode escapes, status line install/chain, Claude limits, update versions, release notes, appcast"
     )
     print(
       "token usage assertions passed: timestamps, formatting, Claude block dedupe, embedded entries, partial lines, long-line skip, fast/full parity, Codex repeats and forks"
@@ -390,4 +391,96 @@ func updateTests() {
   guard let parsed = Appcast.parse(Data(xml.utf8)), parsed.count == 1 else { fatalError("appcast does not parse") }
   precondition(parsed[0] == item)
   precondition(Appcast.parse(Data("<rss><channel><item>".utf8)) == nil)
+}
+
+/// "Failed systemd units: logrotate.service" explained from the real outputs of two Forge servers.
+func failedUnitTests() {
+  precondition(validSystemdUnit("logrotate.service") && validSystemdUnit("getty@tty1.service"))
+  precondition(validSystemdUnit("systemd-fsck@dev-disk-by\\x2duuid-1.service"))
+  precondition(!validSystemdUnit("-x.service") && !validSystemdUnit("a;rm.service") && !validSystemdUnit("a'b.service"))
+  precondition(!validSystemdUnit("nginx") && !validSystemdUnit("a b.service") && !validSystemdUnit("$(id).service"))
+  precondition(FailedUnitCheck.command(unit: "x.service;reboot") == nil)
+  let command = FailedUnitCheck.command(unit: "logrotate.service")!
+  precondition(command.hasPrefix("systemctl status 'logrotate.service' --no-pager -n 0"))
+  precondition(command.contains("journalctl -u 'logrotate.service'") && !command.contains("sudo"))
+
+  let status = """
+    × logrotate.service - Rotate log files
+         Loaded: loaded (/lib/systemd/system/logrotate.service; static)
+         Active: failed (Result: exit-code) since Fri 2026-10-17 00:00:03 UTC; 14h ago
+    TriggeredBy: ● logrotate.timer
+           Docs: man:logrotate(8)
+        Process: 812 ExecStart=/usr/sbin/logrotate /etc/logrotate.conf (code=exited, status=1/FAILURE)
+       Main PID: 812 (code=exited, status=1/FAILURE)
+            CPU: 41ms
+    """
+  let tail = """
+    Oct 17 00:00:03 forge-1 systemd[1]: logrotate.service: Main process exited, code=exited, status=1/FAILURE
+    Oct 17 00:00:03 forge-1 systemd[1]: logrotate.service: Failed with result 'exit-code'.
+    Oct 17 00:00:03 forge-1 systemd[1]: Failed to start logrotate.service - Rotate log files.
+
+    """
+  // Server 1: 27 Forge configs left for site users that were deleted. The day before failed the
+  // same way; only the last run counts.
+  let sites = (1...27).map { "site\($0)" }
+  var run = "Oct 17 00:00:01 forge-1 systemd[1]: Starting logrotate.service - Rotate log files...\n"
+  for s in sites {
+    run += "Oct 17 00:00:01 forge-1 logrotate[812]: error: /etc/logrotate.d/forge-\(s).com:9 unknown user '\(s)'\n"
+    run += "Oct 17 00:00:01 forge-1 logrotate[812]: error: found error in /home/\(s)/\(s).com/storage/logs/*.log , skipping\n"
+  }
+  let output1 = status + "\n" + FailedUnitCheck.journalMarker + "\n" + run.replacingOccurrences(of: "Oct 17", with: "Oct 16")
+    + tail + run + tail + FailedUnitCheck.idMarker + " 1000 forge adm\n"
+  let e1 = explainFailedUnit(unit: "logrotate.service", output: output1)
+  precondition(e1.description == "Rotate log files" && e1.active.hasPrefix("failed (Result: exit-code)"))
+  precondition(e1.process == "ExecStart=/usr/sbin/logrotate /etc/logrotate.conf (code=exited, status=1/FAILURE)")
+  precondition(!e1.journalRestricted && !e1.notFound)
+  precondition(e1.groups.count == 5, "unknown user, found error, then systemd's three lines")
+  precondition(e1.groups[0].source == "logrotate" && e1.groups[0].count == 27, "the last run only")
+  precondition(e1.groups[0].message == "error: /etc/logrotate.d/forge-site1.com:9 unknown user 'site1'")
+  precondition(e1.groups[0].samples.count == 5 && e1.groups[1].count == 27)
+  precondition(e1.groups.last?.source == "systemd")
+  precondition(e1.hints.count == 1 && e1.hints[0].kind == .logrotateUnknownUser && e1.hints[0].files.count == 27)
+  precondition(e1.hints[0].files[0] == "/etc/logrotate.d/forge-site1.com")
+  precondition(e1.hints[0].english.contains("Forge") && e1.hints[0].english.contains("(+21)"))
+
+  // Server 2: 13 duplicate Forge configs.
+  var dup = "Oct 17 00:00:01 forge-2 systemd[1]: Starting logrotate.service - Rotate log files...\n"
+  for i in 1...13 {
+    dup += "Oct 17 00:00:01 forge-2 logrotate[655]: error: /etc/logrotate.d/forge-app\(i)-old:1 duplicate log entry for /home/forge/app\(i).com/storage/logs/laravel.log\n"
+    dup += "Oct 17 00:00:01 forge-2 logrotate[655]: error: found error in file forge-app\(i)-old, skipping\n"
+  }
+  let e2 = explainFailedUnit(
+    unit: "logrotate.service",
+    output: status + FailedUnitCheck.journalMarker + "\n" + dup + tail + FailedUnitCheck.idMarker + " 0 root\n")
+  precondition(e2.groups[0].count == 13 && e2.groups[0].message.contains("duplicate log entry"))
+  precondition(e2.groups[1].count == 13, "old-style 'found error in file x' groups too")
+  precondition(e2.hints.map(\.kind) == [.logrotateDuplicate] && e2.hints[0].files.last == "/etc/logrotate.d/forge-app13-old")
+
+  // Not allowed to read the system journal: say so instead of showing nothing.
+  let hidden = """
+    Hint: You are currently not seeing messages from other users and the system.
+          Users in groups 'adm', 'systemd-journal' can see all messages.
+          Pass -q to turn off this notice.
+    -- No entries --
+    """
+  let e3 = explainFailedUnit(
+    unit: "logrotate.service", output: status + FailedUnitCheck.journalMarker + "\n" + hidden + "\n" + FailedUnitCheck.idMarker + " 1001 deploy\n")
+  precondition(e3.journalRestricted && e3.groups.isEmpty && e3.lines == 0)
+  let e4 = explainFailedUnit(
+    unit: "logrotate.service", output: status + FailedUnitCheck.journalMarker + "\n-- No entries --\n" + FailedUnitCheck.idMarker + " 0 root\n")
+  precondition(!e4.journalRestricted, "root reads everything; the journal is just empty")
+
+  // postrotate and nginx -t failures; short-iso timestamps.
+  let reload = """
+    2026-10-17T00:00:01+0000 web systemd[1]: Starting logrotate.service - Rotate log files...
+    2026-10-17T00:00:02+0000 web logrotate[90]: nginx: [emerg] unknown directive "proxy_pas" in /etc/nginx/sites-enabled/app:12
+    2026-10-17T00:00:02+0000 web logrotate[90]: nginx: configuration file /etc/nginx/nginx.conf test failed
+    2026-10-17T00:00:02+0000 web logrotate[90]: error: error running shared postrotate script for '/var/log/nginx/*.log '
+    """
+  let e5 = explainFailedUnit(unit: "logrotate.service", output: "● x\n" + FailedUnitCheck.journalMarker + reload)
+  precondition(e5.hints.map(\.kind) == [.nginxConfig, .postrotate])
+  precondition(e5.hints[1].files == ["/var/log/nginx/*.log"] && e5.hints[0].files[0].contains("proxy_pas"))
+  precondition(journalEntry("Hint: You are currently not seeing messages") == nil)
+  let missing = explainFailedUnit(unit: "gone.service", output: "Unit gone.service could not be found.\n" + FailedUnitCheck.journalMarker)
+  precondition(missing.notFound)
 }

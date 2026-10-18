@@ -291,6 +291,16 @@ fn app_tools() -> Vec<(
             vec!["host", "recipe"],
         ),
         (
+            "explain_failed_unit",
+            "machines.explain_unit",
+            "Why a failed systemd unit (list_machines failed_units) failed: runs systemctl status and \
+          journalctl for that unit over the user's ssh (read-only, no sudo) and returns the status, the \
+          last run's errors grouped with counts, and a hint for well-known causes (logrotate unknown \
+          user / duplicate log entry, postrotate, nginx -t). Says when journald needs the adm group.",
+            json!({"host": {"type": "string"}, "unit": {"type": "string", "description": "e.g. logrotate.service"}}),
+            vec!["host", "unit"],
+        ),
+        (
             "refresh_machines",
             "machines.refresh",
             "Read every machine again and return the results.",
