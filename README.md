@@ -124,9 +124,10 @@ agents:
     heavy_commands: [php artisan test, npm run build]   # empty = common builds and test suites
 ```
 
-- **Claude Code** — *Settings › MCP server for agents › Claude Code waits…* installs a `PreToolUse` hook (`corescope gate`, with a backup of `~/.claude/settings.json`). Before a heavy command in such a project it waits until CPU and memory pressure are back under the limit (two good readings in a row), then lets it run. Other commands and other projects pass in a few milliseconds. It delays, it never blocks.
-- **Codex and other agents** — the MCP server tells them to call `wait_for_capacity` (and `system_capacity`) before heavy commands in those projects.
+- **Claude Code and Codex** — *Settings › MCP server for agents › Agent hooks › Wait for room before heavy commands* installs a `PreToolUse` hook (`corescope gate`) in `~/.claude/settings.json` and/or `~/.codex/hooks.json`, each backed up first. Before a heavy command in such a project it waits until CPU and memory pressure are back under the limit (two good readings in a row), then lets it run. Other commands and other projects pass in a few milliseconds. It delays, it never blocks. Codex runs a user hook only after you trust it in its `/hooks` screen; the settings show whether it does.
+- **Other agents** — the MCP server tells them to call `wait_for_capacity` (and `system_capacity`) before heavy commands in those projects.
 - **You see it** — the Agents page lists who is waiting, for which command and why. `corescope wait` does the same for your own scripts.
+- **Agents learn the project's rules on their own** — *Project context at session start*, the other agent hook, runs `corescope context --hook` when a Claude Code or Codex session starts: the nearest `.corescope.yml` is summed up as context for the agent (the capacity rule and its heavy commands, preferred ports, profiles to start instead of running commands by hand, services, logs to read instead of asking you, a snapshot before wiping a database — or the file's error with its line). Nothing is said in folders without one. Agents without hooks get the same text from MCP `agent_context`, or from a marked section CoreScope writes into the project's `CLAUDE.md` / `AGENTS.md` (*Agent instructions…* on the project's card, `corescope context --write all`, MCP `write_agent_instructions`); the rest of those files is never touched, and `--remove` takes the section out. MCP `agent_hooks` reports and changes the hooks.
 - **Economy mode** (Energy page): on battery, busy processes agent sessions start run at macOS background priority, so they yield CPU and disk to what you are doing; servers with open ports are left alone, and everything returns to normal on AC.
 
 ### 🔌 Ports
@@ -292,6 +293,7 @@ corescope large-files              # largest files in your home and linked drive
 corescope eject-check "/Volumes/HD"  # what keeps a volume from ejecting
 corescope status shop              # a project's (or this folder's) git changes: branch, staged, modified, new
 corescope branches shop            # local branches: current, last commit, ahead/behind, worktree
+corescope context                  # what this project's .corescope.yml asks of agents (--write all: CLAUDE.md, AGENTS.md)
 corescope db snapshot 3306 shop    # snapshot a database before migrate:fresh (db restore ID)
 corescope version --check          # this version, and whether a newer release exists (asks the app)
 ```
@@ -314,6 +316,8 @@ Off by default. *Settings → MCP server for agents → Enable* registers `cores
 | `explain_failed_unit` | Why a failed systemd unit failed: status, the last run's errors grouped, a hint for known causes (read-only) |
 | `exposure_report` / `port_conflicts` | What listens beyond localhost (risk and fix); projects' preferred ports and who holds them |
 | `list_worktrees` | Git worktrees agents left: branch, merged, uncommitted changes, in use |
+| `agent_context` / `write_agent_instructions` | What the project's `.corescope.yml` asks of agents, as instructions; the same as a marked section in `CLAUDE.md` / `AGENTS.md` |
+| `agent_hooks` | CoreScope's session-context and capacity hooks in Claude Code and Codex: which are installed, Codex's trust in them, install or remove one |
 | `system_capacity` / `wait_for_capacity` | Whether the Mac has room for heavy work under the project's rule; wait until it does |
 | `list_containers` / `container_logs` / `container_action` | Containers with project, ports, restart policy and volumes; logs; start/stop/restart under the profiles' sharing rules |
 | `recent_errors` / `search_logs` / `tail_log` / `list_log_sources` | A profile's or project's logs: errors with traces and counts, search, tail |

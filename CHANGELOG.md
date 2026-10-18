@@ -40,6 +40,18 @@ section as the GitHub release notes.
   stays on the Cleanup page, linked from the section. `corescope branches`, `corescope worktrees`
   accepts a project name, MCP `project_branches` / `project_worktrees`.
 - Demo mode also anonymizes project names and branch names on the Projects page.
+- **Agents follow the project's `.corescope.yml` on their own**: *Settings › MCP server › Agent
+  hooks* installs, per agent (Claude Code `~/.claude/settings.json`, Codex `~/.codex/hooks.json`,
+  each backed up first), a SessionStart hook (`corescope context --hook`) that gives each new
+  session a summary of the nearest `.corescope.yml` — capacity rule and heavy commands, ports,
+  profiles, services, logs, a snapshot before wiping a database, or the file's error with its
+  line — and the capacity gate (`corescope gate`), which now also covers Codex (same payload). The
+  settings show whether Codex trusts the hooks (it runs user hooks only after `/hooks`). For
+  agents without hooks: MCP `agent_context`, and a marked section in the project's `CLAUDE.md` /
+  `AGENTS.md` (*Agent instructions…* on the project card, `corescope context --write`, MCP
+  `write_agent_instructions`), leaving the rest of the file alone. MCP `agent_hooks` reports and
+  changes the hooks; the MCP instructions ask agents to read `agent_context` when no session
+  context came.
 
 ### Fixed
 - The Navigate menu gives ⌘1–⌘9 to the first nine pages only; more pages would have crashed it.

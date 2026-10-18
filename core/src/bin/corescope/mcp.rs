@@ -73,6 +73,8 @@ fn initialize(params: &Value) -> Value {
         "capabilities": {"tools": {"listChanged": false}},
         "serverInfo": {"name": "corescope", "title": "CoreScope", "version": env!("CARGO_PKG_VERSION")},
         "instructions": "CoreScope: this Mac's processes, ports, resources, projects and services. \
+    When you start working in a project and no CoreScope context came with the session, call \
+    agent_context once: it sums up what the project's .corescope.yml asks of agents. \
     Before starting a dev server use find_free_port (and the project's preferred ports from \
     read_project_config); to debug a failing app use recent_errors instead of asking for logs; to \
     run or stop an environment use the project's profiles (list_profiles, start_profile). \
@@ -110,7 +112,9 @@ const DESTRUCTIVE: [&str; 13] = [
     "remove_machine",
 ];
 /// Tools that change state without destroying anything.
-const CHANGES: [&str; 11] = [
+const CHANGES: [&str; 13] = [
+    "agent_hooks",
+    "write_agent_instructions",
     "project_git_stage",
     "project_git_commit",
     "backup_settings",
@@ -331,6 +335,21 @@ fn app_tools() -> Vec<(
             "cleanup.scan",
             "Scan for reclaimable developer space now (can take ~30 s) and return the result with ids.",
             json!({}),
+            vec![],
+        ),
+        (
+            "agent_hooks",
+            "agents.hooks",
+            "CoreScope's hooks in Claude Code (~/.claude/settings.json) and Codex \
+             (~/.codex/hooks.json): `context` gives each new session what the project's \
+             .corescope.yml asks of agents; `gate` makes heavy shell commands wait for room in \
+             projects with agents.wait_for_capacity. Without `on` it only reports which are \
+             installed (and Codex's trust in them: Codex runs a user hook only after the user \
+             approves it in /hooks). With `hook`, `agent` and `on` it installs or removes one \
+             (a backup of the file first). Ask the user before changing them.",
+            json!({"hook": {"type": "string", "enum": ["context", "gate"]},
+                   "agent": {"type": "string", "enum": ["claude", "codex"]},
+                   "on": {"type": "boolean"}}),
             vec![],
         ),
         (
@@ -611,6 +630,26 @@ fn core_tools() -> Vec<Value> {
                    "path": {"type": "string", "description": "Relative to the repository root"},
                    "staged": {"type": "boolean"}}),
             &["path"],
+        ),
+        tool(
+            "agent_context",
+            "What this project's .corescope.yml asks of agents, as short instructions: the \
+             capacity rule before heavy commands, preferred ports, profiles, services and logs \
+             (or the file's error with its line). Read it at the start of work in a project \
+             when no CoreScope session hook gave it to you. Read-only.",
+            json!({"folder": {"type": "string", "description": "Absolute project folder (default: the server's working folder)"}}),
+            &[],
+        ),
+        tool(
+            "write_agent_instructions",
+            "Write the same instructions as a marked CoreScope section in the project's CLAUDE.md \
+             and/or AGENTS.md (created if missing; the rest of the file is kept), or take the \
+             section out with remove: true. For agents without hooks. Ask the user first: it \
+             changes files in their repository.",
+            json!({"folder": {"type": "string"},
+                   "files": {"type": "array", "items": {"type": "string", "enum": ["CLAUDE.md", "AGENTS.md"]}},
+                   "remove": {"type": "boolean"}}),
+            &["files"],
         ),
         tool(
             "project_branches",
@@ -920,6 +959,31 @@ fn call(params: &Value) -> Value {
                 })
                 .collect();
             text(json!({"projects": rows}), false)
+        }
+        "agent_context" | "write_agent_instructions" => {
+            let folder = args["folder"]
+                .as_str()
+                .map(str::to_string)
+                .unwrap_or_else(|| {
+                    std::env::current_dir()
+                        .map(|d| d.to_string_lossy().into_owned())
+                        .unwrap_or_default()
+                });
+            let mut request = args.clone();
+            request["folder"] = json!(folder);
+            request["op"] = json!(if name == "agent_context" {
+                "context"
+            } else {
+                "write_instructions"
+            });
+            match corescope::projects_tool(&request) {
+                Ok(v) if name == "agent_context" && v["context"].is_null() => text(
+                    json!({"error": format!("no .corescope.yml in {folder} or above it")}),
+                    true,
+                ),
+                Ok(v) => text(v, false),
+                Err(e) => text(json!({"error": e}), true),
+            }
         }
         "project_git_status"
         | "project_git_diff"

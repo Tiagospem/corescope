@@ -1,4 +1,5 @@
 //! CoreScope: bounded local telemetry and explicitly authorized process control.
+pub mod agentcontext;
 pub mod capacity;
 pub mod cleanplan;
 pub mod containers;
@@ -1797,7 +1798,8 @@ pub fn db_tool(v: &serde_json::Value) -> Result<serde_json::Value, String> {
 /// template}, rename {id, name}, set {id, show_in_panel, notify_minutes}, remove {id},
 /// init {folder}; and the repository's changes: status {folder}, diff {folder, path, staged},
 /// stage/unstage/discard {folder, paths}, commit {folder, message}, ignored {folder, paths};
-/// branches {folder}, worktrees {folder}, worktree_size {folder, path}.
+/// branches {folder}, worktrees {folder}, worktree_size {folder, path}; agent context {folder},
+/// instructions {folder}, write_instructions {folder, files, remove}.
 pub fn projects_tool(v: &serde_json::Value) -> Result<serde_json::Value, String> {
     use serde_json::json;
     let file = projects::default_path(&home());
@@ -1848,6 +1850,24 @@ pub fn projects_tool(v: &serde_json::Value) -> Result<serde_json::Value, String>
         "init" => Ok(json!(git::init(&folder()?)?)),
         "status" => Ok(json!(gitchanges::status(&folder()?)?)),
         "branches" => Ok(json!(gitbranches::branches(&folder()?)?)),
+        "context" => Ok(json!({"context": agentcontext::for_folder(&folder()?)})),
+        "instructions" => Ok(json!(agentcontext::instructions(&folder()?)?)),
+        "write_instructions" => {
+            let files: Vec<String> = v["files"]
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|p| p.as_str().map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let remove = v["remove"].as_bool().unwrap_or(false);
+            Ok(json!(agentcontext::write_instructions(
+                &folder()?,
+                &files,
+                remove
+            )?))
+        }
         "worktrees" => Ok(json!(gitbranches::worktrees(&folder()?, &processes_now())?)),
         "worktree_size" => {
             let path = v["path"].as_str().ok_or("path is required")?;

@@ -362,6 +362,40 @@ enum ControlAPI {
       if let error = AgentSettings.write(key, args["value"]) { return reply(["error": error]) }
       reply(["settings": AgentSettings.read()])
 
+    case "agents.hooks":
+      DispatchQueue.global(qos: .userInitiated).async {
+        var failure: String?
+        if let on = args["on"] as? Bool {
+          guard let hook = (args["hook"] as? String).flatMap(AgentHook.init(rawValue:)),
+            let host = (args["agent"] as? String).flatMap({ $0 == "claude" ? HookHost.claude : $0 == "codex" ? HookHost.codex : nil })
+          else {
+            reply(["error": "hook (context or gate) and agent (claude or codex) are required with on"])
+            return
+          }
+          guard host.available else {
+            reply(["error": "\(host.rawValue) is not set up on this Mac"])
+            return
+          }
+          failure = AgentHooksBridge.set(hook, in: host, on)
+        }
+        var state: [String: Any] = [:]
+        for host in HookHost.allCases {
+          var hooks: [String: Any] = [:]
+          for hook in AgentHook.allCases { hooks[hook.rawValue] = AgentHooksBridge.installed(hook, in: host) }
+          hooks["file"] = host.shortPath
+          state[host == .claude ? "claude" : "codex"] = hooks
+        }
+        if AgentHook.allCases.contains(where: { AgentHooksBridge.installed($0, in: .codex) }),
+          let trust = CodexAppServer.coreScopeHookTrust()
+        {
+          state["codex_trust"] = trust
+          if trust.values.contains(where: { $0 != "trusted" && $0 != "managed" }) {
+            state["codex_note"] = "Codex runs these hooks only after the user trusts them: open Codex and type /hooks."
+          }
+        }
+        if let failure { state["error"] = failure }
+        reply(state)
+      }
     case "settings.backup":
       let backup = SettingsBackup.shared
       backup.write(force: true) { error in

@@ -292,3 +292,100 @@ private struct WorktreeRow: View {
     .padding(.vertical, 2)
   }
 }
+
+struct InstructionFileState: Decodable, Equatable {
+  let file: String
+  let exists: Bool
+  let state: String
+  var name: String { (file as NSString).lastPathComponent }
+}
+struct AgentInstructions: Decodable, Equatable {
+  let folder: String
+  let text: String?
+  let files: [InstructionFileState]
+}
+
+/// What the project's .corescope.yml asks of agents, and the marked section in CLAUDE.md /
+/// AGENTS.md for agents without CoreScope's session hook. Writes only after a click.
+struct AgentInstructionsSheet: View {
+  let project: ProjectEntry
+  @Environment(\.dismiss) private var dismiss
+  @ViewState private var state: AgentInstructions?
+  @ViewState private var error: String?
+  @ViewState private var chosen: Set<String> = ["CLAUDE.md", "AGENTS.md"]
+  @ViewState private var busy = false
+  var body: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      Text(L("Instruções para agentes")).font(.title3.weight(.semibold))
+      Text(L("O que o .corescope.yml deste projeto pede aos agentes. Com o hook de contexto ligado (Ajustes › Servidor MCP), Claude Code e Codex recebem isto no início de cada sessão; para outros agentes, grave como uma seção marcada no CLAUDE.md / AGENTS.md (o resto do arquivo fica como está)."))
+        .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+      if let state, let text = state.text {
+        ScrollView {
+          Text(Demo.enabled ? L("O texto fica oculto no modo de demonstração.") : text)
+            .font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+            .frame(maxWidth: .infinity, alignment: .leading).padding(8)
+        }
+        .frame(height: 190)
+        .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 6))
+        ForEach(state.files, id: \.file) { f in
+          HStack {
+            Toggle(f.name, isOn: Binding(get: { chosen.contains(f.name) }, set: { if $0 { chosen.insert(f.name) } else { chosen.remove(f.name) } }))
+              .toggleStyle(.checkbox)
+            Spacer()
+            Badge(text: label(f), color: f.state == "current" ? .green : f.state == "outdated" ? .orange : .secondary)
+          }
+        }
+      } else if error == nil {
+        ProgressView().controlSize(.small)
+      }
+      if let error { Text(error).font(.caption).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true) }
+      HStack {
+        if state?.files.contains(where: { $0.state != "missing" && chosen.contains($0.name) }) == true {
+          Button(L("Remover seção"), role: .destructive) { run(remove: true) }.disabled(busy)
+        }
+        Spacer()
+        Button(L("Fechar")) { dismiss() }.keyboardShortcut(.cancelAction)
+        Button(L("Gravar seção")) { run(remove: false) }
+          .keyboardShortcut(.defaultAction).buttonStyle(.borderedProminent)
+          .disabled(busy || chosen.isEmpty || state?.text == nil)
+      }
+    }
+    .padding(18).frame(width: 560)
+    .onAppear { load() }
+  }
+  private func label(_ f: InstructionFileState) -> String {
+    if !f.exists { return L("arquivo não existe (será criado)") }
+    switch f.state {
+    case "current": return L("seção em dia")
+    case "outdated": return L("seção desatualizada")
+    default: return L("sem a seção")
+    }
+  }
+  private func load() {
+    DispatchQueue.global(qos: .userInitiated).async {
+      let r = ProjectsTool.call(["op": "instructions", "folder": project.folder], as: AgentInstructions.self)
+      DispatchQueue.main.async {
+        switch r {
+        case .success(let s): state = s
+        case .failure(let e): error = e.message
+        }
+      }
+    }
+  }
+  private func run(remove: Bool) {
+    busy = true
+    let files = Array(chosen).sorted()
+    DispatchQueue.global(qos: .userInitiated).async {
+      let r = ProjectsTool.call(["op": "write_instructions", "folder": project.folder, "files": files, "remove": remove], as: AgentInstructions.self)
+      DispatchQueue.main.async {
+        busy = false
+        switch r {
+        case .success(let s):
+          state = s
+          error = nil
+        case .failure(let e): error = e.message
+        }
+      }
+    }
+  }
+}

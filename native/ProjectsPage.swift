@@ -309,6 +309,7 @@ private struct ProjectCard: View {
   @ViewState private var draft = ""
   @ViewState private var confirmRemove = false
   @ViewState private var confirmInit = false
+  @ViewState private var instructions = false
   var body: some View {
     Card {
       HStack(spacing: 10) {
@@ -339,6 +340,8 @@ private struct ProjectCard: View {
               draft = project.name
               editing = true
             }
+            Button(L("Instruções para agentes…")) { instructions = true }
+              .disabled(check?.config.exists != true || check?.config.error != nil)
             Divider()
             Button(L("Remover da lista…"), role: .destructive) { confirmRemove = true }
           } label: { Image(systemName: "ellipsis.circle") }.menuStyle(.borderlessButton).fixedSize()
@@ -356,6 +359,7 @@ private struct ProjectCard: View {
         ProgressView().controlSize(.small)
       }
     }
+    .sheet(isPresented: $instructions) { AgentInstructionsSheet(project: project) }
     .confirmationDialog(L("Remover %@ da lista?", shownProjectName(project)), isPresented: $confirmRemove) {
       Button(L("Remover"), role: .destructive) { store.remove(project) }
       Button(L("Cancelar"), role: .cancel) {}

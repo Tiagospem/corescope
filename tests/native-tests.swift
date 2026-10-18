@@ -176,14 +176,25 @@ import Foundation
     precondition(sshConfigHosts("Host *\n  User x\nHost web db-1 !bad\nhost web\n") == ["web", "db-1"])
     // The gate hook sits next to the user's own hooks and leaves them as they were.
     let userHooks = try! OrderedJSON.parse(#"{"model":"x","hooks":{"PreToolUse":[{"matcher":"Edit","hooks":[{"type":"command","command":"lint"}]}],"Stop":[]}}"#)
-    let withGate = ClaudeGateHook.installing(into: userHooks, binary: "/Apps/Core Scope.app/bin/corescope")
-    precondition(ClaudeGateHook.installed(in: withGate) && !ClaudeGateHook.installed(in: userHooks))
+    let withGate = AgentHook.gate.installing(into: userHooks, binary: "/Apps/Core Scope.app/bin/corescope")
+    precondition(AgentHook.gate.installed(in: withGate) && !AgentHook.gate.installed(in: userHooks))
     precondition(withGate.serialized().contains("'/Apps/Core Scope.app/bin/corescope' gate"))
-    let twice = ClaudeGateHook.installing(into: withGate, binary: "/new/corescope")
+    let twice = AgentHook.gate.installing(into: withGate, binary: "/new/corescope")
     precondition(twice.serialized().components(separatedBy: " gate").count == 2, "one entry after reinstalling")
-    precondition(ClaudeGateHook.removing(from: twice) == userHooks)
+    precondition(AgentHook.gate.removing(from: twice) == userHooks)
     let bare = try! OrderedJSON.parse(#"{"model":"x"}"#)
-    precondition(ClaudeGateHook.removing(from: ClaudeGateHook.installing(into: bare, binary: "/c/corescope")) == bare)
+    precondition(AgentHook.gate.removing(from: AgentHook.gate.installing(into: bare, binary: "/c/corescope")) == bare)
+    // Both hooks side by side (Codex form, with a status message); each removes only itself.
+    let both = AgentHook.context.installing(into: AgentHook.gate.installing(into: .object([]), binary: "/c/corescope", statusMessage: "s"), binary: "/c/corescope", statusMessage: "c")
+    precondition(AgentHook.context.installed(in: both) && AgentHook.gate.installed(in: both) && !AgentHook.context.installed(in: withGate))
+    if case .array(let starts)? = both["hooks"]?["SessionStart"], let first = starts.first {
+      precondition(first["matcher"] == nil, "no matcher: every session start")
+      precondition(both.serialized().contains(#""command": "'/c/corescope' context --hook""#) && both.serialized().contains(#""statusMessage": "c""#))
+    } else {
+      preconditionFailure("SessionStart group missing")
+    }
+    precondition(AgentHook.gate.removing(from: AgentHook.context.removing(from: both)) == .object([]))
+    precondition(AgentHook.gate.installed(in: AgentHook.context.removing(from: both)))
     let before = RemoteStats(parsing: "os=Linux\ncpus=2\nload=4.0 3 2\ncontainer=web|running|Up 2 hours\ncontainer=db|running|Up 2 hours (unhealthy)\n")
     let now = RemoteStats(parsing: "os=Linux\ncpus=2\nload=3.5 3 2\ndisk=/|100000000000|95000000000\ndisk=/data|100000000000|50000000000\nfailed=nginx.service\ncontainer=web|exited|Exited (1) 1 minute ago\ncontainer=db|running|Up 2 hours (unhealthy)\nosname=Ubuntu 24.04 LTS\nmproc=1.0|40.5|/usr/sbin/mysqld\n")
     precondition(now.osName == "Ubuntu 24.04 LTS" && now.memoryProcesses.first?.name == "mysqld" && now.disks.count == 2)

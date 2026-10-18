@@ -1308,4 +1308,26 @@ private let entries = """
   Em uso por %@ ¦ In use by %@ ¦ En uso por %@
   bloqueado ¦ locked ¦ bloqueado
   git worktree lock: o git não remove este worktree ¦ git worktree lock: git won't remove this worktree ¦ git worktree lock: git no elimina este worktree
+  Instruções para agentes ¦ Agent instructions ¦ Instrucciones para agentes
+  O que o .corescope.yml deste projeto pede aos agentes. Com o hook de contexto ligado (Ajustes › Servidor MCP), Claude Code e Codex recebem isto no início de cada sessão; para outros agentes, grave como uma seção marcada no CLAUDE.md / AGENTS.md (o resto do arquivo fica como está). ¦ What this project's .corescope.yml asks of agents. With the context hook on (Settings › MCP server), Claude Code and Codex get this at the start of every session; for other agents, write it as a marked section in CLAUDE.md / AGENTS.md (the rest of the file stays as it is). ¦ Lo que el .corescope.yml de este proyecto pide a los agentes. Con el hook de contexto activado (Ajustes › Servidor MCP), Claude Code y Codex lo reciben al inicio de cada sesión; para otros agentes, guárdalo como una sección marcada en CLAUDE.md / AGENTS.md (el resto del archivo queda igual).
+  O texto fica oculto no modo de demonstração. ¦ The text is hidden in demo mode. ¦ El texto se oculta en el modo de demostración.
+  Remover seção ¦ Remove section ¦ Quitar sección
+  Gravar seção ¦ Write section ¦ Guardar sección
+  arquivo não existe (será criado) ¦ file doesn't exist (will be created) ¦ el archivo no existe (se creará)
+  seção em dia ¦ section up to date ¦ sección al día
+  seção desatualizada ¦ section outdated ¦ sección desactualizada
+  sem a seção ¦ no section ¦ sin la sección
+  Instruções para agentes… ¦ Agent instructions… ¦ Instrucciones para agentes…
+  Hooks dos agentes ¦ Agent hooks ¦ Hooks de los agentes
+  %@ não está configurado neste Mac ¦ %@ isn't set up on this Mac ¦ %@ no está configurado en este Mac
+  Os hooks rodam o corescope deste app; cada arquivo ganha um backup antes de mudar e só as entradas do CoreScope são mexidas. Agentes sem hooks recebem o mesmo pelo MCP (agent_context) ou pela seção no CLAUDE.md / AGENTS.md de cada projeto. ¦ The hooks run this app's corescope; each file is backed up before it changes and only CoreScope's entries are touched. Agents without hooks get the same through MCP (agent_context) or the section in each project's CLAUDE.md / AGENTS.md. ¦ Los hooks ejecutan el corescope de esta app; cada archivo recibe una copia de seguridad antes de cambiar y solo se tocan las entradas de CoreScope. Los agentes sin hooks reciben lo mismo por MCP (agent_context) o por la sección en el CLAUDE.md / AGENTS.md de cada proyecto.
+  Contexto do projeto no início da sessão ¦ Project context at session start ¦ Contexto del proyecto al iniciar la sesión
+  Esperar folga antes de comandos pesados ¦ Wait for room before heavy commands ¦ Esperar holgura antes de comandos pesados
+  O agente recebe o que o .corescope.yml pede: capacidade, portas, perfis, serviços e logs. ¦ The agent gets what the .corescope.yml asks for: capacity, ports, profiles, services and logs. ¦ El agente recibe lo que pide el .corescope.yml: capacidad, puertos, perfiles, servicios y logs.
+  Builds e testes esperam CPU e memória normalizarem nos projetos com agents.wait_for_capacity. ¦ Builds and tests wait for CPU and memory to settle in projects with agents.wait_for_capacity. ¦ Builds y tests esperan a que la CPU y la memoria se normalicen en los proyectos con agents.wait_for_capacity.
+  O Codex só roda hooks que você aprovou: abra o Codex, digite /hooks e confie nos do CoreScope (de novo se o app mudar de lugar). ¦ Codex only runs hooks you approved: open Codex, type /hooks and trust CoreScope's (again if the app moves). ¦ Codex solo ejecuta hooks que aprobaste: abre Codex, escribe /hooks y confía en los de CoreScope (de nuevo si la app cambia de lugar).
+  O Codex confia nos hooks do CoreScope. ¦ Codex trusts CoreScope's hooks. ¦ Codex confía en los hooks de CoreScope.
+  O Codex ainda não roda estes hooks: abra o Codex, digite /hooks e confie nos do CoreScope. Depois disso eles rodam em toda sessão. ¦ Codex doesn't run these hooks yet: open Codex, type /hooks and trust CoreScope's. After that they run in every session. ¦ Codex aún no ejecuta estos hooks: abre Codex, escribe /hooks y confía en los de CoreScope. Después se ejecutan en cada sesión.
+  Não foi possível ler %@ ¦ Couldn't read %@ ¦ No se pudo leer %@
+  %@ não é um JSON válido; corrija o arquivo antes. ¦ %@ isn't valid JSON; fix the file first. ¦ %@ no es un JSON válido; corrige el archivo antes.
   """

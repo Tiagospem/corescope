@@ -61,6 +61,9 @@ USAGE:
   corescope eject-check VOLUME          what keeps a volume from ejecting: programs running from it,
                                         open files and working folders (read-only)
   corescope projects                    registered projects: branch, worktree, .corescope.yml status
+  corescope context [FOLDER]            what the project's .corescope.yml asks of agents (capacity, ports,
+                                        profiles, services, logs); --write CLAUDE.md|AGENTS.md|all puts it
+                                        in a marked section, --remove takes it out; --hook for SessionStart
   corescope status [PROJECT|FOLDER]     git changes of a project (or this folder): branch, staged, modified, new
   corescope branches [PROJECT|FOLDER]   local branches: current, last commit, ahead/behind, worktree
   corescope disk-health                 SSD health from NVMe SMART: wear, data written, power-on
@@ -251,6 +254,7 @@ fn main() {
             print(json_out, worktrees(&folders))
         }
         Some("gate") => gate(),
+        Some("context") => context(&args, &positional, json_out),
         Some("wait") => {
             let folder = positional
                 .get(1)
@@ -1084,14 +1088,10 @@ fn gate() -> i32 {
     let mut input = String::new();
     let _ = std::io::stdin().take(1 << 20).read_to_string(&mut input);
     let call: Value = serde_json::from_str(&input).unwrap_or_default();
-    if call["tool_name"].as_str() != Some("Bash") {
+    let Some((command, folder)) = gate_request(&call) else {
         return 0;
-    }
-    let command = call["tool_input"]["command"].as_str().unwrap_or("");
-    let folder = call["cwd"]
-        .as_str()
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+    };
+    let command = command.as_str();
     let Some(spec) = capacity_spec(&folder) else {
         return 0;
     };
@@ -1127,6 +1127,105 @@ fn gate() -> i32 {
         );
     }
     0
+}
+
+/// The shell command and working folder of a PreToolUse hook call. Claude Code and Codex send
+/// the same shape: `tool_name` "Bash", `tool_input.command`, `cwd`.
+fn gate_request(call: &Value) -> Option<(String, std::path::PathBuf)> {
+    if call["tool_name"].as_str() != Some("Bash") {
+        return None;
+    }
+    let command = call["tool_input"]["command"].as_str()?.to_string();
+    let folder = call["cwd"]
+        .as_str()
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+    Some((command, folder))
+}
+
+/// `corescope context`: what the project's `.corescope.yml` asks of agents. `--hook` is the
+/// SessionStart hook (Claude Code, Codex): the folder comes from the hook's JSON and the answer
+/// is the hook's additional context; it never fails a session. `--write FILE` (CLAUDE.md,
+/// AGENTS.md or all) puts the text in a marked section; `--remove` takes it out.
+fn context(args: &[String], positional: &[&str], json_out: bool) -> i32 {
+    use std::io::{IsTerminal, Read};
+    let flag = |name: &str| args.iter().any(|a| a == name);
+    if flag("--hook") {
+        let mut input = String::new();
+        if !std::io::stdin().is_terminal() {
+            let _ = std::io::stdin().take(1 << 20).read_to_string(&mut input);
+        }
+        let call: Value = serde_json::from_str(&input).unwrap_or_default();
+        let folder = call["cwd"]
+            .as_str()
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+        if let Some(text) = corescope::agentcontext::for_folder(&folder) {
+            println!("{}", corescope::agentcontext::hook_output(&text));
+        }
+        return 0;
+    }
+    let folder = positional
+        .get(1)
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+    let writes: Vec<String> = args
+        .iter()
+        .enumerate()
+        .filter(|(_, a)| *a == "--write")
+        .filter_map(|(i, _)| args.get(i + 1))
+        .flat_map(|f| {
+            if f == "all" {
+                corescope::agentcontext::INSTRUCTION_FILES
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect()
+            } else {
+                vec![f.clone()]
+            }
+        })
+        .collect();
+    let remove = flag("--remove");
+    if !writes.is_empty() || remove {
+        let files = if writes.is_empty() {
+            corescope::agentcontext::INSTRUCTION_FILES
+                .iter()
+                .map(|s| s.to_string())
+                .collect()
+        } else {
+            writes
+        };
+        return match corescope::agentcontext::write_instructions(&folder, &files, remove) {
+            Ok(state) => {
+                if json_out {
+                    print(true, json!(state))
+                } else {
+                    for f in &state.files {
+                        println!("{:<9} {}", f.state, f.file);
+                    }
+                    0
+                }
+            }
+            Err(e) => {
+                eprintln!("corescope: {e}");
+                1
+            }
+        };
+    }
+    match corescope::agentcontext::for_folder(&folder) {
+        Some(text) if json_out => print(true, json!({"context": text})),
+        Some(text) => {
+            println!("{text}");
+            0
+        }
+        None => {
+            eprintln!(
+                "corescope: no .corescope.yml in {} or above it",
+                folder.display()
+            );
+            1
+        }
+    }
 }
 
 /// The project file in `folder` (or the nearest parent with one), parsed and validated.
@@ -1725,6 +1824,27 @@ fn project_folder(target: Option<&str>) -> Result<String, String> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn gate_reads_claude_code_and_codex_calls() {
+        let claude = json!({"session_id": "s", "cwd": "/repo", "hook_event_name": "PreToolUse",
+            "tool_name": "Bash", "tool_input": {"command": "npm test", "description": "x"}});
+        let codex = json!({"session_id": "s", "turn_id": "t", "cwd": "/repo", "model": "gpt",
+            "permission_mode": "default", "hook_event_name": "PreToolUse", "tool_name": "Bash",
+            "tool_use_id": "u", "tool_input": {"command": "cargo build"}});
+        assert_eq!(
+            gate_request(&claude),
+            Some(("npm test".into(), "/repo".into()))
+        );
+        assert_eq!(
+            gate_request(&codex),
+            Some(("cargo build".into(), "/repo".into()))
+        );
+        let patch =
+            json!({"tool_name": "apply_patch", "tool_input": {"command": "*** Begin Patch"}});
+        assert_eq!(gate_request(&patch), None, "only shell commands");
+    }
+
     use super::*;
     #[test]
     fn plist_string_reads_the_value_after_its_key() {

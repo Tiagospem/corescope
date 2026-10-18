@@ -1,37 +1,69 @@
 import Foundation
 import SwiftUI
 
-/// Installs CoreScope's `corescope gate` PreToolUse hook in ~/.claude/settings.json (opt-in): Claude
-/// Code then waits for room before heavy commands in projects whose .corescope.yml asks for it.
-/// Same care as the status line bridge: a backup first, key order kept, only our entry touched.
-enum ClaudeGateBridge {
-  static var binary: String? { CommandLineTool.bundled?.path }
-  static func installed() -> Bool {
-    guard let text = try? String(contentsOf: ClaudeLimitsBridge.settingsFile, encoding: .utf8),
-      let settings = try? OrderedJSON.parse(text)
-    else { return false }
-    return ClaudeGateHook.installed(in: settings)
+/// Agents whose hooks file CoreScope can add its hooks to.
+enum HookHost: String, CaseIterable, Identifiable {
+  case claude = "Claude Code"
+  case codex = "Codex"
+  var id: String { rawValue }
+  /// Follows a dotfiles symlink so the real file is edited and the link survives.
+  var file: URL {
+    switch self {
+    case .claude: ClaudeLimitsBridge.settingsFile
+    case .codex:
+      FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex/hooks.json").resolvingSymlinksInPath()
+    }
   }
+  var shortPath: String { self == .claude ? "~/.claude/settings.json" : "~/.codex/hooks.json" }
+  fileprivate var backupPrefix: String { self == .claude ? "settings" : "codex-hooks" }
+  /// Codex shows this while the hook runs; Claude Code has no such field.
+  func statusMessage(_ hook: AgentHook) -> String? {
+    guard self == .codex else { return nil }
+    return hook == .gate ? "CoreScope: waiting for the Mac to have room if this is heavy" : "CoreScope: project context"
+  }
+  /// Codex is set up on this Mac (its folder exists).
+  var available: Bool {
+    self == .claude
+      || FileManager.default.fileExists(atPath: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex").path)
+  }
+}
+
+/// Installs CoreScope's hooks (opt-in): `corescope gate` before shell commands (heavy ones wait
+/// for room in projects whose .corescope.yml asks for it) and `corescope context --hook` at
+/// session start (the project's .corescope.yml summed up for the agent). Same care as the status
+/// line bridge: a backup first, key order kept, only CoreScope's entries touched.
+enum AgentHooksBridge {
+  static var binary: String? { CommandLineTool.bundled?.path }
+  private static func read(_ host: HookHost) -> OrderedJSON? {
+    guard let text = try? String(contentsOf: host.file, encoding: .utf8) else { return nil }
+    return try? OrderedJSON.parse(text)
+  }
+  static func installed(_ hook: AgentHook, in host: HookHost) -> Bool { hook.installed(in: read(host)) }
   /// nil on success, else a message.
-  static func set(_ on: Bool) -> String? {
-    let file = ClaudeLimitsBridge.settingsFile
+  static func set(_ hook: AgentHook, in host: HookHost, _ on: Bool) -> String? {
+    let file = host.file
     let existed = FileManager.default.fileExists(atPath: file.path)
     guard let text = existed ? try? String(contentsOf: file, encoding: .utf8) : "{}\n" else {
-      return L("Não foi possível ler ~/.claude/settings.json")
+      return L("Não foi possível ler %@", host.shortPath)
     }
     guard let settings = try? OrderedJSON.parse(text), case .object = settings else {
-      return L("~/.claude/settings.json não é um JSON válido; corrija o arquivo antes.")
+      return L("%@ não é um JSON válido; corrija o arquivo antes.", host.shortPath)
     }
     let next: OrderedJSON
     if on {
       guard let binary else { return L("Comando corescope não encontrado no app.") }
-      next = ClaudeGateHook.installing(into: settings, binary: binary)
+      next = hook.installing(into: settings, binary: binary, statusMessage: host.statusMessage(hook))
     } else {
-      next = ClaudeGateHook.removing(from: settings)
+      next = hook.removing(from: settings)
     }
     guard next != settings else { return nil }
     do {
-      if existed { try ClaudeLimitsBridge.backup(text) }
+      if existed { try ClaudeLimitsBridge.backup(text, prefix: host.backupPrefix) }
+      // Codex's hooks.json holds only hooks: one left empty by CoreScope goes away.
+      if host == .codex, next == .object([]) {
+        try FileManager.default.removeItem(at: file)
+        return nil
+      }
       try ClaudeLimitsBridge.write(next.serialized() + ClaudeLimitsBridge.trailing(text.isEmpty ? "\n" : text), to: file)
       return nil
     } catch {
