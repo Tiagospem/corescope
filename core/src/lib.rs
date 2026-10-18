@@ -9,12 +9,14 @@ pub mod diskgrowth;
 pub mod diskhealth;
 pub mod eject;
 pub mod exposure;
+pub mod git;
 pub mod history;
 pub mod largefiles;
 pub mod logs;
 mod os;
 pub use os::{local_format, parse_moment};
 pub mod projectconfig;
+pub mod projects;
 mod sqlite;
 pub mod worktrees;
 use os::*;
@@ -1788,6 +1790,76 @@ pub fn db_tool(v: &serde_json::Value) -> Result<serde_json::Value, String> {
         }
         _ => Err("unknown operation".into()),
     }
+}
+/// Projects shared by the app, the CLI and MCP. `op`: list, check {folder}, add {folder, name,
+/// template}, rename {id, name}, set {id, show_in_panel, notify_minutes}, remove {id},
+/// init {folder}.
+pub fn projects_tool(v: &serde_json::Value) -> Result<serde_json::Value, String> {
+    use serde_json::json;
+    let file = projects::default_path(&home());
+    let folder = || {
+        v["folder"]
+            .as_str()
+            .map(std::path::PathBuf::from)
+            .filter(|p| p.is_absolute())
+            .ok_or_else(|| "folder must be an absolute path".to_string())
+    };
+    let id = || v["id"].as_str().ok_or_else(|| "id is required".to_string());
+    match v["op"].as_str().unwrap_or("") {
+        "list" => Ok(json!(projects::load(&file))),
+        "check" => Ok(json!(projects::check(&folder()?, &projects::load(&file)))),
+        "add" => {
+            let name = v["name"].as_str().unwrap_or("");
+            let template = v["template"].as_bool().unwrap_or(false);
+            Ok(json!(projects::add(
+                &file,
+                &folder()?,
+                name,
+                template,
+                now() as i64
+            )?))
+        }
+        "rename" => {
+            let name = v["name"].as_str().unwrap_or("").to_string();
+            Ok(json!(projects::update(&file, id()?, |p| p.name = name)?))
+        }
+        "set" => {
+            let show = v["show_in_panel"].as_bool();
+            let notify = v
+                .get("notify_minutes")
+                .map(|n| n.as_u64().map(|m| m as u32));
+            Ok(json!(projects::update(&file, id()?, |p| {
+                if let Some(s) = show {
+                    p.show_in_panel = s;
+                }
+                if let Some(n) = notify {
+                    p.notify_minutes = n;
+                }
+            })?))
+        }
+        "remove" => {
+            projects::remove(&file, id()?)?;
+            Ok(json!({"removed": id()?}))
+        }
+        "init" => Ok(json!(git::init(&folder()?)?)),
+        _ => Err("unknown operation".into()),
+    }
+}
+/// `projects_tool` for the app.
+///
+/// # Safety
+/// `request` is a valid NUL-terminated UTF-8 JSON pointer for the duration of this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cs_projects(request: *const c_char) -> *mut c_char {
+    response(|| {
+        if request.is_null() {
+            return Err("Consulta ausente".into());
+        }
+        let v: serde_json::Value =
+            serde_json::from_slice(unsafe { CStr::from_ptr(request) }.to_bytes())
+                .map_err(|e| e.to_string())?;
+        projects_tool(&v).map(|v| v.to_string())
+    })
 }
 /// `db_tool` for the app.
 ///

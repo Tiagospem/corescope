@@ -582,6 +582,14 @@ fn core_tools() -> Vec<Value> {
             &["port", "db"],
         ),
         tool(
+            "list_projects",
+            "Projects the user registered in CoreScope (Projects page): name, folder, git branch, \
+             worktree and parent repository, and what the project's .corescope.yml enables (or its \
+             first error with the line). Read-only.",
+            json!({}),
+            &[],
+        ),
+        tool(
             "disk_health",
             "SSD health of each physical disk from its NVMe SMART log: percentage of rated \
              endurance used, available spare, data written and read, power-on hours, power \
@@ -827,6 +835,22 @@ fn call(params: &Value) -> Value {
                 Ok(v) => text(v, false),
                 Err(e) => text(json!({"error": e}), true),
             }
+        }
+        "list_projects" => {
+            let list = corescope::projects_tool(&json!({"op": "list"})).unwrap_or(json!([]));
+            let rows: Vec<Value> = list
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|p| {
+                    let check = corescope::projects_tool(
+                        &json!({"op": "check", "folder": p["folder"].as_str().unwrap_or("")}),
+                    )
+                    .unwrap_or(Value::Null);
+                    json!({"project": p, "git": check["git"], "config": check["config"]})
+                })
+                .collect();
+            text(json!({"projects": rows}), false)
         }
         "disk_health" => text(json!(corescope::diskhealth::read()), false),
         "disk_growth" => match corescope::disk_growth(args["measure"].as_bool() == Some(true)) {

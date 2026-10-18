@@ -30,7 +30,7 @@ final class SettingsBackup: ObservableObject {
   private var observer: NSObjectProtocol?
   private let queue = DispatchQueue(label: "app.corescope.settingsbackup", qos: .utility)
   /// Small files from Application Support kept with the settings.
-  private static let dataFiles = ["services-history.json", "disk-growth.json"]
+  private static let dataFiles = ["services-history.json", "disk-growth.json", "projects.json"]
   private static var support: URL {
     FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/CoreScope")
   }

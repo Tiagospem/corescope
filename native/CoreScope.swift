@@ -105,9 +105,14 @@ struct CoreScopeApp: App {
           }.keyboardShortcut(" ", modifiers: [.command, .shift])
         }
         CommandMenu("Navegar") {
+          // ⌘1…⌘9 for the first nine pages; `Character("10")` would trap.
           ForEach(Array(Page.allCases.enumerated()), id: \.element) { index, page in
-            Button(page.title) { navigate(page) }
-              .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: .command)
+            if index < 9 {
+              Button(page.title) { navigate(page) }
+                .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: .command)
+            } else {
+              Button(page.title) { navigate(page) }
+            }
           }
         }
       }

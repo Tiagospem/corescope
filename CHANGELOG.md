@@ -10,6 +10,19 @@ section as the GitHub release notes.
 
 ## [Unreleased]
 
+### Added
+- **Projects page** (phase 1 of the Projects epic): register local repositories by folder, with a
+  default name from `.corescope.yml` (or the folder) that stays editable; the file is validated
+  with errors placed on their line and summarized (profiles, ports, Services, logs, capacity), a
+  minimal one is offered when missing (decline and nothing is added); git root, linked worktree
+  and main repository, subfolder, branch or detached HEAD; `git init` after a confirmation;
+  rename and remove (files are never touched). `corescope://open/projects`, `corescope projects`,
+  MCP `list_projects`. The list lives in `Application Support/CoreScope/projects.json` and is part
+  of the settings backup.
+
+### Fixed
+- The Navigate menu gives ⌘1–⌘9 to the first nine pages only; more pages would have crashed it.
+
 ## [0.7.0] - 2026-10-18
 
 ### Added

@@ -1205,4 +1205,40 @@ private let entries = """
   As configurações atuais são substituídas pelas do backup e o CoreScope reinicia. ¦ The current settings are replaced by the backup's and CoreScope restarts. ¦ La configuración actual se reemplaza por la de la copia y CoreScope se reinicia.
   Restaurar e reiniciar ¦ Restore and restart ¦ Restaurar y reiniciar
   alguns segundos depois de uma mudança, só se mudou algo ¦ a few seconds after a change, only if something changed ¦ unos segundos después de un cambio, solo si cambió algo
+  %@ logs ¦ %@ logs ¦ %@ logs
+  %@ serviços ¦ %@ services ¦ %@ servicios
+  .corescope.yml válido, só com o nome ¦ Valid .corescope.yml, name only ¦ .corescope.yml válido, solo con el nombre
+  .corescope.yml, linha %@ ¦ .corescope.yml, line %@ ¦ .corescope.yml, línea %@
+  Abrir ¦ Open ¦ Abrir
+  Adicionar projeto ¦ Add project ¦ Añadir proyecto
+  Adicionar projeto… ¦ Add project… ¦ Añadir proyecto…
+  Criar .corescope.yml e adicionar ¦ Create .corescope.yml and add ¦ Crear .corescope.yml y añadir
+  Criar .corescope.yml? ¦ Create .corescope.yml? ¦ ¿Crear .corescope.yml?
+  Criar e adicionar ¦ Create and add ¦ Crear y añadir
+  Dentro do repositório %@ ¦ Inside the repository %@ ¦ Dentro del repositorio %@
+  Escolha a pasta do projeto (a raiz do repositório ou uma subpasta). ¦ Choose the project folder (the repository root or a subfolder). ¦ Elige la carpeta del proyecto (la raíz del repositorio o una subcarpeta).
+  Escolher pasta ¦ Choose folder ¦ Elegir carpeta
+  Esta pasta já está na lista. ¦ This folder is already in the list. ¦ Esta carpeta ya está en la lista.
+  Esta pasta não tem .corescope.yml. O CoreScope cria um modelo mínimo (só o nome) com o mesmo gravador do resto do app; sem ele o projeto não é adicionado. ¦ This folder has no .corescope.yml. CoreScope creates a minimal one (just the name) with the same writer the rest of the app uses; without it the project is not added. ¦ Esta carpeta no tiene .corescope.yml. CoreScope crea uno mínimo (solo el nombre) con el mismo escritor que el resto de la app; sin él el proyecto no se añade.
+  HEAD destacado em %@ ¦ Detached HEAD at %@ ¦ HEAD separado en %@
+  Inicializar repositório ¦ Initialize repository ¦ Inicializar repositorio
+  Inicializar repositório… ¦ Initialize repository… ¦ Inicializar repositorio…
+  Inicializar um repositório git aqui? ¦ Initialize a git repository here? ¦ ¿Inicializar un repositorio git aquí?
+  Nenhum projeto ainda. Adicione a pasta de um repositório: o CoreScope lê o .corescope.yml (ou oferece criar um) e o git dela, sem abrir uma IDE. ¦ No projects yet. Add a repository folder: CoreScope reads its .corescope.yml (or offers to create one) and its git, without opening an IDE. ¦ Aún no hay proyectos. Añade la carpeta de un repositorio: CoreScope lee su .corescope.yml (u ofrece crear uno) y su git, sin abrir un IDE.
+  Não adicionar ¦ Don't add ¦ No añadir
+  Remover %@ da lista? ¦ Remove %@ from the list? ¦ ¿Quitar %@ de la lista?
+  Remover da lista… ¦ Remove from list… ¦ Quitar de la lista…
+  Renomear ¦ Rename ¦ Renombrar
+  Repositórios locais que você acompanha: a configuração do .corescope.yml e o estado do git. ¦ Local repositories you follow: their .corescope.yml configuration and git state. ¦ Repositorios locales que sigues: la configuración de .corescope.yml y el estado de git.
+  Roda git init em %@. Nada é commitado. ¦ Runs git init in %@. Nothing is committed. ¦ Ejecuta git init en %@. No se hace ningún commit.
+  Sem repositório git ¦ No git repository ¦ Sin repositorio git
+  Só sai do CoreScope: a pasta, o .corescope.yml e o repositório ficam como estão. ¦ It only leaves CoreScope: the folder, the .corescope.yml and the repository stay as they are. ¦ Solo sale de CoreScope: la carpeta, el .corescope.yml y el repositorio quedan como están.
+  Um arquivo mínimo com o nome do projeto. Se você recusar, o projeto não é adicionado. ¦ A minimal file with the project's name. If you decline, the project is not added. ¦ Un archivo mínimo con el nombre del proyecto. Si lo rechazas, el proyecto no se añade.
+  Worktree do repositório %@ ¦ Worktree of the repository %@ ¦ Worktree del repositorio %@
+  agentes esperam capacidade ¦ agents wait for capacity ¦ los agentes esperan capacidad
+  perfis: %@ ¦ profiles: %@ ¦ perfiles: %@
+  portas: %@ ¦ ports: %@ ¦ puertos: %@
+  sem commits ainda ¦ no commits yet ¦ sin commits todavía
+  subpasta %@ ¦ subfolder %@ ¦ subcarpeta %@
+  worktree ¦ worktree ¦ worktree
   """

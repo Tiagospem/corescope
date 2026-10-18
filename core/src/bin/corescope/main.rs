@@ -60,6 +60,7 @@ USAGE:
                                         age and the app that manages it (read-only)
   corescope eject-check VOLUME          what keeps a volume from ejecting: programs running from it,
                                         open files and working folders (read-only)
+  corescope projects                    registered projects: branch, worktree, .corescope.yml status
   corescope disk-health                 SSD health from NVMe SMART: wear, data written, power-on
                                         hours, unsafe shutdowns, media errors and a verdict
   corescope mcp                         run the local MCP server on stdio
@@ -338,6 +339,47 @@ fn main() {
                         } else {
                             String::new()
                         }
+                    );
+                }
+                0
+            }
+        }
+        Some("projects") => {
+            let list = corescope::projects_tool(&json!({"op": "list"})).unwrap_or(json!([]));
+            let rows: Vec<Value> = list
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|p| {
+                    let folder = p["folder"].as_str().unwrap_or("");
+                    let check = corescope::projects_tool(&json!({"op": "check", "folder": folder}))
+                        .unwrap_or(Value::Null);
+                    json!({"project": p, "git": check["git"], "config": check["config"]})
+                })
+                .collect();
+            if json_out {
+                print(true, json!(rows))
+            } else {
+                if rows.is_empty() {
+                    println!("No projects yet: add one on the Projects page.");
+                }
+                for r in &rows {
+                    let git = &r["git"];
+                    let branch = if git["is_repo"].as_bool() == Some(true) {
+                        git["branch"].as_str().unwrap_or("(detached)").to_string()
+                    } else {
+                        "no git".into()
+                    };
+                    let config = match r["config"]["error"].as_str() {
+                        Some(e) => format!("yml error: {e}"),
+                        None => "yml ok".into(),
+                    };
+                    println!(
+                        "{:<24} {:<20} {:<10} {}",
+                        r["project"]["name"].as_str().unwrap_or(""),
+                        branch,
+                        config,
+                        r["project"]["folder"].as_str().unwrap_or("")
                     );
                 }
                 0
