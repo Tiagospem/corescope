@@ -158,6 +158,11 @@ struct PreferencesView: View {
         Text(
           L("O Codex não grava mais o limite em disco. Com isto ligado, o CoreScope executa o app-server do próprio Codex a cada 5 minutos e pede o limite; o Codex consulta a OpenAI com o login dele. Nenhuma credencial é lida pelo CoreScope.")
         ).font(.caption).foregroundStyle(.secondary)
+        Toggle(L("Ler o limite atual pelo Claude Code"), isOn: $p.claudeLiveLimits)
+          .onChange(of: p.claudeLiveLimits) { _, on in if on { AgentStore.shared.refreshClaudeLive() } }
+        Text(
+          L("O status line e as amostras do Claude Desktop só se renovam enquanto são usados. Com isto ligado, o CoreScope roda o /usage do próprio Claude Code (a cada 5 min enquanto você usa o Claude, a cada 30 min fora disso) e mostra o mesmo número que o Claude Code e o Claude Desktop; o Claude Code consulta a Anthropic com o login dele, sem gastar tokens. Nenhuma credencial é lida pelo CoreScope.")
+        ).font(.caption).foregroundStyle(.secondary)
         Toggle(L("Limites na barra de menus"), isOn: $p.limitsInMenuBar)
         Toggle(L("Limites no painel flutuante"), isOn: $p.limitsInPanel)
         Toggle(L("Limites na visão geral"), isOn: $p.limitsInOverview)

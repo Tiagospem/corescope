@@ -94,8 +94,10 @@ struct ProcessItem: Decodable, Identifiable {
   }
   /// Agent session root: a CLI agent started from a terminal, editor or a desktop app
   /// (Claude/Codex Desktop run each session as a bundled CLI). Nested sub-agents are excluded.
+  /// CoreScope's own short-lived `claude -p /usage` (see ClaudeUsageCLI) is not a session.
   var isAgentSession: Bool {
     tags.contains("agent") && !(host ?? "").hasSuffix("Desktop") && origin?.label != host
+      && ppid != getpid()
   }
   /// The session root itself or anything an agent session started.
   var inAgentSession: Bool {
@@ -391,6 +393,10 @@ final class Preferences: ObservableObject {
   /// Ask Codex's app-server for the current limit (Codex contacts OpenAI with its login).
   @Published var codexLiveLimits = UserDefaults.standard.bool(forKey: "codexLiveLimits") {
     didSet { save("codexLiveLimits", codexLiveLimits) }
+  }
+  /// Ask Claude Code's own `/usage` for the current limit (Claude Code contacts Anthropic with its login).
+  @Published var claudeLiveLimits = UserDefaults.standard.bool(forKey: "claudeLiveLimits") {
+    didSet { save("claudeLiveLimits", claudeLiveLimits) }
   }
   @Published var limitsInOverview =
     UserDefaults.standard.object(forKey: "limitsInOverview") as? Bool ?? true
