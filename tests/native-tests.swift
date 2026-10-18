@@ -221,6 +221,15 @@ import Foundation
     precondition(CostWeight(percent: 0.05) == .low && CostWeight(percent: 0.5) == .medium && CostWeight(percent: 3) == .high)
     precondition(isCoreScopeHelper(path: "/Applications/CoreScope.app/Contents/Resources/bin/corescope"))
     precondition(!isCoreScopeHelper(path: "/usr/local/bin/corescope"))
+    // Settings backup: which keys, fresh domains, rotation.
+    let domain: [String: Any] = ["interval": 3.0, "envProfiles": Data(), "envLaunched": Data(), "NSWindow Frame main": "x",
+                                 "SUHasLaunchedBefore": true, "panel.frame.1": "r", "sshHosts": ["a"]]
+    precondition(Set(SettingsBackupLogic.settings(domain).keys) == ["interval", "envProfiles", "sshHosts"])
+    precondition(SettingsBackupLogic.isFresh(["NSOSPLastRootDirectory": Data(), "SUHasLaunchedBefore": true]))
+    precondition(SettingsBackupLogic.isFresh(nil) && !SettingsBackupLogic.isFresh(domain))
+    let names = (1...23).map { String(format: "settings-2026-10-%02d-120000.plist", $0) } + ["latest.plist", "notes.txt"]
+    let gone = SettingsBackupLogic.expired(names.shuffled(), keep: 20)
+    precondition(gone == ["settings-2026-10-01-120000.plist", "settings-2026-10-02-120000.plist", "settings-2026-10-03-120000.plist"])
     // Claude limits: epoch leak guard, Claude Desktop samples, pace.
     let leaked = #"{"five_hour":{"used_percentage":1792300000,"resets_at":1792300000},"seven_day":{"used_percentage":40,"resets_at":4102444800}}"#
     precondition(parseClaudeLimits(Data(leaked.utf8), now: Date(timeIntervalSince1970: 1_792_000_000)).map(\.id) == ["seven_day"])
@@ -252,7 +261,7 @@ import Foundation
     precondition(looksLikeTime("14:05") && looksLikeTime("2:05 pm") && looksLikeTime("14h05") && looksLikeTime("ontem 9:30"))
     precondition(!looksLikeTime("8000") && !looksLikeTime("redis") && !looksLikeTime("14"))
     print(
-      "30 native assertions passed: descendants, cycle, ordering, off-screen recovery, negative-origin monitor, forest roots, flatten, collapse, totals, ancestors, filter, formatting, container ports, shared ports, demo paths, debounce, sustained thresholds, new arrivals, port parsing, shortcut label, agent stalls, health targets, shared containers, ssh stats, gate hook, machine alerts, failed unit explanations, service history, own cost, links, palette, Claude Desktop usage, limit pace; plus settings JSON, Unicode escapes, status line install/chain, Claude limits, update versions, release notes, appcast"
+      "31 native assertions passed: descendants, cycle, ordering, off-screen recovery, negative-origin monitor, forest roots, flatten, collapse, totals, ancestors, filter, formatting, container ports, shared ports, demo paths, debounce, sustained thresholds, new arrivals, port parsing, shortcut label, agent stalls, health targets, shared containers, ssh stats, gate hook, machine alerts, failed unit explanations, service history, own cost, links, palette, Claude Desktop usage, limit pace, settings backup; plus settings JSON, Unicode escapes, status line install/chain, Claude limits, update versions, release notes, appcast"
     )
     print(
       "token usage assertions passed: timestamps, formatting, Claude block dedupe, embedded entries, partial lines, long-line skip, fast/full parity, Codex repeats and forks"

@@ -1188,4 +1188,21 @@ private let entries = """
   no ritmo atual, ~%@ no reinício ¦ at this pace, ~%@ at the reset ¦ a este ritmo, ~%@ al reiniciar
   via Claude Desktop %@ · sem horário de reinício; atualiza enquanto o Claude Desktop está aberto ¦ via Claude Desktop %@ · no reset time; updates while Claude Desktop is open ¦ vía Claude Desktop %@ · sin hora de reinicio; se actualiza mientras Claude Desktop está abierto
   Lido de ~/Library/Application Support/Claude/plan-usage-history.json, que o Claude Desktop grava a cada poucos minutos. Ative o status line em Ajustes › Agentes para ter o horário de reinício e o ritmo. ¦ Read from ~/Library/Application Support/Claude/plan-usage-history.json, which Claude Desktop writes every few minutes. Turn on the status line in Settings › Agents for the reset time and pace. ¦ Leído de ~/Library/Application Support/Claude/plan-usage-history.json, que Claude Desktop escribe cada pocos minutos. Activa el status line en Ajustes › Agentes para tener la hora de reinicio y el ritmo.
+  Restaurar suas configurações? ¦ Restore your settings? ¦ ¿Restaurar tu configuración?
+  O CoreScope abriu sem configurações, mas há um backup de %@ em %@ (perfis, Serviços, máquinas e preferências). ¦ CoreScope opened without settings, but there is a backup from %@ in %@ (profiles, Services, machines and preferences). ¦ CoreScope se abrió sin configuración, pero hay una copia de %@ en %@ (perfiles, Servicios, máquinas y preferencias).
+  Começar do zero ¦ Start from scratch ¦ Empezar de cero
+  Backup ilegível: %@ ¦ Unreadable backup: %@ ¦ Copia ilegible: %@
+  Backup das configurações ¦ Settings backup ¦ Copia de la configuración
+  Manter um backup das configurações ¦ Keep a backup of the settings ¦ Mantener una copia de la configuración
+  Alterar… ¦ Change… ¦ Cambiar…
+  Último backup ¦ Last backup ¦ Última copia
+  ainda não ¦ not yet ¦ todavía no
+  Fazer backup agora ¦ Back up now ¦ Hacer copia ahora
+  Backup salvo. ¦ Backup saved. ¦ Copia guardada.
+  Atualizar o app mantém as configurações. Desinstaladores (AppCleaner, CleanMyMac, brew uninstall --zap) apagam ~/Library/Preferences e Application Support; com o backup numa pasta fora de ~/Library, o CoreScope oferece restaurar ao abrir sem configurações. Guarda perfis, Serviços, máquinas, receitas, pastas de projeto e preferências; não guarda o histórico nem os snapshots de banco. Escolha uma pasta no iCloud Drive para levar para outro Mac. ¦ Updating the app keeps the settings. Uninstallers (AppCleaner, CleanMyMac, brew uninstall --zap) delete ~/Library/Preferences and Application Support; with the backup in a folder outside ~/Library, CoreScope offers to restore it when it opens without settings. It keeps profiles, Services, machines, recipes, project folders and preferences; not the history or database snapshots. Pick a folder in iCloud Drive to take them to another Mac. ¦ Actualizar la app mantiene la configuración. Los desinstaladores (AppCleaner, CleanMyMac, brew uninstall --zap) borran ~/Library/Preferences y Application Support; con la copia en una carpeta fuera de ~/Library, CoreScope ofrece restaurarla al abrirse sin configuración. Guarda perfiles, Servicios, máquinas, recetas, carpetas de proyecto y preferencias; no el historial ni los snapshots de bases. Elige una carpeta en iCloud Drive para llevarla a otro Mac.
+  Usar esta pasta ¦ Use this folder ¦ Usar esta carpeta
+  Restaurar este backup? ¦ Restore this backup? ¦ ¿Restaurar esta copia?
+  As configurações atuais são substituídas pelas do backup e o CoreScope reinicia. ¦ The current settings are replaced by the backup's and CoreScope restarts. ¦ La configuración actual se reemplaza por la de la copia y CoreScope se reinicia.
+  Restaurar e reiniciar ¦ Restore and restart ¦ Restaurar y reiniciar
+  alguns segundos depois de uma mudança, só se mudou algo ¦ a few seconds after a change, only if something changed ¦ unos segundos después de un cambio, solo si cambió algo
   """

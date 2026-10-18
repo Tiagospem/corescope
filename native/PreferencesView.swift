@@ -223,6 +223,7 @@ struct PreferencesView: View {
         ).font(.caption).foregroundStyle(.secondary)
       }
       HistorySettings()
+      SettingsBackupSection()
       Section(L("Custo do CoreScope")) { SelfCostView() }
       Section(L("Privacidade e custo do monitor")) {
         Text(

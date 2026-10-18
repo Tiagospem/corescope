@@ -109,7 +109,8 @@ const DESTRUCTIVE: [&str; 12] = [
     "remove_machine",
 ];
 /// Tools that change state without destroying anything.
-const CHANGES: [&str; 8] = [
+const CHANGES: [&str; 9] = [
+    "backup_settings",
     "db_snapshot",
     "write_project_config",
     "create_profile",
@@ -326,6 +327,15 @@ fn app_tools() -> Vec<(
             "scan_dev_space",
             "cleanup.scan",
             "Scan for reclaimable developer space now (can take ~30 s) and return the result with ids.",
+            json!({}),
+            vec![],
+        ),
+        (
+            "backup_settings",
+            "settings.backup",
+            "Write a backup of CoreScope's settings now (profiles, Services, machines, recipes, \
+             project folders, preferences) to the backup folder (default ~/.corescope/backups), \
+             outside ~/Library so uninstallers do not remove it. Returns the file path.",
             json!({}),
             vec![],
         ),

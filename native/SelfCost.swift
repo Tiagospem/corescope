@@ -185,6 +185,7 @@ struct SelfCost {
       f("databases", L("Bancos locais"), on: true, L("a cada 15 s, só com a página aberta"), measured: "databases"),
       f("cleanup", L("Limpeza"), on: true, L("só quando você pede um escaneamento"), measured: "cleanup"),
       f("storage", L("Saúde do SSD (SMART)"), on: true, L("lê ao abrir Armazenamento, no máximo a cada 10 min"), measured: "storage"),
+      f("settingsbackup", L("Backup das configurações"), on: SettingsBackup.shared.enabled, L("alguns segundos depois de uma mudança, só se mudou algo"), measured: "settingsbackup"),
       f("diskgrowth", L("Crescimento do disco"), on: true, L("mede no máximo a cada 6 h, alguns segundos de disco"), measured: "diskgrowth"),
       f("economy", L("Modo economia"), on: p.economyMode, L("só na bateria, a cada coleta")),
       f("updates", L("Procurar atualizações"), on: p.checkForUpdates, L("um pedido ao GitHub por dia, no máximo")),

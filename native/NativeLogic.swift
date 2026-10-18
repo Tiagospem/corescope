@@ -1243,3 +1243,27 @@ func limitPace(used: Double, windowMinutes: Int, resetsAt: Date, now: Date = Dat
   let toFull = (100 - used) / rate
   return LimitPace(projected: projected, fullAt: toFull < remaining ? now.addingTimeInterval(toFull) : nil)
 }
+
+/// Settings backups: which UserDefaults keys are the user's settings. System and framework keys
+/// (NS…, Apple…, Sparkle's SU…, window and panel positions) and the runtime state of running
+/// profiles (they point at process IDs that will not exist after a restore) stay out.
+enum SettingsBackupLogic {
+  static let runtimeKeys: Set<String> = ["envLaunched", "envExits", "envActive", "envStartedContainers", "panel.lastScreen"]
+  static func isSetting(_ key: String) -> Bool {
+    !(key.hasPrefix("NS") || key.hasPrefix("Apple") || key.hasPrefix("SU") || key.hasPrefix("com.apple")
+      || key.hasPrefix("panel.frame.") || runtimeKeys.contains(key))
+  }
+  static func settings(_ domain: [String: Any]) -> [String: Any] {
+    domain.filter { isSetting($0.key) }
+  }
+  /// A domain that holds nothing the user set: a first launch, or one after an uninstaller
+  /// removed the preferences.
+  static func isFresh(_ domain: [String: Any]?) -> Bool {
+    settings(domain ?? [:]).isEmpty
+  }
+  /// Dated backups to delete, keeping the newest `keep` (names sort by date).
+  static func expired(_ names: [String], keep: Int) -> [String] {
+    let dated = names.filter { $0.hasPrefix("settings-") && $0.hasSuffix(".plist") }.sorted()
+    return Array(dated.dropLast(keep))
+  }
+}

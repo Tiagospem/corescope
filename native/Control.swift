@@ -362,6 +362,14 @@ enum ControlAPI {
       if let error = AgentSettings.write(key, args["value"]) { return reply(["error": error]) }
       reply(["settings": AgentSettings.read()])
 
+    case "settings.backup":
+      let backup = SettingsBackup.shared
+      backup.write(force: true) { error in
+        reply(error.map { ["error": $0] } ?? [
+          "folder": backup.folder.path, "latest": backup.folder.appendingPathComponent("latest.plist").path,
+          "written_at": ISO8601DateFormatter().string(from: backup.lastWritten ?? Date()),
+        ])
+      }
     case "agents.limits":
       let agents = AgentStore.shared
       func window(_ w: LimitWindow) -> [String: Any] {
