@@ -19,6 +19,18 @@ section as the GitHub release notes.
   rename and remove (files are never touched). `corescope://open/projects`, `corescope projects`,
   MCP `list_projects`. The list lives in `Application Support/CoreScope/projects.json` and is part
   of the settings backup.
+- **Projects › Changes and commit** (phase 2): a commit panel per repository — branch, upstream
+  and ahead/behind, last commit; files grouped into Conflicts, Staged, Modified, New and Removed
+  with status and +/− lines (`git status --porcelain=v2` plus `git diff --numstat`); checkbox
+  stage/unstage, multi-select, *Stage all* / *Unstage all*; unified diff; open in an installed
+  editor or Finder; *Discard changes…* after a confirmation (tracked files back to HEAD, new files
+  to the Trash); commit with ⌘↩, disabled without a message, staged files or with conflicts, hooks
+  and signing as configured and a failing hook's output shown. `index.lock` and conflicts are
+  explained, never a crash. FSEvents refreshes the panel only while it is open (`.git` reduced to
+  HEAD/index/refs, `.gitignore`d paths dropped, at most two reloads a second), measured as
+  *Projects (git)* in CoreScope's own cost. `corescope status`, `corescope://project/NAME`, MCP
+  `project_git_status`, `project_git_diff`, `project_git_stage`, `project_git_commit`,
+  `project_git_discard`.
 
 ### Fixed
 - The Navigate menu gives ⌘1–⌘9 to the first nine pages only; more pages would have crashed it.

@@ -60,12 +60,14 @@ enum ProjectsTool {
 private struct Ignored: Decodable {}
 
 /// Registered projects and what their folders hold (config summary, git), read when the page
-/// opens and after every change. Nothing runs in the background in this phase.
+/// opens and after every change. A project's changes (ProjectChanges.swift) are watched only while shown.
 final class ProjectsStore: ObservableObject {
   static let shared = ProjectsStore()
   @Published private(set) var projects: [ProjectEntry] = []
   @Published private(set) var checks: [String: ProjectCheck] = [:]
   @Published var message: String?
+  /// The project whose changes are on screen (id).
+  @Published var opened: String?
   private let queue = DispatchQueue(label: "app.corescope.projects", qos: .userInitiated)
 
   func load() {
@@ -107,6 +109,17 @@ final class ProjectsStore: ObservableObject {
   func rename(_ p: ProjectEntry, to name: String) { run(["op": "rename", "id": p.id, "name": name]) }
   func remove(_ p: ProjectEntry) { run(["op": "remove", "id": p.id]) }
   func initRepository(_ folder: String) { run(["op": "init", "folder": folder]) }
+  /// Opens a project's changes by id or name (corescope://project/…), once the list is read.
+  func open(_ key: String) {
+    queue.async {
+      let list = (try? ProjectsTool.call(["op": "list"], as: [ProjectEntry].self).get()) ?? []
+      let match = list.first { $0.id == key } ?? list.first { $0.name.caseInsensitiveCompare(key) == .orderedSame }
+      DispatchQueue.main.async {
+        if list != self.projects { self.projects = list }
+        if let match { self.opened = match.id } else { self.message = L("Nenhum projeto chamado %@.", key) }
+      }
+    }
+  }
 }
 
 private func shown(_ path: String) -> String { Demo.enabled ? Demo.path(path) : abbreviateHome(path) }
@@ -115,6 +128,13 @@ struct ProjectsView: View {
   @ObservedObject var store = ProjectsStore.shared
   @ViewState private var adding: ProjectCheck?
   var body: some View {
+    if let id = store.opened, let project = store.projects.first(where: { $0.id == id }) {
+      ProjectChangesView(project: project) { store.opened = nil }.id(project.id)
+    } else {
+      list
+    }
+  }
+  private var list: some View {
     ScrollView {
       VStack(alignment: .leading, spacing: 16) {
         HStack {
@@ -133,7 +153,7 @@ struct ProjectsView: View {
             EmptyNote(text: L("Nenhum projeto ainda. Adicione a pasta de um repositório: o CoreScope lê o .corescope.yml (ou oferece criar um) e o git dela, sem abrir uma IDE."))
           }
         }
-        ForEach(store.projects) { p in ProjectCard(project: p, check: store.checks[p.id]) }
+        ForEach(store.projects) { p in ProjectCard(project: p, check: store.checks[p.id]) { store.opened = p.id } }
       }.padding(20)
     }
     .onAppear { store.load() }
@@ -283,6 +303,7 @@ struct ProjectGitView: View {
 private struct ProjectCard: View {
   let project: ProjectEntry
   let check: ProjectCheck?
+  let openChanges: () -> Void
   @ObservedObject var store = ProjectsStore.shared
   @ViewState private var editing = false
   @ViewState private var draft = ""
@@ -306,6 +327,9 @@ private struct ProjectCard: View {
           Button(L("Salvar"), action: save).controlSize(.small)
           Button(L("Cancelar")) { editing = false }.controlSize(.small)
         } else {
+          if check?.git.is_repo == true {
+            Button(action: openChanges) { Label(L("Alterações"), systemImage: "plusminus") }.controlSize(.small)
+          }
           Button {
             NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: project.folder)])
           } label: { Image(systemName: "folder") }.buttonStyle(HoverButtonStyle()).help(L("Mostrar no Finder"))

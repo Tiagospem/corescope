@@ -1146,8 +1146,10 @@ func isCoreScopeHelper(path: String) -> Bool {
 /// A `corescope://` link, from Shortcuts, Raycast, scripts or a browser.
 ///   corescope://open/ports · corescope://profile/start?name=Shop · corescope://lookup?port=8000
 ///   corescope://services/check · corescope://happened?at=14:05 · corescope://palette
+///   corescope://project/<id or name> (the project's changes)
 enum AppLink: Equatable {
   case open(page: String?)
+  case project(String)
   case profile(action: String, name: String)
   case lookup(port: UInt16?)
   case checkServices
@@ -1178,6 +1180,9 @@ enum AppLink: Equatable {
       guard let at = query["at"] ?? path.first else { return nil }
       self = .happened(at: at)
     case "palette": self = .palette
+    case "project", "projects":
+      guard let project = path.first ?? query["name"] else { return nil }
+      self = .project(project)
     default: return nil
     }
   }
@@ -1275,4 +1280,10 @@ enum SettingsBackupLogic {
     let dated = names.filter { $0.hasPrefix("settings-") && $0.hasSuffix(".plist") }.sorted()
     return Array(dated.dropLast(keep))
   }
+}
+
+/// "a/b/c.txt" → ["a", "a/b"]: the folders above a repository-relative path.
+func pathAncestors(_ path: String) -> [String] {
+  let parts = path.split(separator: "/").dropLast()
+  return parts.indices.map { parts[parts.startIndex...$0].joined(separator: "/") }
 }

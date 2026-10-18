@@ -174,6 +174,7 @@ struct SelfCost {
         "services", L("Serviços"), on: checks > 0,
         checks == 1 ? L("1 verificação a cada 30 s") : L("%@ verificações a cada 30 s", "\(checks)")),
       f("projects", L("Arquivos .corescope.yml"), on: true, L("relê a cada 60 s; procura pastas novas a cada 10 min"), measured: "projects"),
+      f("projects-git", L("Projetos (git)"), on: true, L("só com as alterações de um projeto abertas: FSEvents, recarrega no máximo a cada 0,5 s e ignora o que o .gitignore cobre"), measured: "projects-git"),
       f("containers", L("Contêineres"), on: true, L("só enquanto uma tela com contêineres está aberta"), measured: "containers"),
       f(
         "machines", L("Máquinas (ssh)"), on: hosts > 0,

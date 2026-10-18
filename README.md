@@ -147,7 +147,9 @@ One click to bring a project's environment up or down. A profile is a folder, th
 
 ### 📁 Projects (in progress)
 
-Register the local repositories you work on and follow them without an IDE. *Add project…* picks a folder; the name comes from `name:` in its `.corescope.yml` (or the folder's name) and stays editable. The `.corescope.yml` is validated with the same parser as the rest of the app — errors show their line — and the card sums up what it enables (profiles, ports, Services, logs, agent capacity). A folder without one gets a minimal file (just the name) from the existing writer; decline and the project is not added. Git is detected through the `git` command line (so your config and hooks apply): repository root, linked worktree and its main repository, a subfolder of a monorepo, branch or detached HEAD; a folder without a repository can run `git init` after a confirmation. Removing a project only takes it off the list. `corescope projects` and MCP `list_projects`. Coming next in this epic: changes and manual commit, branches and worktrees, the floating panel and menu bar, change notifications, and an optional AI commit message.
+Register the local repositories you work on and follow them without an IDE. *Add project…* picks a folder; the name comes from `name:` in its `.corescope.yml` (or the folder's name) and stays editable. The `.corescope.yml` is validated with the same parser as the rest of the app — errors show their line — and the card sums up what it enables (profiles, ports, Services, logs, agent capacity). A folder without one gets a minimal file (just the name) from the existing writer; decline and the project is not added. Git is detected through the `git` command line (so your config and hooks apply): repository root, linked worktree and its main repository, a subfolder of a monorepo, branch or detached HEAD; a folder without a repository can run `git init` after a confirmation. Removing a project only takes it off the list. `corescope projects` and MCP `list_projects`.
+
+**Changes and commit.** *Changes* on a repository's card opens a commit panel in the style of Zed or PhpStorm: the branch with its upstream and ahead/behind, the last commit, and the changed files grouped into Conflicts, Staged, Modified, New and Removed — each with its path, status letter and +/− lines (a partially staged file shows in both halves). The checkbox stages or unstages; ⌘/⇧-click selects several, and *Stage all* / *Unstage all* work on everything. Selecting a file shows its unified diff (staged or working tree; a new file whole). The context menu opens the file in an installed editor (Zed, Cursor, VS Code, JetBrains IDEs, Xcode… the choice is remembered) or reveals it in Finder. *Discard changes…* always asks: tracked files go back to the last commit, new files go to the Trash. The commit box is disabled without a message, with nothing staged or with conflicts left; ⌘↩ commits, your hooks and signing run, and a failing hook's output is shown as is. An `index.lock` held by another git becomes a banner, never a crash. While the panel is open, FSEvents (0.5 s latency) refreshes it: inside `.git` only HEAD, the index and refs count, and paths that `.gitignore` covers are dropped after one `git check-ignore` per folder — the watcher stops when you leave, and its cost shows under *CoreScope's own cost* as *Projects (git)*. `corescope status [PROJECT|FOLDER]`, `corescope://project/NAME`, MCP `project_git_status` / `project_git_diff` / `project_git_stage` / `project_git_commit` / `project_git_discard`. Coming next in this epic: branches and worktrees, the floating panel and menu bar, change notifications, and an optional AI commit message.
 
 ### 👥 Agents side by side
 
@@ -257,6 +259,7 @@ CoreScope registers the `corescope://` URL scheme, so Shortcuts (*Open URLs*), R
 | `corescope://services/check` | Runs every service check now |
 | `corescope://happened?at=14:05` | History's *What happened at…* for that moment |
 | `corescope://palette` | Opens ⌥⌘K |
+| `corescope://project/demo-shop` | A registered project's changes (by name or id) |
 
 For scripts that need an answer rather than an action, use the command line below (`--json`).
 
@@ -285,6 +288,7 @@ corescope disk-health              # SSD wear, TB written, unsafe shutdowns (NVM
 corescope space --plan             # safe cleanup plan with estimates and exact commands
 corescope large-files              # largest files in your home and linked drives
 corescope eject-check "/Volumes/HD"  # what keeps a volume from ejecting
+corescope status shop              # a project's (or this folder's) git changes: branch, staged, modified, new
 corescope db snapshot 3306 shop    # snapshot a database before migrate:fresh (db restore ID)
 corescope version --check          # this version, and whether a newer release exists (asks the app)
 ```
@@ -330,6 +334,8 @@ With *Agents can use the app through MCP* (on by default once the server is regi
 | `list_machines` / `add_machine` / `remove_machine` / `refresh_machines` | SSH machines |
 | `cleanup_status` / `scan_dev_space` / `clean_dev_space` | Cleanup: cached result, a new scan, and moving items from the latest scan to the Trash |
 | `list_projects` | Projects registered on the Projects page: folder, branch, worktree, `.corescope.yml` summary or error (read-only) |
+| `project_git_status` / `project_git_diff` | A project's changes (branch, ahead/behind, last commit, files with +/− and groups, index.lock) and one file's diff (read-only) |
+| `project_git_stage` / `project_git_commit` / `project_git_discard` | Stage or unstage files, commit what is staged (hooks run; a failing hook's output comes back), discard tracked changes (destructive; asks first) |
 | `usage_limits` | Claude and Codex limits with source, reset and pace |
 | `backup_settings` | Back up CoreScope's settings to the backup folder now |
 | `get_settings` / `set_setting` | Notification toggles, thresholds, cleanup folders, collector interval, the floating panel and `check_for_updates` (the only one that reaches outside the Mac: the daily release check, see [Privacy](#privacy)) |

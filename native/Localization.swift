@@ -1241,4 +1241,52 @@ private let entries = """
   sem commits ainda ¦ no commits yet ¦ sin commits todavía
   subpasta %@ ¦ subfolder %@ ¦ subcarpeta %@
   worktree ¦ worktree ¦ worktree
+  Conflitos ¦ Conflicts ¦ Conflictos
+  Staged ¦ Staged ¦ Preparados
+  Modificados ¦ Modified ¦ Modificados
+  Novos ¦ New ¦ Nuevos
+  Removidos/Renomeados ¦ Removed/Renamed ¦ Eliminados/Renombrados
+  Não foi possível mover para o Lixo: %@ ¦ Couldn't move to the Trash: %@ ¦ No se pudo mover a la Papelera: %@
+  Outro processo git está usando este repositório (index.lock). Espere ele terminar ou remova o lock antigo. ¦ Another git process is using this repository (index.lock). Wait for it to finish or remove the stale lock. ¦ Otro proceso git está usando este repositorio (index.lock). Espera a que termine o elimina el lock antiguo.
+  %@ arquivos selecionados ¦ %@ files selected ¦ %@ archivos seleccionados
+  Selecione um arquivo para ver o diff. ¦ Select a file to see its diff. ¦ Selecciona un archivo para ver su diff.
+  Descartar ¦ Discard ¦ Descartar
+  Commits à frente / atrás do upstream ¦ Commits ahead / behind the upstream ¦ Commits por delante / por detrás del upstream
+  sem upstream ¦ no upstream ¦ sin upstream
+  Último commit ¦ Last commit ¦ Último commit
+  Sem commits ainda ¦ No commits yet ¦ Aún sin commits
+  %@ alterações ¦ %@ changes ¦ %@ cambios
+  Stage em tudo ¦ Stage all ¦ Preparar todo
+  Unstage em tudo ¦ Unstage all ¦ Quitar todo de preparados
+  Nada para commitar: a árvore de trabalho está limpa. ¦ Nothing to commit: the working tree is clean. ¦ Nada que commitear: el árbol de trabajo está limpio.
+  … e mais %@ (limite de exibição) ¦ … and %@ more (display limit) ¦ … y %@ más (límite de visualización)
+  Stage (%@) ¦ Stage (%@) ¦ Preparar (%@)
+  Stage ¦ Stage ¦ Preparar
+  Unstage (%@) ¦ Unstage (%@) ¦ Quitar de preparados (%@)
+  Unstage ¦ Unstage ¦ Quitar de preparados
+  Marcar como resolvido (stage) ¦ Mark as resolved (stage) ¦ Marcar como resuelto (preparar)
+  Abrir no editor ¦ Open in editor ¦ Abrir en el editor
+  App padrão do arquivo ¦ The file's default app ¦ App predeterminada del archivo
+  Descartar alterações (%@)… ¦ Discard changes (%@)… ¦ Descartar cambios (%@)…
+  Descartar alterações… ¦ Discard changes… ¦ Descartar cambios…
+  Descartar as alterações de %@? ¦ Discard the changes to %@? ¦ ¿Descartar los cambios de %@?
+  Descartar as alterações de %@ arquivos? ¦ Discard the changes to %@ files? ¦ ¿Descartar los cambios de %@ archivos?
+  %@ arquivo(s) voltam ao último commit, incluindo o que está em stage. Não dá para desfazer. ¦ %@ file(s) go back to the last commit, including what is staged. This can't be undone. ¦ %@ archivo(s) vuelven al último commit, incluido lo preparado. No se puede deshacer.
+  %@ arquivo(s) novo(s) vão para o Lixo. ¦ %@ new file(s) go to the Trash. ¦ %@ archivo(s) nuevo(s) van a la Papelera.
+  Mensagem do commit ¦ Commit message ¦ Mensaje del commit
+  Commit (%@) ¦ Commit (%@) ¦ Commit (%@)
+  Commit ¦ Commit ¦ Commit
+  ⌘↩ faz o commit do que está em stage ¦ ⌘↩ commits what is staged ¦ ⌘↩ hace commit de lo preparado
+  Resolva os conflitos antes de commitar. ¦ Resolve the conflicts before committing. ¦ Resuelve los conflictos antes de hacer commit.
+  Nada em stage: marque os arquivos que entram no commit. ¦ Nothing staged: tick the files that go into the commit. ¦ Nada preparado: marca los archivos que entran en el commit.
+  Os hooks e a assinatura do seu git rodam normalmente. ¦ Your git hooks and signing run as usual. ¦ Los hooks y la firma de tu git se ejecutan como siempre.
+  Tirar do stage ¦ Unstage ¦ Quitar de preparados
+  Colocar em stage ¦ Stage ¦ Preparar
+  binário ¦ binary ¦ binario
+  O diff fica oculto no modo de demonstração. ¦ The diff is hidden in demo mode. ¦ El diff se oculta en el modo de demostración.
+  Sem diferenças de texto (só o modo do arquivo mudou, ou é binário). ¦ No text differences (only the file mode changed, or it is binary). ¦ Sin diferencias de texto (solo cambió el modo del archivo, o es binario).
+  Nenhum projeto chamado %@. ¦ No project called %@. ¦ Ningún proyecto llamado %@.
+  Alterações ¦ Changes ¦ Cambios
+  Projetos (git) ¦ Projects (git) ¦ Proyectos (git)
+  só com as alterações de um projeto abertas: FSEvents, recarrega no máximo a cada 0,5 s e ignora o que o .gitignore cobre ¦ only while a project's changes are open: FSEvents, reloads at most every 0.5 s and ignores what .gitignore covers ¦ solo con los cambios de un proyecto abiertos: FSEvents, recarga como mucho cada 0,5 s e ignora lo que cubre .gitignore
   """

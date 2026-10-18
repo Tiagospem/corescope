@@ -10,6 +10,7 @@ pub mod diskhealth;
 pub mod eject;
 pub mod exposure;
 pub mod git;
+pub mod gitchanges;
 pub mod history;
 pub mod largefiles;
 pub mod logs;
@@ -1793,7 +1794,8 @@ pub fn db_tool(v: &serde_json::Value) -> Result<serde_json::Value, String> {
 }
 /// Projects shared by the app, the CLI and MCP. `op`: list, check {folder}, add {folder, name,
 /// template}, rename {id, name}, set {id, show_in_panel, notify_minutes}, remove {id},
-/// init {folder}.
+/// init {folder}; and the repository's changes: status {folder}, diff {folder, path, staged},
+/// stage/unstage/discard {folder, paths}, commit {folder, message}, ignored {folder, paths}.
 pub fn projects_tool(v: &serde_json::Value) -> Result<serde_json::Value, String> {
     use serde_json::json;
     let file = projects::default_path(&home());
@@ -1842,6 +1844,34 @@ pub fn projects_tool(v: &serde_json::Value) -> Result<serde_json::Value, String>
             Ok(json!({"removed": id()?}))
         }
         "init" => Ok(json!(git::init(&folder()?)?)),
+        "status" => Ok(json!(gitchanges::status(&folder()?)?)),
+        "diff" => {
+            let path = v["path"].as_str().ok_or("path is required")?;
+            let staged = v["staged"].as_bool().unwrap_or(false);
+            Ok(json!({"diff": gitchanges::diff(&folder()?, path, staged)?}))
+        }
+        "stage" | "unstage" | "discard" | "ignored" => {
+            let paths: Vec<String> = v["paths"]
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|p| p.as_str().map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let dir = folder()?;
+            match v["op"].as_str().unwrap_or("") {
+                "stage" => gitchanges::stage(&dir, &paths)?,
+                "unstage" => gitchanges::unstage(&dir, &paths)?,
+                "discard" => gitchanges::discard(&dir, &paths)?,
+                _ => return Ok(json!({"ignored": gitchanges::ignored(&dir, &paths)?})),
+            }
+            Ok(json!({"done": paths.len()}))
+        }
+        "commit" => {
+            let message = v["message"].as_str().unwrap_or("");
+            Ok(json!({"output": gitchanges::commit(&folder()?, message)?}))
+        }
         _ => Err("unknown operation".into()),
     }
 }

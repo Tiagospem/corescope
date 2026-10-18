@@ -94,7 +94,8 @@ fn tool(name: &str, description: &str, properties: Value, required: &[&str]) -> 
                            "destructiveHint": destructive, "openWorldHint": false}})
 }
 /// Tools that stop, delete or remove things; hosts ask the user before running them.
-const DESTRUCTIVE: [&str; 12] = [
+const DESTRUCTIVE: [&str; 13] = [
+    "project_git_discard",
     "db_restore",
     "redis_flush",
     "eject_volume",
@@ -109,7 +110,9 @@ const DESTRUCTIVE: [&str; 12] = [
     "remove_machine",
 ];
 /// Tools that change state without destroying anything.
-const CHANGES: [&str; 9] = [
+const CHANGES: [&str; 11] = [
+    "project_git_stage",
+    "project_git_commit",
     "backup_settings",
     "db_snapshot",
     "write_project_config",
@@ -590,6 +593,53 @@ fn core_tools() -> Vec<Value> {
             &[],
         ),
         tool(
+            "project_git_status",
+            "A project's git changes like an IDE commit panel: branch, upstream, ahead/behind, \
+             last commit, and each changed file with its index and working-tree status, +/- \
+             lines, grouped counts (staged, modified, new, removed, conflicts) and whether \
+             another git holds index.lock. `project` is a registered project's id or name, or \
+             pass an absolute `folder`. Read-only.",
+            json!({"project": {"type": "string"}, "folder": {"type": "string"}}),
+            &[],
+        ),
+        tool(
+            "project_git_diff",
+            "Unified diff of one file of a project: `staged` true for what is staged (index vs \
+             HEAD), false for the working tree; new files are shown whole. Cut at 512 KB. \
+             Read-only.",
+            json!({"project": {"type": "string"}, "folder": {"type": "string"},
+                   "path": {"type": "string", "description": "Relative to the repository root"},
+                   "staged": {"type": "boolean"}}),
+            &["path"],
+        ),
+        tool(
+            "project_git_stage",
+            "Stage (git add -A) or, with `unstage` true, unstage files of a project. Paths are \
+             relative to the repository root.",
+            json!({"project": {"type": "string"}, "folder": {"type": "string"},
+                   "paths": {"type": "array", "items": {"type": "string"}},
+                   "unstage": {"type": "boolean"}}),
+            &["paths"],
+        ),
+        tool(
+            "project_git_commit",
+            "Commit what is staged in a project with the message (the user's hooks and signing \
+             run). Returns git's output, including a failing hook's. Show the user the message \
+             before committing unless they asked you to commit.",
+            json!({"project": {"type": "string"}, "folder": {"type": "string"},
+                   "message": {"type": "string"}}),
+            &["message"],
+        ),
+        tool(
+            "project_git_discard",
+            "Throw away the changes (staged and unstaged) of tracked files, putting them back to \
+             the last commit. New files are not touched (the app moves those to the Trash). \
+             Destructive and cannot be undone: ask the user first.",
+            json!({"project": {"type": "string"}, "folder": {"type": "string"},
+                   "paths": {"type": "array", "items": {"type": "string"}}}),
+            &["paths"],
+        ),
+        tool(
             "disk_health",
             "SSD health of each physical disk from its NVMe SMART log: percentage of rated \
              endurance used, available spare, data written and read, power-on hours, power \
@@ -851,6 +901,31 @@ fn call(params: &Value) -> Value {
                 })
                 .collect();
             text(json!({"projects": rows}), false)
+        }
+        "project_git_status"
+        | "project_git_diff"
+        | "project_git_stage"
+        | "project_git_commit"
+        | "project_git_discard" => {
+            let folder = match project_folder(args) {
+                Ok(f) => f,
+                Err(e) => return text(json!({"error": e}), true),
+            };
+            let op = match name {
+                "project_git_status" => "status",
+                "project_git_diff" => "diff",
+                "project_git_commit" => "commit",
+                "project_git_discard" => "discard",
+                _ if args["unstage"].as_bool() == Some(true) => "unstage",
+                _ => "stage",
+            };
+            let mut request = args.clone();
+            request["op"] = json!(op);
+            request["folder"] = json!(folder);
+            match corescope::projects_tool(&request) {
+                Ok(v) => text(v, false),
+                Err(e) => text(json!({"error": e}), true),
+            }
         }
         "disk_health" => text(json!(corescope::diskhealth::read()), false),
         "disk_growth" => match corescope::disk_growth(args["measure"].as_bool() == Some(true)) {
@@ -1139,6 +1214,28 @@ fn summary(snapshot: &Snapshot) -> Value {
         "listening_servers": snapshot.processes.iter().filter(|p| !p.ports.is_empty()).count(),
         "orphans": snapshot.processes.iter().filter(|p| p.orphan.is_some()).count(),
     })
+}
+
+/// The folder of `project` (a registered project's id or name, case-insensitive) or `folder`.
+fn project_folder(args: &Value) -> Result<String, String> {
+    if let Some(f) = args["folder"].as_str().filter(|f| !f.is_empty()) {
+        return Ok(f.to_string());
+    }
+    let wanted = args["project"]
+        .as_str()
+        .ok_or("pass project (id or name) or folder")?;
+    let list = corescope::projects_tool(&json!({"op": "list"}))?;
+    list.as_array()
+        .into_iter()
+        .flatten()
+        .find(|p| {
+            p["id"].as_str() == Some(wanted)
+                || p["name"]
+                    .as_str()
+                    .is_some_and(|n| n.eq_ignore_ascii_case(wanted))
+        })
+        .and_then(|p| p["folder"].as_str().map(str::to_string))
+        .ok_or_else(|| format!("no registered project called {wanted}"))
 }
 
 #[cfg(test)]

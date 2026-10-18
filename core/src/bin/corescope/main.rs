@@ -61,6 +61,7 @@ USAGE:
   corescope eject-check VOLUME          what keeps a volume from ejecting: programs running from it,
                                         open files and working folders (read-only)
   corescope projects                    registered projects: branch, worktree, .corescope.yml status
+  corescope status [PROJECT|FOLDER]     git changes of a project (or this folder): branch, staged, modified, new
   corescope disk-health                 SSD health from NVMe SMART: wear, data written, power-on
                                         hours, unsafe shutdowns, media errors and a verdict
   corescope mcp                         run the local MCP server on stdio
@@ -344,6 +345,98 @@ fn main() {
                 0
             }
         }
+        Some("status") => (|| -> i32 {
+            let target = positional.get(1).map(|t| t.to_string());
+            let folder = match target {
+                None => std::env::current_dir()
+                    .map(|d| d.to_string_lossy().into_owned())
+                    .unwrap_or_default(),
+                Some(t) if std::path::Path::new(&t).is_dir() => std::fs::canonicalize(&t)
+                    .map(|d| d.to_string_lossy().into_owned())
+                    .unwrap_or(t),
+                Some(t) => {
+                    let list =
+                        corescope::projects_tool(&json!({"op": "list"})).unwrap_or(json!([]));
+                    match list.as_array().into_iter().flatten().find(|p| {
+                        p["id"].as_str() == Some(t.as_str())
+                            || p["name"]
+                                .as_str()
+                                .is_some_and(|n| n.eq_ignore_ascii_case(&t))
+                    }) {
+                        Some(p) => p["folder"].as_str().unwrap_or("").to_string(),
+                        None => {
+                            eprintln!("No project or folder called {t}.");
+                            return 1;
+                        }
+                    }
+                }
+            };
+            let s = match corescope::projects_tool(&json!({"op": "status", "folder": folder})) {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("{e}");
+                    return 1;
+                }
+            };
+            if json_out {
+                return print(true, s);
+            }
+            let b = &s["branch"];
+            let mut head = b["head"].as_str().unwrap_or("(detached)").to_string();
+            if let Some(up) = b["upstream"].as_str() {
+                head += &format!(
+                    " → {up} ↑{} ↓{}",
+                    b["ahead"].as_u64().unwrap_or(0),
+                    b["behind"].as_u64().unwrap_or(0)
+                );
+            }
+            println!("{head}");
+            if let Some(c) = s["last_commit"].as_object() {
+                println!(
+                    "last commit {} {} ({})",
+                    c["short"].as_str().unwrap_or(""),
+                    c["subject"].as_str().unwrap_or(""),
+                    c["author"].as_str().unwrap_or("")
+                );
+            }
+            if s["locked"].as_bool() == Some(true) {
+                println!("another git process holds index.lock");
+            }
+            let n = |k: &str| s[k].as_u64().unwrap_or(0);
+            println!(
+                "{} staged, {} modified, {} new, {} removed, {} conflicts",
+                n("staged"),
+                n("modified"),
+                n("untracked"),
+                n("removed_renamed"),
+                n("conflicts")
+            );
+            let lines = |a: &Value, r: &Value| match (a.as_u64(), r.as_u64()) {
+                (Some(a), Some(r)) => format!("+{a} -{r}"),
+                _ => String::new(),
+            };
+            for f in s["files"].as_array().into_iter().flatten() {
+                let code = format!(
+                    "{}{}",
+                    f["index"].as_str().unwrap_or("."),
+                    f["worktree"].as_str().unwrap_or(".")
+                );
+                let mut path = f["path"].as_str().unwrap_or("").to_string();
+                if let Some(o) = f["orig_path"].as_str() {
+                    path = format!("{o} → {path}");
+                }
+                let changes = if f["staged_added"].is_null() {
+                    lines(&f["added"], &f["removed"])
+                } else {
+                    lines(&f["staged_added"], &f["staged_removed"])
+                };
+                println!("  {code} {path} {changes}");
+            }
+            if n("truncated") > 0 {
+                println!("  … and {} more", n("truncated"));
+            }
+            0
+        })(),
         Some("projects") => {
             let list = corescope::projects_tool(&json!({"op": "list"})).unwrap_or(json!([]));
             let rows: Vec<Value> = list
