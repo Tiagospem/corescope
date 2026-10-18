@@ -10,6 +10,8 @@ section as the GitHub release notes.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-18
+
 ### Added
 - Floating panel, opt-in **Agents** section: running Claude Code, Codex and other agent sessions
   with their project and whether each is working, waiting or looks stuck (from the stall
@@ -282,7 +284,8 @@ First public release.
   compact / standard / detailed layouts and in-panel controls.
 - English, Portuguese and Spanish; offline-only.
 
-[Unreleased]: https://github.com/Tiagospem/corescope/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/Tiagospem/corescope/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/Tiagospem/corescope/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/Tiagospem/corescope/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/Tiagospem/corescope/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/Tiagospem/corescope/compare/v0.3.2...v0.4.0
