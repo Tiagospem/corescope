@@ -1151,4 +1151,37 @@ private let entries = """
   saudável ¦ healthy ¦ saludable
   trocar ¦ replace ¦ reemplazar
   não exposto por este disco ou adaptador ¦ not exposed by this disk or adapter ¦ no expuesto por este disco o adaptador
+  %@ chaves; %@ amostradas (SCAN), memória por chave com MEMORY USAGE. ¦ %@ keys; %@ sampled (SCAN), memory per key with MEMORY USAGE. ¦ %@ claves; %@ muestreadas (SCAN), memoria por clave con MEMORY USAGE.
+  %@ voltou ao snapshot de %@. ¦ %@ is back to the snapshot from %@. ¦ %@ volvió al snapshot de %@.
+  %@%% sem TTL ¦ %@%% without TTL ¦ %@%% sin TTL
+  Abrir em um app de banco (TablePlus, Redis Insight…) ou copiar a URL de conexão, sem senha ¦ Open in a database app (TablePlus, Redis Insight…) or copy the connection URL, without a password ¦ Abrir en una app de bases de datos (TablePlus, Redis Insight…) o copiar la URL de conexión, sin contraseña
+  Abrir no %@ ¦ Open in %@ ¦ Abrir en %@
+  Amostrando chaves… ¦ Sampling keys… ¦ Muestreando claves…
+  Antes de um migrate:fresh ou db:wipe, tire um snapshot; restaurar volta o banco exatamente àquele ponto. O dump roda dentro do contêiner com as credenciais dele; agentes usam db_snapshot pelo MCP. ¦ Before a migrate:fresh or db:wipe, take a snapshot; restoring puts the database back exactly to that point. The dump runs inside the container with its own credentials; agents use db_snapshot over MCP. ¦ Antes de un migrate:fresh o db:wipe, haz un snapshot; restaurar devuelve la base exactamente a ese punto. El dump corre dentro del contenedor con sus propias credenciales; los agentes usan db_snapshot por MCP.
+  Apagando… ¦ Deleting… ¦ Borrando…
+  Apagar este snapshot? ¦ Delete this snapshot? ¦ ¿Borrar este snapshot?
+  Apagar snapshot ¦ Delete snapshot ¦ Borrar snapshot
+  Apagar todas as chaves ¦ Delete every key ¦ Borrar todas las claves
+  Chaves por prefixo, memória e chaves sem TTL (amostra) ¦ Keys by prefix, memory and keys without TTL (sampled) ¦ Claves por prefijo, memoria y claves sin TTL (muestra)
+  Chaves que nunca expiram crescem até alguém apagar. ¦ Keys that never expire grow until someone deletes them. ¦ Las claves que nunca expiran crecen hasta que alguien las borra.
+  Copiar DSN ¦ Copy DSN ¦ Copiar DSN
+  Esvaziar db%@ do Redis :%@? ¦ Empty db%@ of Redis :%@? ¦ ¿Vaciar db%@ de Redis :%@?
+  Esvaziar db%@… ¦ Empty db%@… ¦ Vaciar db%@…
+  FLUSHDB apaga as %@ chaves deste banco, sem volta. Use só em dados de desenvolvimento. ¦ FLUSHDB deletes this database's %@ keys, permanently. Use it only on development data. ¦ FLUSHDB borra las %@ claves de esta base, sin vuelta atrás. Úsalo solo con datos de desarrollo.
+  Falhou: %@ ¦ Failed: %@ ¦ Falló: %@
+  Fazendo snapshot de %@… ¦ Taking a snapshot of %@… ¦ Haciendo snapshot de %@…
+  Fazer snapshot ¦ Take snapshot ¦ Hacer snapshot
+  Novo snapshot… ¦ New snapshot… ¦ Nuevo snapshot…
+  O banco %@ é apagado e recriado como estava em %@. O que mudou depois se perde. ¦ Database %@ is dropped and recreated as it was on %@. Anything changed since is lost. ¦ La base %@ se borra y se recrea como estaba el %@. Lo que cambió después se pierde.
+  Para um banco fora de contêiner, o snapshot só funciona com acesso local sem senha. ¦ For a database outside a container, snapshots need passwordless local access. ¦ Para una base fuera de un contenedor, el snapshot solo funciona con acceso local sin contraseña.
+  Redis :%@ · db%@ ¦ Redis :%@ · db%@ ¦ Redis :%@ · db%@
+  Restaurando %@… ¦ Restoring %@… ¦ Restaurando %@…
+  Restaurar ¦ Restore ¦ Restaurar
+  Restaurar %@? ¦ Restore %@? ¦ ¿Restaurar %@?
+  Restaurar… ¦ Restore… ¦ Restaurar…
+  Snapshot apagado. ¦ Snapshot deleted. ¦ Snapshot borrado.
+  Snapshot de %@ salvo. ¦ Snapshot of %@ saved. ¦ Snapshot de %@ guardado.
+  Snapshots ¦ Snapshots ¦ Snapshots
+  db%@ esvaziado. ¦ db%@ emptied. ¦ db%@ vaciada.
+  ~%@ chaves ¦ ~%@ keys ¦ ~%@ claves
   """

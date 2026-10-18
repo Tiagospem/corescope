@@ -38,6 +38,10 @@ USAGE:
   corescope gate                        Claude Code PreToolUse hook: holds heavy Bash commands until
                                         there is room, in projects that enable it
   corescope config [FOLDER]             validate and show the project's .corescope.yml (default: here)
+  corescope db snapshot PORT DATABASE   dump a MySQL/PostgreSQL database (inside its container,
+                                        with the container's own credentials) to a gzipped file
+  corescope db snapshots | db restore ID   list snapshots / put a database back (asks first)
+  corescope db redis PORT [--db N]      Redis memory by key prefix and keys without TTL (sampled)
   corescope db                          local MySQL/PostgreSQL/Redis: size, connections, slow
                                         and long-running queries (no passwords used or read)
   corescope happened TIME [--minutes N] what the Mac was doing around TIME (14:05, 2:05 pm,
@@ -178,6 +182,35 @@ fn main() {
         Some("space") => {
             let folders: Vec<std::path::PathBuf> = positional[1..].iter().map(Into::into).collect();
             print(json_out, space(&folders, !flag("--no-docker")))
+        }
+        Some("db") if positional.len() > 1 => {
+            let arg = |i: usize| positional.get(i).copied().unwrap_or("");
+            let port = |i: usize| arg(i).parse::<u16>().ok();
+            let request = match arg(1) {
+                "snapshots" => json!({"op": "snapshots"}),
+                "snapshot" => json!({"op": "snapshot", "port": port(2), "database": arg(3)}),
+                "restore" => json!({"op": "restore", "id": arg(2)}),
+                "databases" => json!({"op": "databases", "port": port(2)}),
+                "redis" => {
+                    json!({"op": "keyspace", "port": port(2), "db": number("--db").unwrap_or(0)})
+                }
+                other => {
+                    std::process::exit(fail(json_out, &format!("unknown db command: {other}")));
+                }
+            };
+            if arg(1) == "restore"
+                && !flag("--yes")
+                && !confirm(&format!(
+                    "Restore {}? The database goes back to that snapshot",
+                    arg(2)
+                ))
+            {
+                std::process::exit(1);
+            }
+            match corescope::db_tool(&request) {
+                Ok(v) => print(true, v),
+                Err(e) => fail(json_out, &e),
+            }
         }
         Some("db") => print(json_out, databases(&sample(false))),
         Some("logs") => {
@@ -1011,6 +1044,19 @@ pub fn english(error: &str) -> String {
         .find(|(pt, _)| error.starts_with(pt))
         .map(|(_, en)| en.to_string())
         .unwrap_or_else(|| error.to_string())
+}
+
+/// Asks on the terminal; false (refuse) when there is no terminal to ask in.
+fn confirm(question: &str) -> bool {
+    if !std::io::stdin().is_terminal() {
+        eprintln!("refusing without --yes when stdin is not a terminal");
+        return false;
+    }
+    eprint!("{question}? [y/N] ");
+    let _ = std::io::stderr().flush();
+    let mut answer = String::new();
+    let _ = std::io::stdin().read_line(&mut answer);
+    matches!(answer.trim(), "y" | "Y" | "yes")
 }
 
 /// SIGTERM (or SIGKILL) children first, then reports what is gone after two seconds.

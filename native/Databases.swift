@@ -118,6 +118,7 @@ struct DatabasesView: View {
 
 private struct DatabaseCard: View {
   let db: DatabaseItem
+  @ViewState private var analyzing: Int?
   var body: some View {
     Card {
       HStack(spacing: 10) {
@@ -146,6 +147,7 @@ private struct DatabaseCard: View {
               db.kind == "redis"
                 ? L("Entradas no SLOWLOG do Redis") : L("Consultas acima do long_query_time desde que o servidor subiu"))
         }
+        DatabaseOpenMenu(db: db)
       }
       switch db.status {
       case "ok": details
@@ -155,6 +157,15 @@ private struct DatabaseCard: View {
       default:
         Label(L(db.error ?? "Erro"), systemImage: "exclamationmark.triangle").font(.callout).foregroundStyle(.red)
       }
+      // Snapshots run inside a container with its own credentials, so they also work where the
+      // page itself cannot log in.
+      if db.kind != "redis" && (db.status == "ok" || db.container != nil) {
+        Divider()
+        DatabaseSnapshotsSection(db: db)
+      }
+    }
+    .sheet(item: Binding(get: { analyzing.map(RedisDB.init) }, set: { analyzing = $0?.id })) {
+      RedisKeyspaceSheet(db: db, number: $0.id)
     }
   }
   private var tint: Color { db.status == "ok" ? Tint.brand : db.status == "auth" ? .orange : .red }
@@ -185,6 +196,10 @@ private struct DatabaseCard: View {
             MeterBar(fraction: (s.bytes ?? s.keys ?? 0) / largest, color: Tint.brand.opacity(0.7)).frame(height: 5)
             Text(s.keys.map { L("%@ chaves", "\(Int($0))") } ?? s.bytes.map(diskBytes) ?? "—")
               .font(.caption).foregroundStyle(.secondary).monospacedDigit().frame(width: 90, alignment: .trailing)
+            if db.kind == "redis", let n = Int(s.name.dropFirst(2)) {
+              Button(L("Analisar")) { analyzing = n }.controlSize(.small)
+                .help(L("Chaves por prefixo, memória e chaves sem TTL (amostra)"))
+            }
           }
         }
         if db.databases.count > top.count {

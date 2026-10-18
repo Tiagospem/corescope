@@ -36,3 +36,4 @@ char *cs_disk_health(void);
 char *cs_cleanup_plan(int32_t docker);
 char *cs_large_files(uint64_t min_mb, uint32_t limit);
 char *cs_volume_holders(const char *mount);
+char *cs_db_tool(const char *request);

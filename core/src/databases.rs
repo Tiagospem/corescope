@@ -328,6 +328,202 @@ pub mod redis {
         }
     }
 
+    /// Any RESP reply, arrays included (SCAN answers `[cursor, [keys…]]`).
+    #[derive(Debug, PartialEq)]
+    pub enum Resp {
+        Str(String),
+        Int(i64),
+        Nil,
+        Arr(Vec<Resp>),
+    }
+    impl Resp {
+        pub fn text(&self) -> Option<&str> {
+            match self {
+                Resp::Str(s) => Some(s),
+                _ => None,
+            }
+        }
+        pub fn int(&self) -> Option<i64> {
+            match self {
+                Resp::Int(n) => Some(*n),
+                Resp::Str(s) => s.parse().ok(),
+                _ => None,
+            }
+        }
+    }
+    pub fn value(stream: &mut impl Read) -> Result<Resp, Failure> {
+        value_at(stream, 0)
+    }
+    fn value_at(stream: &mut impl Read, depth: u8) -> Result<Resp, Failure> {
+        let line = read_line(stream)?;
+        let (kind, rest) = line.split_at(1);
+        match kind {
+            ":" => Ok(Resp::Int(
+                rest.parse().map_err(|_| other("Resposta inválida"))?,
+            )),
+            "*" => {
+                let n: i64 = rest.parse().map_err(|_| other("Resposta inválida"))?;
+                if n < 0 {
+                    return Ok(Resp::Nil);
+                }
+                if n > 100_000 || depth > 4 {
+                    return Err(other("Resposta grande demais"));
+                }
+                (0..n)
+                    .map(|_| value_at(stream, depth + 1))
+                    .collect::<Result<Vec<_>, _>>()
+                    .map(Resp::Arr)
+            }
+            "$" if rest == "-1" => Ok(Resp::Nil),
+            _ => {
+                // Simple strings, errors and bulk strings: reuse `reply` on the line already read.
+                let mut chained =
+                    std::io::Cursor::new(format!("{line}\r\n").into_bytes()).chain(stream);
+                reply(&mut chained).map(Resp::Str)
+            }
+        }
+    }
+    /// A command as a RESP array, so keys with spaces or quotes stay one argument.
+    pub fn command(args: &[&str]) -> Vec<u8> {
+        let mut out = format!("*{}\r\n", args.len()).into_bytes();
+        for a in args {
+            out.extend(format!("${}\r\n", a.len()).bytes());
+            out.extend(a.as_bytes());
+            out.extend(b"\r\n");
+        }
+        out
+    }
+    /// The namespace of a key at `depth` segments (`go:sessions:` at 2); keys with fewer
+    /// segments keep what they have, keys with no `:` are "(no prefix)".
+    pub fn prefix_at(key: &str, depth: usize) -> String {
+        let parts: Vec<&str> = key.split(':').collect();
+        if parts.len() < 2 || parts[0].is_empty() {
+            return "(no prefix)".into();
+        }
+        let take = depth.min(parts.len() - 1);
+        format!("{}:", parts[..take].join(":"))
+    }
+    pub fn prefix_of(key: &str) -> String {
+        prefix_at(key, 1)
+    }
+    /// The shallowest depth (1–4) at which no single prefix holds 80% of the sample, so one
+    /// namespace for everything (`go:` / `laravel_database_`) is split into what is inside it.
+    pub fn grouping_depth(keys: &[String]) -> usize {
+        for depth in 1..4 {
+            let mut counts: std::collections::HashMap<String, usize> = Default::default();
+            for k in keys {
+                *counts.entry(prefix_at(k, depth)).or_default() += 1;
+            }
+            let top = counts.values().max().copied().unwrap_or(0);
+            if keys.is_empty() || top * 5 < keys.len() * 4 {
+                return depth;
+            }
+        }
+        4
+    }
+    #[derive(Debug, Serialize, PartialEq)]
+    pub struct Prefix {
+        pub prefix: String,
+        pub sampled: u64,
+        /// Sample scaled to the database's key count.
+        pub estimated_keys: u64,
+        pub estimated_bytes: u64,
+        /// Sampled keys that never expire.
+        pub without_ttl: u64,
+        pub example: String,
+    }
+    #[derive(Debug, Serialize)]
+    pub struct Keyspace {
+        pub db: u32,
+        pub keys: u64,
+        pub sampled: u64,
+        pub prefixes: Vec<Prefix>,
+    }
+    /// Samples up to `sample` keys of database `db` (SCAN, then MEMORY USAGE and TTL in one
+    /// pipelined batch) and groups them by prefix. Read-only.
+    pub fn keyspace(port: u16, db: u32, sample: usize) -> Result<Keyspace, Failure> {
+        let mut stream = connect(port)?;
+        let db_text = db.to_string();
+        stream.write_all(&command(&["SELECT", &db_text]))?;
+        reply(&mut stream)?;
+        stream.write_all(&command(&["DBSIZE"]))?;
+        let keys = value(&mut stream)?.int().unwrap_or(0).max(0) as u64;
+        let mut cursor = "0".to_string();
+        let mut sampled: Vec<String> = vec![];
+        loop {
+            stream.write_all(&command(&["SCAN", &cursor, "COUNT", "500"]))?;
+            let Resp::Arr(parts) = value(&mut stream)? else {
+                return Err(other("Resposta inválida"));
+            };
+            cursor = parts
+                .first()
+                .and_then(Resp::text)
+                .unwrap_or("0")
+                .to_string();
+            if let Some(Resp::Arr(batch)) = parts.get(1) {
+                sampled.extend(batch.iter().filter_map(|k| k.text().map(str::to_string)));
+            }
+            if cursor == "0" || sampled.len() >= sample {
+                break;
+            }
+        }
+        sampled.truncate(sample);
+        let mut batch = vec![];
+        for k in &sampled {
+            batch.extend(command(&["MEMORY", "USAGE", k]));
+            batch.extend(command(&["TTL", k]));
+        }
+        stream.set_read_timeout(Some(Duration::from_secs(15)))?;
+        stream.write_all(&batch)?;
+        let depth = grouping_depth(&sampled);
+        let mut groups: std::collections::BTreeMap<String, Prefix> = Default::default();
+        for k in &sampled {
+            let bytes = value(&mut stream)?.int().unwrap_or(0).max(0) as u64;
+            let ttl = value(&mut stream)?.int().unwrap_or(0);
+            let g = groups.entry(prefix_at(k, depth)).or_insert_with(|| Prefix {
+                prefix: prefix_at(k, depth),
+                sampled: 0,
+                estimated_keys: 0,
+                estimated_bytes: 0,
+                without_ttl: 0,
+                example: k.chars().take(120).collect(),
+            });
+            g.sampled += 1;
+            g.estimated_bytes += bytes;
+            if ttl == -1 {
+                g.without_ttl += 1;
+            }
+        }
+        let total = sampled.len().max(1) as f64;
+        let scale = keys as f64 / total;
+        let mut prefixes: Vec<Prefix> = groups
+            .into_values()
+            .map(|mut g| {
+                g.estimated_keys = (g.sampled as f64 * scale).round() as u64;
+                g.estimated_bytes = (g.estimated_bytes as f64 * scale.max(1.)).round() as u64;
+                g
+            })
+            .collect();
+        prefixes.sort_by_key(|p| std::cmp::Reverse(p.estimated_bytes));
+        Ok(Keyspace {
+            db,
+            keys,
+            sampled: sampled.len() as u64,
+            prefixes,
+        })
+    }
+    /// FLUSHDB on database `db` of a local Redis (the app asks first).
+    pub fn flush(port: u16, db: u32) -> Result<(), Failure> {
+        let mut stream = connect(port)?;
+        stream.write_all(&command(&["SELECT", &db.to_string()]))?;
+        reply(&mut stream)?;
+        stream.write_all(&command(&["FLUSHDB"]))?;
+        match reply(&mut stream)?.as_str() {
+            "OK" => Ok(()),
+            other_reply => Err(other(other_reply)),
+        }
+    }
+
     pub fn inspect(port: u16) -> Result<Database, Failure> {
         let mut stream = connect(port)?;
         stream.write_all(b"INFO\r\n")?;
@@ -719,6 +915,75 @@ pub mod postgres {
 
 #[cfg(test)]
 mod tests {
+
+    use super::redis::{Resp, command, keyspace, prefix_of, value};
+
+    #[test]
+    fn resp_arrays_commands_and_prefixes() {
+        let raw = b"*2\r\n$1\r\n0\r\n*2\r\n$6\r\nuser:1\r\n$3\r\nfoo\r\n";
+        let v = value(&mut &raw[..]).unwrap();
+        assert_eq!(
+            v,
+            Resp::Arr(vec![
+                Resp::Str("0".into()),
+                Resp::Arr(vec![Resp::Str("user:1".into()), Resp::Str("foo".into())])
+            ])
+        );
+        assert_eq!(value(&mut &b":42\r\n"[..]).unwrap(), Resp::Int(42));
+        assert_eq!(value(&mut &b"$-1\r\n"[..]).unwrap(), Resp::Nil);
+        assert_eq!(
+            command(&["GET", "a b"]),
+            b"*2\r\n$3\r\nGET\r\n$3\r\na b\r\n"
+        );
+        assert_eq!(prefix_of("laravel_cache:users:1"), "laravel_cache:");
+        assert_eq!(prefix_of("plainkey"), "(no prefix)");
+        assert_eq!(
+            super::redis::prefix_at("go:sessions:abc", 2),
+            "go:sessions:"
+        );
+        assert_eq!(super::redis::prefix_at("go:x", 3), "go:");
+        let keys: Vec<String> = (0..10)
+            .map(|i| format!("go:{}:{i}", if i < 6 { "sessions" } else { "cache" }))
+            .collect();
+        assert_eq!(
+            super::redis::grouping_depth(&keys),
+            2,
+            "go: holds everything, so split it"
+        );
+    }
+
+    #[test]
+    fn keyspace_samples_prefixes_from_a_redis() {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            let (mut c, _) = listener.accept().unwrap();
+            let replies: [&[u8]; 4] = [
+                b"+OK\r\n",
+                b":30\r\n",
+                b"*2\r\n$1\r\n0\r\n*3\r\n$8\r\nsession:\r\n$7\r\ncache:a\r\n$7\r\ncache:b\r\n",
+                b":100\r\n:-1\r\n:200\r\n:60\r\n:300\r\n:-1\r\n",
+            ];
+            let mut buf = [0u8; 4096];
+            for r in replies {
+                let _ = c.read(&mut buf).unwrap();
+                c.write_all(r).unwrap();
+            }
+        });
+        let k = keyspace(port, 0, 100).unwrap();
+        server.join().unwrap();
+        assert_eq!((k.keys, k.sampled), (30, 3));
+        let cache = k.prefixes.iter().find(|p| p.prefix == "cache:").unwrap();
+        assert_eq!(cache.sampled, 2);
+        assert_eq!(
+            cache.estimated_keys, 20,
+            "2 of 3 sampled, scaled to 30 keys"
+        );
+        assert_eq!(cache.estimated_bytes, 5000, "(200+300) × 10");
+        assert_eq!(cache.without_ttl, 1);
+        assert_eq!(k.prefixes[0].prefix, "cache:", "largest first");
+    }
     use super::*;
 
     #[test]

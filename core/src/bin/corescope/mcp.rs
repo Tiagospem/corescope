@@ -79,8 +79,10 @@ fn initialize(params: &Value) -> Value {
     IMPORTANT: when the project's .corescope.yml has agents.wait_for_capacity, call \
     wait_for_capacity before heavy commands (builds, test suites, docker builds) and repeat until \
     it answers ready: true or the project's max_wait passes — the Mac is shared and an \
-    overloaded machine turns a task into hours. Stopping processes is limited to what this agent \
-    session started; ask the user before destructive actions."
+    overloaded machine turns a task into hours. Before commands that wipe or rebuild a local \
+    database (migrate:fresh, db:wipe, migrate reset), take a db_snapshot so the user can go \
+    back with db_restore. Stopping processes is limited to what this agent session started; ask \
+    the user before destructive actions."
     })
 }
 
@@ -92,7 +94,9 @@ fn tool(name: &str, description: &str, properties: Value, required: &[&str]) -> 
                            "destructiveHint": destructive, "openWorldHint": false}})
 }
 /// Tools that stop, delete or remove things; hosts ask the user before running them.
-const DESTRUCTIVE: [&str; 10] = [
+const DESTRUCTIVE: [&str; 12] = [
+    "db_restore",
+    "redis_flush",
     "eject_volume",
     "run_cleanup_plan",
     "container_action",
@@ -105,7 +109,8 @@ const DESTRUCTIVE: [&str; 10] = [
     "remove_machine",
 ];
 /// Tools that change state without destroying anything.
-const CHANGES: [&str; 7] = [
+const CHANGES: [&str; 8] = [
+    "db_snapshot",
     "write_project_config",
     "create_profile",
     "start_profile",
@@ -521,6 +526,43 @@ fn core_tools() -> Vec<Value> {
             &["mount"],
         ),
         tool(
+            "db_snapshot",
+            "Snapshot one MySQL/MariaDB or PostgreSQL database into a gzipped SQL dump before \
+             risky work (php artisan migrate:fresh, db:wipe, prisma migrate reset, destructive \
+             seeds). For a container the dump runs inside it with the container's own \
+             credentials; host databases need passwordless local access. Returns the snapshot id \
+             for db_restore.",
+            json!({"port": {"type": "integer"}, "database": {"type": "string"}}),
+            &["port", "database"],
+        ),
+        tool(
+            "db_snapshots",
+            "Database snapshots saved by CoreScope: id, database, container, size, time.",
+            json!({}),
+            &[],
+        ),
+        tool(
+            "db_restore",
+            "Put a database back to a snapshot (from db_snapshots): the database is dropped and \
+             recreated from the dump. Ask the user first.",
+            json!({"id": {"type": "string"}}),
+            &["id"],
+        ),
+        tool(
+            "redis_keyspace",
+            "A local Redis database's keys grouped by prefix (sampled with SCAN): estimated keys \
+             and memory per prefix and how many never expire. Read-only.",
+            json!({"port": {"type": "integer"}, "db": {"type": "integer", "minimum": 0}}),
+            &["port"],
+        ),
+        tool(
+            "redis_flush",
+            "FLUSHDB on one database of a local development Redis (port, db). Destructive: ask \
+             the user first.",
+            json!({"port": {"type": "integer"}, "db": {"type": "integer", "minimum": 0}}),
+            &["port", "db"],
+        ),
+        tool(
             "disk_health",
             "SSD health of each physical disk from its NVMe SMART log: percentage of rated \
              endurance used, available spare, data written and read, power-on hours, power \
@@ -752,6 +794,21 @@ fn call(params: &Value) -> Value {
                 true,
             ),
         },
+        "db_snapshot" | "db_snapshots" | "db_restore" | "redis_keyspace" | "redis_flush" => {
+            let op = match name {
+                "db_snapshot" => "snapshot",
+                "db_snapshots" => "snapshots",
+                "db_restore" => "restore",
+                "redis_keyspace" => "keyspace",
+                _ => "flush",
+            };
+            let mut request = args.clone();
+            request["op"] = json!(op);
+            match corescope::db_tool(&request) {
+                Ok(v) => text(v, false),
+                Err(e) => text(json!({"error": e}), true),
+            }
+        }
         "disk_health" => text(json!(corescope::diskhealth::read()), false),
         "disk_growth" => match corescope::disk_growth(args["measure"].as_bool() == Some(true)) {
             Ok(r) => text(json!(r), false),
