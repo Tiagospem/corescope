@@ -10,6 +10,21 @@ section as the GitHub release notes.
 
 ## [Unreleased]
 
+### Added
+- Floating panel, opt-in **Agents** section: running Claude Code, Codex and other agent sessions
+  with their project and whether each is working, waiting or looks stuck (from the stall
+  watcher), plus the usage limits; a click opens the session. Compact layout shows the count.
+- Floating panel, opt-in **Remote machines** section: the ssh machines you check in Settings ›
+  Floating panel (or "Show in the floating panel" on a Machines card), each with load per core,
+  memory, disk and alerts. Checked machines are read every 60 s while the panel is visible,
+  sharing one cadence with the Machines page so both open never probe a host more often; the
+  extra reads show in CoreScope's own cost.
+- MCP `get_settings` / `set_setting`: `panel_agents`, `panel_machines` and
+  `panel_machine_hosts`; `list_machines` says which machines the panel shows.
+
+### Changed
+- Turning on a non-notification setting through MCP no longer asks for notification permission.
+
 ## [0.5.1] - 2026-10-17
 
 ### Added

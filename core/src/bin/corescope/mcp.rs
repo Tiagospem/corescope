@@ -331,14 +331,14 @@ fn app_tools() -> Vec<(
         (
             "get_settings",
             "settings.get",
-            "CoreScope settings agents may change: notification toggles, thresholds, cleanup folders.",
+            "CoreScope settings agents may change: notification toggles, thresholds, cleanup folders, and what the floating panel shows (panel_agents, panel_machines, panel_machine_hosts).",
             json!({}),
             vec![],
         ),
         (
             "set_setting",
             "settings.set",
-            "Change one setting from get_settings (booleans, numbers in range, or cleanup_folders as a list of paths).",
+            "Change one setting from get_settings (booleans, numbers in range, cleanup_folders as a list of paths, or panel_machine_hosts as a list of machines from list_machines).",
             json!({"key": {"type": "string"}, "value": {}}),
             vec!["key", "value"],
         ),

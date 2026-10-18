@@ -152,6 +152,7 @@ struct SelfCost {
     let p = Preferences.shared
     let checks = HealthStore.shared.allChecks.count
     let hosts = MachineStore.shared.hosts.count
+    let panelHosts = p.panelVisible && p.panelMachines ? MachineStore.shared.panelHosts.count : 0
     let collectorMS = Monitor.shared.snapshot?.collector_ms ?? 0
     func f(_ id: String, _ title: String, on: Bool, _ cadence: String, measured key: String? = nil) -> FeatureCost {
       FeatureCost(
@@ -176,7 +177,9 @@ struct SelfCost {
       f("containers", L("Contêineres"), on: true, L("só enquanto uma tela com contêineres está aberta"), measured: "containers"),
       f(
         "machines", L("Máquinas (ssh)"), on: hosts > 0,
-        L("%@ hosts a cada 60 s, só com a página aberta", "\(hosts)"), measured: "machines"),
+        panelHosts > 0
+          ? L("%@ hosts a cada 60 s com a página aberta; %@ sempre, pelo painel flutuante", "\(hosts)", "\(panelHosts)")
+          : L("%@ hosts a cada 60 s, só com a página aberta", "\(hosts)"), measured: "machines"),
       f("logs", L("Logs"), on: true, L("a cada 2 s, só com a página aberta"), measured: "logs"),
       f("ports", L("Portas e exposição"), on: true, L("a cada 15 s, só com a página aberta"), measured: "ports"),
       f("databases", L("Bancos locais"), on: true, L("a cada 15 s, só com a página aberta"), measured: "databases"),

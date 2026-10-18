@@ -190,6 +190,18 @@ import Foundation
       .containerStopped("web", status: "Exited (1) 1 minute ago"), .containerUnhealthy("db"),
     ])
     precondition(machineAlerts(now, before: nil).contains(.load(3.5, cores: 2)) == false, "load must be sustained")
+    // Floating panel: compact machine readings, shared probe cadence, chosen hosts.
+    let panelRemote = RemoteStats(parsing: "cpus=4\nload=2.0 1 1\nmemtotal=1000\nmemavail=250\ndisktotal=200\ndiskused=50\n")
+    precondition(panelRemote.loadFraction == 0.5 && panelRemote.memoryFraction == 0.75 && panelRemote.diskFraction == 0.25)
+    precondition(RemoteStats().loadFraction == nil && RemoteStats().memoryFraction == nil)
+    precondition(machineProbeDue(lastProbe: nil, now: 100) && !machineProbeDue(lastProbe: 100, now: 130))
+    precondition(machineProbeDue(lastProbe: 100, now: 152), "a timer firing a little early still probes")
+    precondition(panelMachineHosts(selected: ["db", "gone", "web"], hosts: ["web", "cache", "db"]) == ["web", "db"])
+    precondition(agentPanelState(status: "busy", stall: nil) == .busy && agentPanelState(status: "idle", stall: nil) == .waiting)
+    precondition(agentPanelState(status: nil, stall: nil) == .unknown)
+    precondition(agentPanelState(status: "busy", stall: .silent(since: 0)) == .stuck)
+    precondition(agentPanelState(status: "busy", stall: .longCommand("cargo", since: 0)) == .longCommand)
+    precondition([AgentPanelState.waiting, .stuck, .busy].sorted() == [.stuck, .busy, .waiting])
     // Services history: 5-minute buckets, uptime windows and merged incidents.
     var buckets: [Int: HealthBucket] = [:]
     let t0 = Date(timeIntervalSince1970: 1_800_000_000)

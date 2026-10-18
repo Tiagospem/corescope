@@ -550,6 +550,17 @@ enum AgentStall: Equatable {
   /// Worth an alert: a long build or test run is not.
   var suspicious: Bool { if case .longCommand = self { false } else { true } }
 }
+/// One agent session in the floating panel, most urgent first.
+enum AgentPanelState: Int, Comparable {
+  case stuck, longCommand, busy, waiting, unknown
+  static func < (a: Self, b: Self) -> Bool { a.rawValue < b.rawValue }
+}
+/// `status` is Claude Code's own ("busy", "idle"; nil when the agent writes none, as Codex).
+func agentPanelState(status: String?, stall: AgentStall?) -> AgentPanelState {
+  if let stall { return stall.suspicious ? .stuck : .longCommand }
+  guard let status else { return .unknown }
+  return status == "idle" ? .waiting : .busy
+}
 /// Nil while the session is idle or wrote to its transcript within `threshold` seconds. Servers
 /// it left listening and processes from earlier turns (MCP servers, dev servers) are ignored.
 func agentStall(
@@ -814,6 +825,30 @@ func machineAlerts(_ now: RemoteStats, before: RemoteStats?) -> [MachineAlert] {
     out.append(.containerUnhealthy(c.name))
   }
   return out
+}
+
+extension RemoteStats {
+  /// 1-minute load over cores: 1.0 means every core busy.
+  var loadFraction: Double? { cpus > 0 ? load.first.map { $0 / Double(cpus) } : nil }
+  var memoryFraction: Double? {
+    guard let total = memoryTotal, let available = memoryAvailable, total > 0 else { return nil }
+    return (total - available) / total
+  }
+  var diskFraction: Double? {
+    guard let total = diskTotal, let used = diskUsed, total > 0 else { return nil }
+    return used / total
+  }
+}
+/// The Machines page and the floating panel both ask for readings; a host probed within the
+/// last `every` seconds (less slack for timers) is not probed again.
+func machineProbeDue(lastProbe: Double?, now: Double, every: Double = 60) -> Bool {
+  guard let lastProbe else { return true }
+  return now - lastProbe >= every - 10
+}
+/// The machines chosen for the panel, in the Machines page order; hosts removed there drop out.
+func panelMachineHosts(selected: [String], hosts: [String]) -> [String] {
+  let chosen = Set(selected)
+  return hosts.filter(chosen.contains)
 }
 
 /// Five minutes of a Services check: how many checks were up and down, and the summed latency.

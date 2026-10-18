@@ -397,6 +397,17 @@ final class Preferences: ObservableObject {
   { didSet { save("limitsInOverview", limitsInOverview) } }
   @Published var panelNetwork = UserDefaults.standard.object(forKey: "panelNetwork") as? Bool ?? false
   { didSet { save("panelNetwork", panelNetwork) } }
+  /// Opt-in panel sections: running agent sessions, and the ssh machines chosen below.
+  @Published var panelAgents = UserDefaults.standard.bool(forKey: "panelAgents") {
+    didSet { save("panelAgents", panelAgents) }
+  }
+  @Published var panelMachines = UserDefaults.standard.bool(forKey: "panelMachines") {
+    didSet { save("panelMachines", panelMachines) }
+  }
+  /// Machines (from the Machines page) shown in the panel; read once a minute while it shows them.
+  @Published var panelMachineHosts = UserDefaults.standard.stringArray(forKey: "panelMachineHosts") ?? [] {
+    didSet { save("panelMachineHosts", panelMachineHosts) }
+  }
   @Published var cpuWarning = UserDefaults.standard.object(forKey: "cpuWarning") as? Double ?? 80 {
     didSet { save("cpuWarning", cpuWarning) }
   }

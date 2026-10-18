@@ -472,7 +472,7 @@ enum ControlAPI {
     return row
   }
   private static func machineJSON(_ host: String) -> [String: Any] {
-    var row: [String: Any] = ["host": host]
+    var row: [String: Any] = ["host": host, "in_floating_panel": Preferences.shared.panelMachineHosts.contains(host)]
     guard let state = MachineStore.shared.states[host] else { return row }
     if let error = state.error { row["error"] = error }
     if let s = state.stats {
@@ -534,7 +534,8 @@ enum ControlAPI {
   }
 }
 
-/// The preferences agents may read and change: notifications, thresholds and cleanup folders.
+/// The preferences agents may read and change: notifications, thresholds, cleanup folders and
+/// what the floating panel shows.
 /// Anything that reaches outside the Mac or edits another app's files stays with the user.
 enum AgentSettings {
   private static let bools: [String: ReferenceWritableKeyPath<Preferences, Bool>] = [
@@ -542,7 +543,7 @@ enum AgentSettings {
     "notify_memory_pressure": \.notifyPressure, "notify_stuck_agents": \.notifyStalls,
     "notify_service_down": \.notifyServiceDown, "notify_agent_battery_drain": \.notifyAgentDrain,
     "economy_mode_on_battery": \.economyMode, "notify_machine_alerts": \.notifyMachines,
-    "floating_panel": \.panelVisible,
+    "floating_panel": \.panelVisible, "panel_agents": \.panelAgents, "panel_machines": \.panelMachines,
   ]
   private static let numbers: [String: (ReferenceWritableKeyPath<Preferences, Double>, ClosedRange<Double>)] = [
     "stuck_agent_minutes": (\.stallMinutes, 1...240), "agent_drain_watts": (\.drainWatts, 0.5...50),
@@ -555,6 +556,7 @@ enum AgentSettings {
     for (k, path) in bools { out[k] = p[keyPath: path] }
     for (k, (path, _)) in numbers { out[k] = p[keyPath: path] }
     out["cleanup_folders"] = p.cleanupRoots
+    out["panel_machine_hosts"] = p.panelMachineHosts
     return out
   }
   static func write(_ key: String, _ value: Any?) -> String? {
@@ -562,7 +564,7 @@ enum AgentSettings {
     if let path = bools[key] {
       guard let v = value as? Bool else { return "\(key) takes true or false" }
       p[keyPath: path] = v
-      if v { Notifier.shared.activate() }
+      if v, key.hasPrefix("notify_") { Notifier.shared.activate() }
       return nil
     }
     if let (path, range) = numbers[key] {
@@ -584,6 +586,16 @@ enum AgentSettings {
       let bad = folders.filter { !FileManager.default.fileExists(atPath: $0, isDirectory: &isDir) || !isDir.boolValue }
       guard bad.isEmpty else { return "not folders: \(bad.joined(separator: ", "))" }
       p.cleanupRoots = folders
+      return nil
+    }
+    if key == "panel_machine_hosts" {
+      let known = MachineStore.shared.hosts
+      guard let hosts = value as? [String] else { return "panel_machine_hosts takes a list of machines from list_machines" }
+      let unknown = hosts.filter { !known.contains($0) }
+      guard unknown.isEmpty else {
+        return "not on the Machines page: \(unknown.joined(separator: ", ")); machines: \(known.joined(separator: ", "))"
+      }
+      p.panelMachineHosts = panelMachineHosts(selected: hosts, hosts: known)
       return nil
     }
     return "unknown or protected setting; readable keys: \(read().keys.sorted().joined(separator: ", "))"
