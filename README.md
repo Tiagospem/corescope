@@ -59,7 +59,8 @@ If you work with Claude Code, Codex, editors and terminals all day, your Mac fil
 - Every **Claude Code** session (desktop app and CLI) and **Codex** session, with its title, *working / idle* status, project, how long it has been running, how many processes it started, ports, CPU and memory.
 - **Terminate a whole session** — the agent and every server, shell and tool it spawned — in one action.
 - **Codex limits**, by default from the last `rate_limits` event in Codex's local session logs. Recent Codex versions (the desktop app inside ChatGPT.app) no longer write those events, so turn on *Settings → Agents → Read the current limit through Codex* (or the button on the limits card) to ask Codex's own app-server — the same `account/rateLimits/read` call the Codex app makes — every 5 minutes: current usage, reset time, plan, credit balance and free resets. Optionally shown in the menu bar and floating panel.
-- **Claude Code 5-hour and weekly limits** (opt-in, Pro/Max plans), taken from the [`rate_limits` data Claude Code hands to its status line](https://code.claude.com/docs/en/statusline). Turn on *Settings → Agents → Read the Claude limit from the status line*; see [Privacy](#privacy) for exactly what it changes.
+- **Claude Code 5-hour and weekly limits** (opt-in, Pro/Max plans), taken from the [`rate_limits` data Claude Code hands to its status line](https://code.claude.com/docs/en/statusline). Turn on *Settings → Agents → Read the Claude limit from the status line*; see [Privacy](#privacy) for exactly what it changes. Without it, the percentages come from **Claude Desktop's own samples** (`~/Library/Application Support/Claude/plan-usage-history.json`, written every few minutes while Claude Desktop runs): no reset time, marked with their age.
+- **Pace**: for every window with a reset time, where it is heading at the average pace so far — "~70% at the reset", or "hits 100% at 16:40" in orange. MCP `usage_limits` returns Claude and Codex with source, reset and pace.
 - **Token usage**, counted from the agents' own local transcripts: input, output and prompt-cache tokens plus the model on each session card, and totals for today and the last 7 days per agent and per project. Tokens only — no dollar estimates.
 - **Possible orphans:** dev runtimes still running after their terminal, editor or agent went away.
 
@@ -152,6 +153,10 @@ The Agents page flags **sessions sharing one working tree** (Claude Code session
 
 The MySQL/MariaDB, PostgreSQL and Redis servers running on this Mac — as processes or containers — with version, uptime, size per database (keys per db for Redis), connections, slow-query counters and the queries running for more than 5 seconds. CoreScope speaks each database's own protocol on 127.0.0.1 with read-only queries, each capped on the server too. **It never asks for, stores or reads passwords**: it connects only where the server allows passwordless local access (MySQL `root` without a password, PostgreSQL trust for your user, Redis without AUTH) and otherwise just shows that a password is required. Also `corescope db` and the MCP tool `list_databases`.
 
+- **Open in** TablePlus, Redis Insight, Sequel Ace, Postico or DBeaver (whichever is installed) with the connection filled in, or **copy the DSN** — never with a password.
+- **Redis by prefix**: *Scan* on a Redis database samples its keys (`SCAN`, then `MEMORY USAGE` and `TTL` in one pipelined batch), groups them by prefix — going one level deeper when one namespace holds everything (`go:task:`, `go:batch:`) — and shows estimated keys and memory per prefix and how many **never expire** (a common slow leak). *Empty db…* runs `FLUSHDB` after a confirmation, for development data. `corescope db redis PORT --db N`, MCP `redis_keyspace` / `redis_flush`.
+- **Snapshots** before risky work: *New snapshot…* dumps one MySQL/MariaDB or PostgreSQL database to a gzipped SQL file under `~/Library/Application Support/CoreScope/db-snapshots`, and *Restore* puts that database back exactly (it is dropped and recreated from the dump). For a **container**, the dump runs inside it (`docker exec`) with the container's own credentials from its environment (`MYSQL_ROOT_PASSWORD`, `MARIADB_*`, `POSTGRES_USER`) passed through `MYSQL_PWD`, so CoreScope never reads or stores a password and none appears in a process's arguments; the database name is validated and passed as an argument, never interpolated. Host databases need passwordless local access, like the rest of the page. Agents get `db_snapshot`, `db_snapshots` and `db_restore` over MCP, and the MCP instructions ask them to snapshot before `migrate:fresh`, `db:wipe` or a migration reset. `corescope db snapshot PORT DATABASE`, `corescope db snapshots`, `corescope db restore ID`.
+
 ### 🖥️ Machines
 
 Servers you reach over ssh — add an alias from `~/.ssh/config` (offered as suggestions) or `user@host` — refreshed every 60 s while the page is open: distribution, uptime, load against cores, memory and swap, every disk, top processes by CPU and by memory, failed systemd units and the containers with their state. CoreScope runs **your own `ssh` in BatchMode** with a fixed, read-only script piped to `sh -s`: keys and agent stay with ssh, nothing prompts for a password, and a host whose key is unknown fails instead of being accepted. Only `Host` names are read from your ssh config.
@@ -173,9 +178,17 @@ Battery level, charging state and time left, the watts each process draws right 
 - **What happened at 2:05 pm?** Pick a moment (or type `14:05` in ⌥⌘K, open `corescope://happened?at=14:05`, run `corescope happened 14:05`, or let an agent call `what_happened`): CPU and process power in the 10 minutes around it against the hour before, memory, swap growth, pressure, thermal state, disk writes and who dominated.
 - Since 0.5 History also records total process power and the 10 processes drawing the most each minute (older files are upgraded in place; earlier minutes keep no power).
 
+### 💾 Storage
+
+- **Using the disk now**: the processes reading and writing the most, from per-process counters (`corescope top --disk`, MCP `top_processes by: disk`).
+- **SSD health** under each disk, from the NVMe SMART log page the system already reads for temperature: percentage of rated endurance used, available spare, terabytes written and read, average written per hour powered on, power cycles, unsafe shutdowns, media errors and a verdict (healthy, watch, replace) with reasons. Disks behind adapters that hide SMART say so. `corescope disk-health`, MCP `disk_health`.
+- **Free up space safely**: caches and stores tools re-create on demand — Xcode DerivedData, unavailable simulators, npm/Yarn/pnpm/Cargo/Go/Gradle/Composer/pip caches, Homebrew cleanup, Docker build cache and untagged images — each with the space it frees, the exact command or folders it touches, and a check that its tool is not running. Folders go to the Trash; commands run with the tool's full path; Docker data is removed by the engine (marked permanent). `corescope space --plan`, MCP `cleanup_plan` / `run_cleanup_plan` (destructive, so agents ask).
+- **Large files**: on demand, the largest files in your home folder and the folders it links to other drives — disk images, videos, VMs, dumps, models — with age, Quick Look, Finder and Trash. The walk stays on each folder's own filesystem (never into OrbStack's NFS or network shares) and skips cloud storage (OneDrive, iCloud), `node_modules` and `.git`; files an app manages (Docker, OrbStack, Claude, Photos, Hugging Face's cache) are shown but not offered for the Trash. `corescope large-files`, MCP `large_files`.
+- **Eject…** on external volumes: the processes holding the volume — running from it, with files open on it, or working inside it — with a stop button each, then `diskutil eject`; if a system service still holds it, macOS's message says which. `corescope eject-check VOLUME`, MCP `volume_holders` / `eject_volume`.
+
 ### 💾 What grew today
 
-The Storage page measures the folders that usually fill a developer's disk — caches, Xcode DerivedData and simulators, Docker/OrbStack/Colima VMs, npm/pnpm/Yarn/Bun/Cargo/Go/Gradle/Maven/Composer stores, `~/.cache`, model folders (Ollama, LM Studio, Hugging Face), Downloads, Trash and Claude/Codex data (symlinked ones too) — at most every 6 hours in the background and on demand, and shows what grew since the last measurement before today, with free space. `corescope disk-growth [--measure]` and MCP `disk_growth` give the same; cleaning stays in Cleanup.
+The Storage page measures the folders that usually fill a developer's disk — caches, Xcode DerivedData and simulators, Docker/OrbStack/Colima VMs, npm/pnpm/Yarn/Bun/Cargo/Go/Gradle/Maven/Composer stores, `~/.cache`, model folders (Ollama, LM Studio, Hugging Face), Downloads, Trash and Claude/Codex data (symlinked ones too) — at most every 6 hours in the background and on demand, and shows what grew since the last measurement before today, with free space. Each folder opens to the subfolders that grew, and folders the cleanup plan can free (npm, Cargo, DerivedData…) get a *Free* button that checks that action. `corescope disk-growth [--measure]` and MCP `disk_growth` give the same.
 
 ### 🐳 Containers
 
@@ -264,6 +277,11 @@ corescope wait                     # wait until the Mac has room (the project's 
 corescope exposure                 # what listens beyond localhost, riskiest first
 corescope happened "2:05 pm"       # what the Mac was doing then (needs History on)
 corescope disk-growth --measure    # which usual folders grew today
+corescope disk-health              # SSD wear, TB written, unsafe shutdowns (NVMe SMART)
+corescope space --plan             # safe cleanup plan with estimates and exact commands
+corescope large-files              # largest files in your home and linked drives
+corescope eject-check "/Volumes/HD"  # what keeps a volume from ejecting
+corescope db snapshot 3306 shop    # snapshot a database before migrate:fresh (db restore ID)
 corescope version --check          # this version, and whether a newer release exists (asks the app)
 ```
 
@@ -290,6 +308,11 @@ Off by default. *Settings → MCP server for agents → Enable* registers `cores
 | `recent_errors` / `search_logs` / `tail_log` / `list_log_sources` | A profile's or project's logs: errors with traces and counts, search, tail |
 | `read_project_config` / `write_project_config` | The project's `.corescope.yml`, parsed and validated / written as commented YAML |
 | `what_happened` | What the Mac was doing around a moment (History): CPU and power against the hour before, swap, pressure, thermal, who dominated, in plain English |
+| `disk_health` / `large_files` | SSD health from NVMe SMART; the largest files in the home folder (read-only) |
+| `cleanup_plan` / `run_cleanup_plan` | Safe cleanup plan with estimates and exact commands; run chosen actions (destructive, asks) |
+| `volume_holders` / `eject_volume` | What keeps a volume from ejecting; eject it |
+| `db_snapshot` / `db_snapshots` / `db_restore` | Snapshot a MySQL/PostgreSQL database before risky work; restore it (asks) |
+| `redis_keyspace` / `redis_flush` | Redis memory by key prefix and keys without TTL; FLUSHDB (asks) |
 | `disk_growth` | Which usual folders grew today, and free space |
 | `list_dev_space` | Reclaimable space (read-only; cleaning stays in the app, with your confirmation) |
 | `stop_port` / `stop_process` | Stop a process (or a port's owner), **only if this agent session started it** |
@@ -302,6 +325,8 @@ With *Agents can use the app through MCP* (on by default once the server is regi
 | `list_services` / `add_service` / `remove_service` / `check_services` | Services health checks |
 | `list_machines` / `add_machine` / `remove_machine` / `refresh_machines` | SSH machines |
 | `cleanup_status` / `scan_dev_space` / `clean_dev_space` | Cleanup: cached result, a new scan, and moving items from the latest scan to the Trash |
+| `usage_limits` | Claude and Codex limits with source, reset and pace |
+| `backup_settings` | Back up CoreScope's settings to the backup folder now |
 | `get_settings` / `set_setting` | Notification toggles, thresholds, cleanup folders, collector interval, the floating panel and `check_for_updates` (the only one that reaches outside the Mac: the daily release check, see [Privacy](#privacy)) |
 | `update_status` | Installed and latest version, the new release's notes and the last check; makes no request. Installing stays a click in Settings |
 | `corescope_cost` | What CoreScope itself spends (app, helpers, children) and each feature's measured CPU, to tell you what to turn off |
@@ -402,6 +427,8 @@ CoreScope is **local-only by default**: no network access, no telemetry, no acco
 - **Persistent history is opt-in** (off by default; Settings › History, retention 1, 7 or 30 days). When on, CoreScope writes one-minute rollups — system CPU, memory, swap, disk/network rates, thermal state, memory pressure and, per minute, the top 10 processes by CPU and by memory (name, executable, working directory and agent/editor origin; never arguments or environment) — to `~/Library/Application Support/CoreScope/history.sqlite`, in one SQLite transaction per minute. Older rows are purged automatically and *Delete history* removes the file.
 - Cleanup reads folder sizes and modification times only (never file contents) and only when you open the page or press *Scan*. Docker sizes come from the engine's `/system/df`.
 - The MCP server (opt-in) answers only on stdio to the agent that launched it; registering it runs the agents' own `mcp add`/`mcp remove` commands, nothing else is changed.
+- **Settings backup** (on by default, local): a few seconds after a setting changes, CoreScope copies its settings — preferences, profiles, Services, machines, recipes, project folders, plus the Services history and disk-growth files — to `~/.corescope/backups` (or a folder you pick in Settings › Settings backup, e.g. in iCloud Drive), as `latest.plist` and the last 20 dated copies. Updating keeps settings anyway; the backup is for uninstallers (AppCleaner, CleanMyMac, `brew uninstall --zap`) that delete `~/Library/Preferences` and Application Support: a launch with empty settings and a backup offers to restore it. History and database snapshots are not included.
+- Database snapshots are files you create (`~/Library/Application Support/CoreScope/db-snapshots`); the dump of a container runs inside it with its own credentials and CoreScope never sees them.
 - Nothing is ever killed automatically. Termination only targets your own, eligible processes, revalidates each process identity (PID + start time + executable) right before signaling, and never touches system services or CoreScope's own ancestors.
 
 ## Resource usage
@@ -451,9 +478,9 @@ The screenshots and GIF in this README were generated by `scripts/readme-media.s
 
 ## Roadmap
 
-### Shipped in 0.6.0
+### Shipped in 0.7.0
 
-Opt-in updates (signed with the project's key, installed from Settings), a Homebrew cask (`brew install --cask tiagospem/tap/corescope`), Agents and Remote machines in the floating panel, and a redesigned CPU per core. 0.5.0 brought profiles as code (`.corescope.yml`), the Logs and Ports pages, container control through MCP, agents that wait for capacity, worktrees and agent conflicts, richer Machines with recipes, Services history, CoreScope's own cost, *What happened at…*, *What grew today*, quick actions, `corescope://` links and a universal build. 0.4.0 brought the command line, the MCP server, Cleanup, stuck-agent detection, Services, Profiles, Databases, Machines and Energy. See the [changelog](CHANGELOG.md).
+Storage you can act on (SSD health, who is writing, what grew and why, a safe cleanup plan, large files, eject), databases you can act on (open in TablePlus/Redis Insight, Redis by prefix, snapshots before migrations), Claude limits without the status line and their pace, a settings backup that survives uninstallers, and *why a systemd unit failed* on Machines. 0.6.0 brought opt-in updates (signed with the project's key, installed from Settings), a Homebrew cask (`brew install --cask tiagospem/tap/corescope`), Agents and Remote machines in the floating panel, and a redesigned CPU per core. 0.5.0 brought profiles as code (`.corescope.yml`), the Logs and Ports pages, container control through MCP, agents that wait for capacity, worktrees and agent conflicts, richer Machines with recipes, Services history, CoreScope's own cost, *What happened at…*, *What grew today*, quick actions, `corescope://` links and a universal build. 0.4.0 brought the command line, the MCP server, Cleanup, stuck-agent detection, Services, Profiles, Databases, Machines and Energy. See the [changelog](CHANGELOG.md).
 
 ### Backlog
 

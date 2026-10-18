@@ -125,11 +125,20 @@ func uniqueOwners(_ pairs: [(port: UInt16, owner: String)]) -> [UInt16: String] 
   return owners.compactMapValues { $0.count == 1 ? $0.first : nil }
 }
 
+/// "0 KB" rather than the system's "Zero KB".
+private func byteFormatter(_ style: ByteCountFormatter.CountStyle) -> ByteCountFormatter {
+  let f = ByteCountFormatter()
+  f.countStyle = style
+  f.allowsNonnumericFormatting = false
+  return f
+}
+private let memoryBytes = byteFormatter(.memory)
+private let fileBytes = byteFormatter(.file)
 func formatBytes(_ value: Double) -> String {
-  ByteCountFormatter.string(fromByteCount: Int64(max(0, value)), countStyle: .memory)
+  memoryBytes.string(fromByteCount: Int64(max(0, value)))
 }
 func formatRate(_ value: Double) -> String {
-  ByteCountFormatter.string(fromByteCount: Int64(max(0, value)), countStyle: .file) + "/s"
+  fileBytes.string(fromByteCount: Int64(max(0, value))) + "/s"
 }
 func formatDuration(_ seconds: TimeInterval) -> String {
   let s = Int(max(0, seconds))
