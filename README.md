@@ -157,6 +157,7 @@ The MySQL/MariaDB, PostgreSQL and Redis servers running on this Mac — as proce
 Servers you reach over ssh — add an alias from `~/.ssh/config` (offered as suggestions) or `user@host` — refreshed every 60 s while the page is open: distribution, uptime, load against cores, memory and swap, every disk, top processes by CPU and by memory, failed systemd units and the containers with their state. CoreScope runs **your own `ssh` in BatchMode** with a fixed, read-only script piped to `sh -s`: keys and agent stay with ssh, nothing prompts for a password, and a host whose key is unknown fails instead of being accepted. Only `Host` names are read from your ssh config.
 
 - **Alerts** on the card (and optional notifications): a disk above 90%, load sustained above 1.5× the cores, failed systemd units, a container that stopped or fails its health check.
+- **Why a unit failed**: click a unit in the *Failed systemd units* alert and CoreScope runs `systemctl status <unit>` and `journalctl -u <unit>` over the same BatchMode ssh (read-only, no sudo; the unit name is validated first). The last run's `error`/`failed` lines are grouped with counts (`unknown user 'x'` × 27), with a one-line hint for well-known causes: a logrotate config left for a deleted site user (e.g. Laravel Forge's `/etc/logrotate.d/forge-*`), two configs rotating the same log (`duplicate log entry`), a failed postrotate script, an `nginx -t` error. Hints only explain; CoreScope never changes the server. When journald hides system logs from your ssh user (not in `adm`/`systemd-journal`), it says so instead of showing nothing. Agents get the same with MCP `explain_failed_unit`.
 - **Recipes**: commands that run on demand — built-in read-only ones (journal, failed units, `df`, memory, containers, top, listening ports, nginx errors) and your own. Agents run them by name over MCP (`list_recipes`, `run_recipe`), never free-form commands.
 
 ### 🔋 Energy
@@ -281,6 +282,7 @@ Off by default. *Settings → MCP server for agents → Enable* registers `cores
 | `power_usage` | Battery, total watts, top processes and agent sessions by power |
 | `list_databases` | Local MySQL/PostgreSQL/Redis status (read-only, no passwords) |
 | `list_recipes` / `run_recipe` | Read-only commands on a machine, run by name over your ssh |
+| `explain_failed_unit` | Why a failed systemd unit failed: status, the last run's errors grouped, a hint for known causes (read-only) |
 | `exposure_report` / `port_conflicts` | What listens beyond localhost (risk and fix); projects' preferred ports and who holds them |
 | `list_worktrees` | Git worktrees agents left: branch, merged, uncommitted changes, in use |
 | `system_capacity` / `wait_for_capacity` | Whether the Mac has room for heavy work under the project's rule; wait until it does |

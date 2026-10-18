@@ -297,6 +297,21 @@ enum ControlAPI {
           reply(r)
         }
       }
+    case "machines.explain_unit":
+      guard let host = args["host"] as? String, MachineStore.shared.hosts.contains(host) else {
+        return reply(["error": "no such machine; list_machines shows the hosts"])
+      }
+      let unit = args["unit"] as? String ?? ""
+      guard validSystemdUnit(unit) else {
+        return reply(["error": "unit must be a systemd unit name such as logrotate.service (list_machines shows failed_units)"])
+      }
+      DispatchQueue.global(qos: .userInitiated).async {
+        let (explanation, error) = MachineStore.shared.explainUnit(unit, on: host)
+        DispatchQueue.main.async {
+          guard let e = explanation else { return reply(["host": host, "unit": unit, "error": error ?? "no output"]) }
+          reply(unitExplanationJSON(host: host, e))
+        }
+      }
     case "machines.refresh":
       MachineStore.shared.refreshAll()
       waitForMachines(reply) { ["machines": MachineStore.shared.hosts.map(machineJSON)] }
@@ -501,6 +516,22 @@ enum ControlAPI {
     }
     row["read_at"] = ISO8601DateFormatter().string(from: state.at)
     row["alerts"] = state.alerts.map(\.text)
+    return row
+  }
+  private static func unitExplanationJSON(host: String, _ e: UnitExplanation) -> [String: Any] {
+    var row: [String: Any] = [
+      "host": host, "unit": e.unit, "description": e.description, "active": e.active, "failing_process": e.process,
+      "last_run_lines": e.lines,
+      "errors": e.groups.map { ["source": $0.source, "message": $0.message, "count": $0.count, "samples": $0.samples] },
+      "hints": e.hints.map { ["kind": $0.kind.rawValue, "hint": $0.english, "files": $0.files] },
+      "status": e.status, "journal": e.journal,
+      "note": "Read-only: CoreScope ran systemctl status and journalctl over the user's ssh and changed nothing.",
+    ]
+    if e.notFound { row["not_found"] = true }
+    if e.journalRestricted {
+      row["journal_restricted"] =
+        "journald showed nothing to this ssh user: it may need to be in the adm or systemd-journal group to read system units' logs."
+    }
     return row
   }
   private static func waitForMachines(_ reply: @escaping Reply, attempts: Int = 0, _ value: @escaping () -> [String: Any]) {

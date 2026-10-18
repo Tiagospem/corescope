@@ -851,6 +851,221 @@ func panelMachineHosts(selected: [String], hosts: [String]) -> [String] {
   return hosts.filter(chosen.contains)
 }
 
+/// A systemd unit name CoreScope puts in a remote command: unit-name characters only (letters,
+/// digits, `:-_.\@`), a known unit type, never an option. Quoted on top of that.
+func validSystemdUnit(_ s: String) -> Bool {
+  let types = ["service", "socket", "timer", "mount", "automount", "swap", "target", "path", "slice", "scope", "device"]
+  guard !s.isEmpty, s.count <= 256, !s.hasPrefix("-"), !s.hasPrefix("."),
+    let dot = s.lastIndex(of: "."), types.contains(String(s[s.index(after: dot)...]))
+  else { return false }
+  return s.unicodeScalars.allSatisfy {
+    ("a"..."z").contains($0) || ("A"..."Z").contains($0) || ("0"..."9").contains($0) || ":-_.\\@".unicodeScalars.contains($0)
+  }
+}
+enum FailedUnitCheck {
+  static let journalMarker = "@@corescope-journal@@"
+  static let idMarker = "@@corescope-id@@"
+  /// The read-only check behind "why did this unit fail": status without log lines, the unit's
+  /// recent journal (enough for a few runs; only the last run is summarized) and who we are, so
+  /// an empty journal can be told apart from one we may not read. Nil for an invalid unit.
+  static func command(unit: String) -> String? {
+    guard validSystemdUnit(unit) else { return nil }
+    let u = "'" + unit + "'"
+    return "systemctl status \(u) --no-pager -n 0 2>&1; echo '\(journalMarker)'; "
+      + "journalctl -u \(u) -n 200 --no-pager 2>&1; echo \"\(idMarker) $(id -u) $(id -Gn 2>/dev/null)\""
+  }
+}
+
+/// Repeated error lines from a unit's journal, grouped by shape (paths, quoted names and
+/// numbers vary): `message` is the first one, `samples` up to five distinct ones.
+struct UnitErrorGroup: Equatable {
+  var source: String
+  var message: String
+  var count: Int
+  var samples: [String]
+}
+/// A well-known failure, explained in one line. CoreScope only explains; it never changes the server.
+struct UnitHint: Equatable {
+  enum Kind: String { case logrotateUnknownUser, logrotateDuplicate, postrotate, nginxConfig }
+  var kind: Kind
+  /// Config files (or the failing line, for nginx) the journal names, distinct, in order.
+  var files: [String]
+  /// The first six files, then how many more.
+  var fileList: String { files.prefix(6).joined(separator: ", ") + (files.count > 6 ? " (+\(files.count - 6))" : "") }
+  var english: String {
+    let list = files.isEmpty ? "." : ": \(fileList)."
+    switch kind {
+    case .logrotateUnknownUser:
+      return "A logrotate config names a user that no longer exists — usually left behind when a site user was deleted "
+        + "(Laravel Forge leaves /etc/logrotate.d/forge-*). logrotate skips it and the run fails; remove or fix\(list)"
+    case .logrotateDuplicate:
+      return "Two logrotate configs rotate the same log file and logrotate refuses the second "
+        + "(often an old Forge config next to a newer one). Keep one of\(list)"
+    case .postrotate:
+      return "A postrotate script (usually a service reload) failed after rotating — check that the service it reloads is running\(list)"
+    case .nginxConfig:
+      return "nginx's configuration test (nginx -t) failed; the line says which file and line. nginx keeps the old config until it passes\(list)"
+    }
+  }
+}
+struct UnitExplanation: Equatable {
+  var unit: String
+  var description = ""
+  /// The `Active:` line, e.g. "failed (Result: exit-code) since …".
+  var active = ""
+  /// The failing `Process:`/`Main PID:` line, e.g. "ExecStart=/usr/sbin/logrotate … status=1/FAILURE".
+  var process = ""
+  var notFound = false
+  var groups: [UnitErrorGroup] = []
+  var hints: [UnitHint] = []
+  /// Log lines of the last run (or of everything read, when no start line was found).
+  var lines = 0
+  /// journald hid the unit's lines from this user (not in `adm`/`systemd-journal`).
+  var journalRestricted = false
+  var status = ""
+  var journal = ""
+}
+
+/// Reads what `FailedUnitCheck.command` printed.
+func explainFailedUnit(unit: String, output: String) -> UnitExplanation {
+  var e = UnitExplanation(unit: unit)
+  let parts = output.components(separatedBy: FailedUnitCheck.journalMarker)
+  e.status = parts[0].trimmingCharacters(in: .whitespacesAndNewlines)
+  var journal = parts.count > 1 ? parts[1] : ""
+  var uid = "", groups: [String] = []
+  if let id = journal.range(of: FailedUnitCheck.idMarker) {
+    let words = journal[id.upperBound...].split(whereSeparator: \.isWhitespace).map(String.init)
+    uid = words.first ?? ""
+    groups = Array(words.dropFirst())
+    journal = String(journal[..<id.lowerBound])
+  }
+  e.journal = journal.trimmingCharacters(in: .whitespacesAndNewlines)
+
+  for raw in e.status.split(whereSeparator: \.isNewline) {
+    let line = raw.trimmingCharacters(in: .whitespaces)
+    if e.description.isEmpty, line.contains(unit), let dash = line.range(of: " - ") {
+      e.description = String(line[dash.upperBound...])
+    } else if line.hasPrefix("Active:") {
+      e.active = line.dropFirst(7).trimmingCharacters(in: .whitespaces)
+    } else if line.hasPrefix("Process:") || line.hasPrefix("Main PID:"), e.process.isEmpty,
+      line.contains("status="), !line.contains("status=0/SUCCESS")
+    {
+      let value = line.drop(while: { $0 != ":" }).dropFirst().trimmingCharacters(in: .whitespaces)
+      // Drop the PID: "12345 ExecStart=…" → "ExecStart=…".
+      e.process = value.first?.isNumber == true ? String(value.drop(while: { !$0.isWhitespace })).trimmingCharacters(in: .whitespaces) : value
+    } else if line.contains("could not be found") {
+      e.notFound = true
+    }
+  }
+
+  // Only the last run: lines after systemd's last "Starting …" for this unit.
+  let logLines = e.journal.split(whereSeparator: \.isNewline).map(String.init).filter { !$0.hasPrefix("-- ") }
+  var entries: [(source: String, message: String)] = []
+  for line in logLines {
+    guard let entry = journalEntry(line) else { continue }
+    if entry.source == "systemd", entry.message.hasPrefix("Starting ") { entries.removeAll() }
+    entries.append(entry)
+  }
+  e.lines = entries.count
+
+  let lowerJournal = e.journal.lowercased()
+  let hidden = lowerJournal.contains("not seeing messages from other users") || lowerJournal.contains("insufficient permissions")
+  let privileged = uid == "0" || groups.contains { ["adm", "systemd-journal", "wheel", "root"].contains($0) }
+  e.journalRestricted = entries.isEmpty && (hidden || !uid.isEmpty && !privileged)
+
+  var order: [String] = []
+  var byShape: [String: UnitErrorGroup] = [:]
+  for entry in entries where isErrorLine(entry.message) {
+    let key = entry.source + "\u{1}" + errorShape(entry.message)
+    if var g = byShape[key] {
+      g.count += 1
+      if g.samples.count < 5, !g.samples.contains(entry.message) { g.samples.append(entry.message) }
+      byShape[key] = g
+    } else {
+      order.append(key)
+      byShape[key] = UnitErrorGroup(source: entry.source, message: entry.message, count: 1, samples: [entry.message])
+    }
+  }
+  // The program's own errors first; systemd's "failed with result" lines only restate them.
+  let all = order.compactMap { byShape[$0] }
+  e.groups = all.filter { $0.source != "systemd" } + all.filter { $0.source == "systemd" }
+  e.hints = unitHints(entries.map(\.message))
+  return e
+}
+
+/// "Oct 17 00:00:01 web-1 logrotate[812]: error: …" (or short-iso) → ("logrotate", "error: …").
+func journalEntry(_ line: String) -> (source: String, message: String)? {
+  let words = line.split(separator: " ", omittingEmptySubsequences: true)
+  // The identifier is the first word ending in ":" after the timestamp and host.
+  guard let at = words.prefix(6).firstIndex(where: { $0.hasSuffix(":") && !$0.dropLast().allSatisfy { $0.isNumber || $0 == ":" } }),
+    at >= 2
+  else { return nil }
+  var source = String(words[at].dropLast())
+  if let bracket = source.firstIndex(of: "[") { source = String(source[..<bracket]) }
+  let message = words[(at + 1)...].joined(separator: " ")
+  return (source, message)
+}
+private func isErrorLine(_ message: String) -> Bool {
+  let m = message.lowercased()
+  return ["error", "failed", "failure", "fatal", "[emerg]", "[crit]", "denied"].contains { m.contains($0) }
+}
+/// The line with paths, quoted text and numbers blanked, so repeats of one problem group together.
+private func errorShape(_ message: String) -> String {
+  var out = ""
+  var quote: Character?
+  for word in message.split(separator: " ", omittingEmptySubsequences: true) {
+    var w = String(word)
+    if quote != nil {
+      if w.last == quote || w.dropLast().last == quote { quote = nil }
+      continue
+    }
+    if let first = w.first, first == "'" || first == "\"" || first == "‘" {
+      let closer: Character = first == "‘" ? "’" : first
+      if !(w.count > 1 && (w.last == closer || w.dropLast().last == closer)) { quote = closer }
+      w = "'…'"
+    } else if w.contains("/") || out.hasSuffix(" file") {
+      w = "…"
+    } else if w.contains(where: \.isNumber) {
+      w = "#"
+    }
+    out += (out.isEmpty ? "" : " ") + w
+  }
+  return out
+}
+/// One hint per well-known failure, with the files it names.
+func unitHints(_ messages: [String]) -> [UnitHint] {
+  var hints: [UnitHint] = []
+  func add(_ kind: UnitHint.Kind, _ file: String?) {
+    if let i = hints.firstIndex(where: { $0.kind == kind }) {
+      if let file, !hints[i].files.contains(file) { hints[i].files.append(file) }
+    } else {
+      hints.append(UnitHint(kind: kind, files: file.map { [$0] } ?? []))
+    }
+  }
+  /// "error: /etc/logrotate.d/forge-x:5 unknown user 'x'" → "/etc/logrotate.d/forge-x".
+  func configFile(_ m: String) -> String? {
+    guard let path = m.split(separator: " ").first(where: { $0.hasPrefix("/") }) else { return nil }
+    if let colon = path.lastIndex(of: ":"), path[path.index(after: colon)...].allSatisfy(\.isNumber) {
+      return String(path[..<colon])
+    }
+    return String(path)
+  }
+  for m in messages {
+    let lower = m.lowercased()
+    if lower.contains("unknown user") || lower.contains("unknown group") {
+      add(.logrotateUnknownUser, configFile(m))
+    } else if lower.contains("duplicate log entry") {
+      add(.logrotateDuplicate, configFile(m))
+    } else if lower.contains("postrotate script") || lower.contains("prerotate script") {
+      let target = m.split(separator: "'").dropFirst().first.map { $0.trimmingCharacters(in: .whitespaces) }
+      add(.postrotate, target)
+    } else if lower.contains("nginx") && (lower.contains("[emerg]") || lower.contains("test failed")) {
+      add(.nginxConfig, lower.contains("[emerg]") ? m : nil)
+    }
+  }
+  return hints
+}
+
 /// Five minutes of a Services check: how many checks were up and down, and the summed latency.
 struct HealthBucket: Codable, Equatable {
   var up = 0

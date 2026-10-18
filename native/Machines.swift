@@ -180,6 +180,18 @@ final class MachineStore: ObservableObject {
     return (text, process.terminationStatus == 0 ? nil : L("Saiu com %@", "\(process.terminationStatus)"))
   }
 
+  /// Why a failed unit failed: its status and the last run's journal, read through the same
+  /// BatchMode ssh as the recipes (no sudo). Nil explanation when the unit name is not valid.
+  /// Blocking; call off the main thread.
+  func explainUnit(_ unit: String, on host: String) -> (UnitExplanation?, String?) {
+    guard let command = FailedUnitCheck.command(unit: unit) else { return (nil, L("Nome de serviço inválido")) }
+    let (output, error) = run(Recipe(name: "explain-unit", command: command), on: host)
+    guard output.contains(FailedUnitCheck.journalMarker) else {
+      return (nil, error ?? String(output.trimmingCharacters(in: .whitespacesAndNewlines).prefix(300)))
+    }
+    return (explainFailedUnit(unit: unit, output: output), nil)
+  }
+
   private static func explain(code: Int32, stderr: String) -> String {
     let e = stderr.lowercased()
     if code == -2 { return L("Sem resposta em 15 s") }
@@ -289,6 +301,7 @@ private struct MachineCard: View {
   let refresh: () -> Void
   let remove: () -> Void
   @ViewState private var recipesOpen = false
+  @ViewState private var explaining: FailedUnitRef?
   @ViewState private var tab = 0
   var body: some View {
     let s = state?.stats
@@ -334,7 +347,19 @@ private struct MachineCard: View {
         Label(error, systemImage: "exclamationmark.triangle").font(.callout).foregroundStyle(.orange)
       }
       ForEach(Array((state?.alerts ?? []).enumerated()), id: \.offset) { _, alert in
-        Label(alert.text, systemImage: "exclamationmark.octagon.fill").font(.callout).foregroundStyle(.red)
+        if case .failedUnits(let units) = alert {
+          // Each unit opens its explanation: status and the last run's journal, read-only.
+          HStack(spacing: 6) {
+            Label(L("Serviços do systemd com falha:"), systemImage: "exclamationmark.octagon.fill")
+            ForEach(units.prefix(6), id: \.self) { unit in
+              Button(unit) { explaining = FailedUnitRef(unit: unit) }.buttonStyle(.link)
+                .help(L("Ver por que falhou (systemctl status e journalctl, só leitura)"))
+            }
+            if units.count > 6 { Text("+\(units.count - 6)") }
+          }.font(.callout).foregroundStyle(.red)
+        } else {
+          Label(alert.text, systemImage: "exclamationmark.octagon.fill").font(.callout).foregroundStyle(.red)
+        }
       }
       if let s {
         HStack(spacing: 16) {
@@ -390,6 +415,7 @@ private struct MachineCard: View {
       }
     }
     .sheet(isPresented: $recipesOpen) { RecipesSheet(host: host) }
+    .sheet(item: $explaining) { FailedUnitSheet(host: host, unit: $0.unit) }
   }
   /// Choosing a machine for the panel also turns the panel's machines section on.
   private var inPanel: Binding<Bool> {
@@ -506,6 +532,125 @@ private struct RecipesSheet: View {
       DispatchQueue.main.async {
         running = nil
         output = out
+        failure = error
+      }
+    }
+  }
+}
+
+private struct FailedUnitRef: Identifiable {
+  let unit: String
+  var id: String { unit }
+}
+extension UnitHint {
+  var text: String {
+    let reason: String
+    switch kind {
+    case .logrotateUnknownUser:
+      reason = L("Um arquivo do logrotate cita um usuário que não existe mais — normalmente sobra de um usuário de site removido (o Laravel Forge deixa /etc/logrotate.d/forge-*). O logrotate o pula e a execução falha; remova ou corrija")
+    case .logrotateDuplicate:
+      reason = L("Dois arquivos do logrotate rodam o mesmo log e o logrotate recusa o segundo (muitas vezes um arquivo antigo do Forge ao lado de um novo). Mantenha só um de")
+    case .postrotate:
+      reason = L("Um script postrotate (normalmente o reload de um serviço) falhou depois de rodar os logs — veja se o serviço que ele recarrega está no ar")
+    case .nginxConfig:
+      reason = L("O teste de configuração do nginx (nginx -t) falhou; a linha diz qual arquivo e linha. O nginx continua com a configuração antiga até passar")
+    }
+    return reason + (files.isEmpty ? "." : ": \(fileList).")
+  }
+}
+
+/// Why a failed unit failed: status, the last run's errors grouped, and a hint for known causes.
+/// Read-only over the user's ssh; nothing on the server changes.
+private struct FailedUnitSheet: View {
+  let host: String
+  let unit: String
+  @Environment(\.dismiss) private var dismiss
+  @ViewState private var loading = false
+  @ViewState private var result: UnitExplanation?
+  @ViewState private var failure: String?
+  var body: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      HStack(spacing: 8) {
+        Text(unit).font(.title3.weight(.semibold))
+        Text(host).foregroundStyle(.secondary)
+        Spacer()
+        if loading { ProgressView().controlSize(.small) }
+        Button(action: load) { Image(systemName: "arrow.clockwise") }.buttonStyle(.borderless)
+          .help(L("Atualizar")).disabled(loading)
+        Button(L("Fechar")) { dismiss() }.keyboardShortcut(.cancelAction)
+      }
+      if let failure { Label(failure, systemImage: "exclamationmark.triangle").foregroundStyle(.orange) }
+      ScrollView {
+        VStack(alignment: .leading, spacing: 12) {
+          if let e = result { content(e) } else if loading { Text(L("Lendo status e journal…")).foregroundStyle(.secondary) }
+        }.frame(maxWidth: .infinity, alignment: .leading)
+      }
+      Text(
+        L("Só leitura: roda systemctl status e journalctl pelo seu ssh em BatchMode, sem sudo. As dicas só explicam; o CoreScope nunca altera o servidor.")
+      ).font(.caption).foregroundStyle(.secondary)
+    }
+    .padding(20)
+    .frame(width: 760, height: 560)
+    .onAppear(perform: load)
+  }
+  @ViewBuilder private func content(_ e: UnitExplanation) -> some View {
+    if e.notFound {
+      Label(L("Serviço não encontrado nesta máquina (pode ter sido removido desde a última leitura)."), systemImage: "questionmark.circle")
+    }
+    VStack(alignment: .leading, spacing: 3) {
+      if !e.description.isEmpty { Text(e.description).font(.callout.weight(.medium)) }
+      if !e.active.isEmpty { Text(e.active).font(.callout).foregroundStyle(e.active.hasPrefix("failed") ? .red : .secondary) }
+      if !e.process.isEmpty { Text(e.process).font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary).textSelection(.enabled) }
+    }
+    ForEach(Array(e.hints.enumerated()), id: \.offset) { _, hint in
+      Label(hint.text, systemImage: "lightbulb").font(.callout).textSelection(.enabled)
+        .padding(10).frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.yellow.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+    }
+    if e.journalRestricted {
+      Label(
+        L("O journald não mostrou nada a este usuário do ssh: para ler o log dos serviços do sistema ele precisa estar no grupo adm ou systemd-journal."),
+        systemImage: "lock"
+      ).font(.callout).foregroundStyle(.orange)
+    }
+    Text(L("Erros da última execução")).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+    if e.groups.isEmpty, !e.journalRestricted {
+      EmptyNote(text: L("Nenhuma linha de erro na última execução."))
+    }
+    ForEach(Array(e.groups.enumerated()), id: \.offset) { _, g in
+      HStack(alignment: .firstTextBaseline, spacing: 8) {
+        Text("× \(g.count)").font(.caption.weight(.semibold)).monospacedDigit().frame(width: 40, alignment: .trailing)
+        VStack(alignment: .leading, spacing: 2) {
+          Text(g.message).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
+            .foregroundStyle(g.source == "systemd" ? .secondary : .primary)
+          if g.samples.count > 1 {
+            DisclosureGroup(L("Exemplos")) {
+              ForEach(g.samples.dropFirst(), id: \.self) { sample in
+                Text(sample).font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary).textSelection(.enabled)
+                  .frame(maxWidth: .infinity, alignment: .leading)
+              }
+            }.font(.caption)
+          }
+        }
+        Spacer(minLength: 0)
+        Text(g.source).font(.caption2).foregroundStyle(.secondary)
+      }
+    }
+    DisclosureGroup(L("Saída completa")) {
+      Text(e.status + "\n\n" + e.journal).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
+        .frame(maxWidth: .infinity, alignment: .leading).padding(8)
+        .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
+    }.font(.caption)
+  }
+  private func load() {
+    guard !loading else { return }
+    loading = true
+    failure = nil
+    DispatchQueue.global(qos: .userInitiated).async {
+      let (explanation, error) = MachineStore.shared.explainUnit(unit, on: host)
+      DispatchQueue.main.async {
+        loading = false
+        if let explanation { result = explanation }
         failure = error
       }
     }
