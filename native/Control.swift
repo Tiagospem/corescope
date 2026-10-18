@@ -319,6 +319,22 @@ enum ControlAPI {
     case "cleanup.list": reply(cleanupJSON())
     case "cleanup.scan":
       CleanupStore.shared.scan { error in reply(error.map { ["error": $0] } ?? cleanupJSON()) }
+    case "volumes.eject":
+      guard let mount = args["mount"] as? String, mount.hasPrefix("/Volumes/") else {
+        return reply(["error": "mount must be an external volume under /Volumes/"])
+      }
+      DispatchQueue.global(qos: .userInitiated).async {
+        let holders = VolumeEject.holders(mount)
+        let error = VolumeEject.eject(mount)
+        reply(error == nil ? ["ejected": true] : [
+          "ejected": false, "error": error ?? "",
+          "holders": holders.map { ["pid": $0.pid, "name": $0.name, "reason": $0.reason, "example": $0.example] },
+        ])
+      }
+    case "cleanup.run_plan":
+      let ids = Set(args["ids"] as? [String] ?? [])
+      guard !ids.isEmpty else { return reply(["error": "ids is required; cleanup_plan lists them"]) }
+      CleanupPlanStore.shared.run(ids) { outcomes in reply(["results": outcomes]) }
     case "cleanup.clean":
       let paths = Set(args["paths"] as? [String] ?? [])
       let items = (CleanupStore.shared.report?.items ?? []).filter { paths.contains($0.id) }
@@ -346,6 +362,41 @@ enum ControlAPI {
       if let error = AgentSettings.write(key, args["value"]) { return reply(["error": error]) }
       reply(["settings": AgentSettings.read()])
 
+    case "settings.backup":
+      let backup = SettingsBackup.shared
+      backup.write(force: true) { error in
+        reply(error.map { ["error": $0] } ?? [
+          "folder": backup.folder.path, "latest": backup.folder.appendingPathComponent("latest.plist").path,
+          "written_at": ISO8601DateFormatter().string(from: backup.lastWritten ?? Date()),
+        ])
+      }
+    case "agents.limits":
+      let agents = AgentStore.shared
+      func window(_ w: LimitWindow) -> [String: Any] {
+        var out: [String: Any] = [
+          "window": w.windowMinutes == 300 ? "5h" : w.windowMinutes == 10080 ? "7d" : "\(w.windowMinutes)m",
+          "used_percent": w.usedPercent,
+          "resets_at": w.resetsAt.map { ISO8601DateFormatter().string(from: $0) } ?? NSNull(),
+        ]
+        if let r = w.resetsAt, let pace = limitPace(used: w.usedPercent, windowMinutes: w.windowMinutes, resetsAt: r) {
+          out["projected_percent_at_reset"] = (pace.projected * 10).rounded() / 10
+          out["full_at"] = pace.fullAt.map { ISO8601DateFormatter().string(from: $0) } ?? NSNull()
+        }
+        return out
+      }
+      let at = { (d: Date?) -> Any in d.map { ISO8601DateFormatter().string(from: $0) } ?? NSNull() }
+      reply([
+        "claude": [
+          "source": agents.claude.windows.isEmpty ? NSNull() : agents.claude.source as Any,
+          "observed_at": at(agents.claude.observedAt),
+          "windows": agents.claude.windows.map(window),
+        ],
+        "codex": [
+          "plan": agents.codex.plan ?? NSNull(), "observed_at": at(agents.codex.observedAt),
+          "windows": agents.codex.windows.map(window),
+        ],
+        "note": "Claude: 'statusline' comes from Claude Code's status line (with reset times); 'desktop' from Claude Desktop's local samples (no reset times). Pace is the average since the window started.",
+      ])
     case "agents.stuck":
       let watch = StallWatch.shared
       var out: [[String: Any]] = []

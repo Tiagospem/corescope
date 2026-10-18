@@ -1,11 +1,20 @@
 import AppKit
 import SwiftUI
 
+struct GrowthChild: Decodable, Hashable {
+  let name: String
+  let path: String
+  let bytes: Double
+  let change: Double?
+}
 struct GrowthFolder: Decodable, Hashable {
   let label: String
   let path: String
   let bytes: Double
   let change: Double?
+  let children: [GrowthChild]?
+  /// A cleanup plan action that frees this folder.
+  let cleanup: String?
 }
 struct GrowthReport: Decodable, Equatable {
   let measured_at: Double?
@@ -60,6 +69,8 @@ final class DiskGrowthStore: ObservableObject {
 
 struct DiskGrowthCard: View {
   @ObservedObject var store = DiskGrowthStore.shared
+  @ObservedObject var plan = CleanupPlanStore.shared
+  @ViewState private var expanded: Set<String> = []
   var body: some View {
     Card {
       CardHeader(title: L("O que cresceu hoje"), symbol: "chart.line.uptrend.xyaxis", tint: .orange) {
@@ -84,19 +95,48 @@ struct DiskGrowthCard: View {
           }.font(.callout)
         }
         ForEach(r.folders.prefix(10), id: \.self) { g in
-          HStack(spacing: 10) {
-            VStack(alignment: .leading, spacing: 1) {
-              Text(g.label.isEmpty ? (g.path as NSString).lastPathComponent : g.label).font(.callout)
-              Text(abbreviateHome(g.path)).font(.caption2).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+          let kids = (g.children ?? []).filter { ($0.change ?? 0) > 1_048_576 || g.change == nil }
+          VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 10) {
+              Button {
+                if expanded.contains(g.path) { expanded.remove(g.path) } else { expanded.insert(g.path) }
+              } label: {
+                Image(systemName: expanded.contains(g.path) ? "chevron.down" : "chevron.right").frame(width: 12)
+              }.buttonStyle(.plain).foregroundStyle(.secondary).disabled(g.children?.isEmpty ?? true)
+                .help(L("Subpastas que mais cresceram"))
+              VStack(alignment: .leading, spacing: 1) {
+                Text(g.label.isEmpty ? (g.path as NSString).lastPathComponent : g.label).font(.callout)
+                Text(abbreviateHome(g.path)).font(.caption2).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+              }
+              Spacer()
+              if let id = g.cleanup, let action = plan.actions.first(where: { $0.id == id }) {
+                Button(L("Liberar %@", formatBytes(action.estimate))) {
+                  plan.selected.insert(id)
+                }.controlSize(.small).help(L("Marca \"%@\" no plano de limpeza abaixo.", action.title))
+              }
+              Text(formatBytes(g.bytes)).monospacedDigit().foregroundStyle(.secondary)
+              if let c = g.change { change(c) } else { Text("—").foregroundStyle(.tertiary).frame(width: 90, alignment: .trailing) }
+              Button {
+                NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: g.path)])
+              } label: {
+                Image(systemName: "folder")
+              }.buttonStyle(HoverButtonStyle()).help(L("Mostrar no Finder"))
             }
-            Spacer()
-            Text(formatBytes(g.bytes)).monospacedDigit().foregroundStyle(.secondary)
-            if let c = g.change { change(c) } else { Text("—").foregroundStyle(.tertiary).frame(width: 90, alignment: .trailing) }
-            Button {
-              NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: g.path)])
-            } label: {
-              Image(systemName: "folder")
-            }.buttonStyle(HoverButtonStyle()).help(L("Mostrar no Finder"))
+            if expanded.contains(g.path) {
+              ForEach((kids.isEmpty ? Array((g.children ?? []).prefix(5)) : kids), id: \.self) { k in
+                HStack(spacing: 10) {
+                  Text(k.name).font(.caption).lineLimit(1).truncationMode(.middle)
+                  Spacer()
+                  Text(formatBytes(k.bytes)).font(.caption).monospacedDigit().foregroundStyle(.secondary)
+                  if let c = k.change { change(c) } else { Text("—").font(.caption).foregroundStyle(.tertiary).frame(width: 90, alignment: .trailing) }
+                  Button {
+                    NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: k.path)])
+                  } label: {
+                    Image(systemName: "folder")
+                  }.buttonStyle(HoverButtonStyle(size: 20)).help(L("Mostrar no Finder"))
+                }.padding(.leading, 22)
+              }
+            }
           }
         }
       } else {

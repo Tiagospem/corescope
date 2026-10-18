@@ -132,8 +132,9 @@ static int smart_status(IOReturn status){
  if(status==kIOReturnUnsupported)return 1;
  return 3;
 }
-int os_nvme_temperature(uint64_t driver_id,uint32_t *kelvin){
- *kelvin=0;
+// Reads the 512-byte SMART log page of the NVMe controller above `driver_id`; 0 on success,
+// 1 unsupported, 2 not permitted, 3 unavailable.
+static int nvme_smart(uint64_t driver_id,NVMeSMARTData *data){
  io_registry_entry_t service=IOServiceGetMatchingService(kIOMainPortDefault,IORegistryEntryIDMatching(driver_id));
  if(!service)return 3;
  int capable=0;
@@ -152,10 +153,27 @@ int os_nvme_temperature(uint64_t driver_id,uint32_t *kelvin){
  IONVMeSMARTInterface **smart=NULL;
  HRESULT query=(*plugin)->QueryInterface(plugin,CFUUIDGetUUIDBytes(kIONVMeSMARTInterfaceID),(LPVOID*)&smart);
  if(query!=S_OK||!smart){IODestroyPlugInInterface(plugin);return 1;}
- NVMeSMARTData data={0};result=(*smart)->SMARTReadData(smart,&data);
- if(result==kIOReturnSuccess){uint16_t raw;memcpy(&raw,&data.TEMPERATURE,sizeof(raw));*kelvin=OSSwapLittleToHostInt16(raw);}
+ memset(data,0,sizeof(*data));result=(*smart)->SMARTReadData(smart,data);
  (*smart)->Release(smart);IODestroyPlugInInterface(plugin);
  return result==kIOReturnSuccess?0:smart_status(result);
+}
+int os_nvme_temperature(uint64_t driver_id,uint32_t *kelvin){
+ *kelvin=0;NVMeSMARTData data;int status=nvme_smart(driver_id,&data);
+ if(status==0){uint16_t raw;memcpy(&raw,&data.TEMPERATURE,sizeof(raw));*kelvin=OSSwapLittleToHostInt16(raw);}
+ return status;
+}
+static uint64_t le64(const uint64_t *v){uint64_t raw;memcpy(&raw,v,sizeof(raw));return OSSwapLittleToHostInt64(raw);}
+int os_nvme_health(uint64_t driver_id,CSNvmeHealth *out){
+ memset(out,0,sizeof(*out));NVMeSMARTData data;int status=nvme_smart(driver_id,&data);
+ if(status)return status;
+ uint16_t raw;memcpy(&raw,&data.TEMPERATURE,sizeof(raw));out->kelvin=OSSwapLittleToHostInt16(raw);
+ out->critical_warning=data.CRITICAL_WARNING;out->available_spare=data.AVAILABLE_SPARE;
+ out->spare_threshold=data.AVAILABLE_SPARE_THRESHOLD;out->percentage_used=data.PERCENTAGE_USED;
+ out->data_units_read=le64(data.DATA_UNITS_READ);out->data_units_written=le64(data.DATA_UNITS_WRITTEN);
+ out->power_cycles=le64(data.POWER_CYCLES);out->power_on_hours=le64(data.POWER_ON_HOURS);
+ out->unsafe_shutdowns=le64(data.UNSAFE_SHUTDOWNS);out->media_errors=le64(data.MEDIA_ERRORS);
+ out->error_log_entries=le64(data.NUM_ERROR_INFO_LOG_ENTRIES);
+ return 0;
 }
 
 #include <net/if.h>
@@ -191,6 +209,26 @@ int os_cwd(int32_t pid,char *out,int cap){
  struct proc_vnodepathinfo v;out[0]=0;
  if(proc_pidinfo(pid,PROC_PIDVNODEPATHINFO,0,&v,sizeof(v))!=sizeof(v))return -1;
  strlcpy(out,v.pvi_cdir.vip_path,(size_t)cap);return 0;
+}
+static int under(const char *path,const char *prefix,size_t len){
+ return strncmp(path,prefix,len)==0&&(path[len]==0||path[len]=='/'||prefix[len-1]=='/');
+}
+int os_open_under(int32_t pid,const char *prefix,char *example,int cap){
+ example[0]=0;size_t len=strlen(prefix);if(!len)return 0;
+ int size=proc_pidinfo(pid,PROC_PIDLISTFDS,0,NULL,0);if(size<=0)return -1;
+ size+=32*PROC_PIDLISTFD_SIZE;
+ struct proc_fdinfo *fds=malloc((size_t)size);if(!fds)return -1;
+ size=proc_pidinfo(pid,PROC_PIDLISTFDS,0,fds,size);if(size<=0){free(fds);return -1;}
+ int n=0,count=size/(int)PROC_PIDLISTFD_SIZE;
+ for(int i=0;i<count;i++){
+  if(fds[i].proc_fdtype!=PROX_FDTYPE_VNODE)continue;
+  struct vnode_fdinfowithpath vi;
+  if(proc_pidfdinfo(pid,fds[i].proc_fd,PROC_PIDFDVNODEPATHINFO,&vi,sizeof(vi))!=sizeof(vi))continue;
+  if(!under(vi.pvip.vip_path,prefix,len))continue;
+  if(!n)strlcpy(example,vi.pvip.vip_path,(size_t)cap);
+  n++;
+ }
+ free(fds);return n;
 }
 int os_network(uint64_t *in_bytes,uint64_t *out_bytes){
  *in_bytes=0;*out_bytes=0;int mib[6]={CTL_NET,PF_ROUTE,0,0,NET_RT_IFLIST2,0};size_t len=0;

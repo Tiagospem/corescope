@@ -33,6 +33,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }
   func applicationDidFinishLaunching(_ notification: Notification) {
     if let icon = AppIcon.image { NSApp.applicationIconImage = icon }
+    // Before anything reads settings: offer a backup when they are empty (after an uninstaller).
+    if Tour.folder == nil && !Demo.enabled { SettingsBackup.shared.start() }
     Tour.start()
     DispatchQueue.main.asyncAfter(deadline: .now() + 1) { Tour.prepareWindow() }
     Preferences.shared.applyAppearance()

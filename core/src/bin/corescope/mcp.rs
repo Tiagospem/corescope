@@ -79,8 +79,10 @@ fn initialize(params: &Value) -> Value {
     IMPORTANT: when the project's .corescope.yml has agents.wait_for_capacity, call \
     wait_for_capacity before heavy commands (builds, test suites, docker builds) and repeat until \
     it answers ready: true or the project's max_wait passes — the Mac is shared and an \
-    overloaded machine turns a task into hours. Stopping processes is limited to what this agent \
-    session started; ask the user before destructive actions."
+    overloaded machine turns a task into hours. Before commands that wipe or rebuild a local \
+    database (migrate:fresh, db:wipe, migrate reset), take a db_snapshot so the user can go \
+    back with db_restore. Stopping processes is limited to what this agent session started; ask \
+    the user before destructive actions."
     })
 }
 
@@ -92,7 +94,11 @@ fn tool(name: &str, description: &str, properties: Value, required: &[&str]) -> 
                            "destructiveHint": destructive, "openWorldHint": false}})
 }
 /// Tools that stop, delete or remove things; hosts ask the user before running them.
-const DESTRUCTIVE: [&str; 8] = [
+const DESTRUCTIVE: [&str; 12] = [
+    "db_restore",
+    "redis_flush",
+    "eject_volume",
+    "run_cleanup_plan",
     "container_action",
     "stop_port",
     "stop_process",
@@ -103,7 +109,9 @@ const DESTRUCTIVE: [&str; 8] = [
     "remove_machine",
 ];
 /// Tools that change state without destroying anything.
-const CHANGES: [&str; 7] = [
+const CHANGES: [&str; 9] = [
+    "backup_settings",
+    "db_snapshot",
     "write_project_config",
     "create_profile",
     "start_profile",
@@ -323,6 +331,41 @@ fn app_tools() -> Vec<(
             vec![],
         ),
         (
+            "backup_settings",
+            "settings.backup",
+            "Write a backup of CoreScope's settings now (profiles, Services, machines, recipes, \
+             project folders, preferences) to the backup folder (default ~/.corescope/backups), \
+             outside ~/Library so uninstallers do not remove it. Returns the file path.",
+            json!({}),
+            vec![],
+        ),
+        (
+            "usage_limits",
+            "agents.limits",
+            "Claude and Codex usage limits as CoreScope sees them: percent used per window (5h, 7d), \
+             reset time, where it came from, and the pace (percent projected at the reset, and when \
+             it reaches 100% if before). Use it before long agent work to avoid hitting a limit midway.",
+            json!({}),
+            vec![],
+        ),
+        (
+            "eject_volume",
+            "volumes.eject",
+            "Eject an external volume (/Volumes/…) with diskutil. If it fails, returns diskutil's \
+             message and the processes holding it (see volume_holders); it never stops them.",
+            json!({"mount": {"type": "string"}}),
+            vec!["mount"],
+        ),
+        (
+            "run_cleanup_plan",
+            "cleanup.run_plan",
+            "Run actions from cleanup_plan by id (e.g. [\"npm-cache\", \"docker-build-cache\"]): folders \
+             go to the Trash, commands run with the tool's full path, Docker data is removed by the \
+             engine (permanent). An action whose tool is running is skipped. Returns each outcome.",
+            json!({"ids": {"type": "array", "items": {"type": "string"}}}),
+            vec!["ids"],
+        ),
+        (
             "clean_dev_space",
             "cleanup.clean",
             "Clean items from the latest scan by id: folders go to the Trash (recoverable), Docker data \
@@ -432,8 +475,9 @@ fn core_tools() -> Vec<Value> {
         ),
         tool(
             "top_processes",
-            "Processes using the most CPU (percent of one core) or memory (bytes).",
-            json!({"by": {"type": "string", "enum": ["cpu", "memory", "energy"]}, "limit": {"type": "integer", "minimum": 1, "maximum": 50}}),
+            "Processes using the most CPU (percent of one core), memory (bytes), power (watts) or \
+             disk I/O right now (read + write bytes per second: who is writing to the SSD).",
+            json!({"by": {"type": "string", "enum": ["cpu", "memory", "energy", "disk"]}, "limit": {"type": "integer", "minimum": 1, "maximum": 50}}),
             &[],
         ),
         tool(
@@ -470,6 +514,79 @@ fn core_tools() -> Vec<Value> {
             "power_usage",
             "Battery (percent, charging, time left), total power drawn by processes, the top \
              processes by watts and each agent session's power including what it started.",
+            json!({}),
+            &[],
+        ),
+        tool(
+            "cleanup_plan",
+            "Safe cleanup plan: caches and stores that tools re-create on demand (Xcode \
+             DerivedData, unavailable simulators, npm/Yarn/pnpm/Cargo/Go/Gradle/Composer/pip \
+             caches, Homebrew cleanup, Docker build cache and untagged images), each with the \
+             bytes it frees, the exact command or folders, and whether its tool is running now. \
+             Read-only: run actions with run_cleanup_plan (the user confirms) or in the app.",
+            json!({}),
+            &[],
+        ),
+        tool(
+            "large_files",
+            "The largest files in the user's home folder (and folders it links to other drives): \
+             size, kind (disk image, video, archive, VM, dump, model), last change and the app \
+             that manages it (those must not be deleted by hand). Read-only; takes up to 90 s.",
+            json!({"min_mb": {"type": "integer", "minimum": 50, "description": "default 1024"},
+                   "limit": {"type": "integer", "minimum": 1, "maximum": 200}}),
+            &[],
+        ),
+        tool(
+            "volume_holders",
+            "What keeps a volume (e.g. /Volumes/HD Externo) from ejecting: processes running from \
+             it, with files open on it, or working inside it, with PID, an example path and \
+             whether they can be stopped. Read-only.",
+            json!({"mount": {"type": "string", "description": "mount point, e.g. /Volumes/Backup"}}),
+            &["mount"],
+        ),
+        tool(
+            "db_snapshot",
+            "Snapshot one MySQL/MariaDB or PostgreSQL database into a gzipped SQL dump before \
+             risky work (php artisan migrate:fresh, db:wipe, prisma migrate reset, destructive \
+             seeds). For a container the dump runs inside it with the container's own \
+             credentials; host databases need passwordless local access. Returns the snapshot id \
+             for db_restore.",
+            json!({"port": {"type": "integer"}, "database": {"type": "string"}}),
+            &["port", "database"],
+        ),
+        tool(
+            "db_snapshots",
+            "Database snapshots saved by CoreScope: id, database, container, size, time.",
+            json!({}),
+            &[],
+        ),
+        tool(
+            "db_restore",
+            "Put a database back to a snapshot (from db_snapshots): the database is dropped and \
+             recreated from the dump. Ask the user first.",
+            json!({"id": {"type": "string"}}),
+            &["id"],
+        ),
+        tool(
+            "redis_keyspace",
+            "A local Redis database's keys grouped by prefix (sampled with SCAN): estimated keys \
+             and memory per prefix and how many never expire. Read-only.",
+            json!({"port": {"type": "integer"}, "db": {"type": "integer", "minimum": 0}}),
+            &["port"],
+        ),
+        tool(
+            "redis_flush",
+            "FLUSHDB on one database of a local development Redis (port, db). Destructive: ask \
+             the user first.",
+            json!({"port": {"type": "integer"}, "db": {"type": "integer", "minimum": 0}}),
+            &["port", "db"],
+        ),
+        tool(
+            "disk_health",
+            "SSD health of each physical disk from its NVMe SMART log: percentage of rated \
+             endurance used, available spare, data written and read, power-on hours, power \
+             cycles, unsafe shutdowns, media errors and a verdict (good, watch, replace) with \
+             reasons. Disks behind USB or SATA report that SMART is unavailable. Read-only.",
             json!({}),
             &[],
         ),
@@ -629,6 +746,7 @@ fn call(params: &Value) -> Value {
             let by = match args["by"].as_str() {
                 Some("memory") => "memory",
                 Some("energy") => "energy",
+                Some("disk") => "disk",
                 _ => "cpu",
             };
             let limit = args["limit"].as_u64().unwrap_or(10).clamp(1, 50) as usize;
@@ -660,6 +778,57 @@ fn call(params: &Value) -> Value {
                 .collect();
             text(crate::worktrees(&folders), false)
         }
+        "cleanup_plan" => {
+            let home: std::path::PathBuf =
+                std::env::var_os("HOME").map(Into::into).unwrap_or_default();
+            text(
+                json!(corescope::cleanplan::plan(
+                    &home,
+                    &sample(false).processes,
+                    true
+                )),
+                false,
+            )
+        }
+        "large_files" => {
+            let home: std::path::PathBuf =
+                std::env::var_os("HOME").map(Into::into).unwrap_or_default();
+            text(
+                json!(corescope::largefiles::scan(
+                    &corescope::largefiles::default_roots(&home),
+                    args["min_mb"].as_u64().unwrap_or(1024).max(50) << 20,
+                    args["limit"].as_u64().unwrap_or(50).clamp(1, 200) as usize,
+                    std::time::Duration::from_secs(90),
+                )),
+                false,
+            )
+        }
+        "volume_holders" => match args["mount"].as_str() {
+            Some(mount) if mount.starts_with('/') => text(
+                json!(corescope::eject::holders(mount, &sample(false).processes)),
+                false,
+            ),
+            _ => text(
+                json!({"error": "mount must be an absolute mount point"}),
+                true,
+            ),
+        },
+        "db_snapshot" | "db_snapshots" | "db_restore" | "redis_keyspace" | "redis_flush" => {
+            let op = match name {
+                "db_snapshot" => "snapshot",
+                "db_snapshots" => "snapshots",
+                "db_restore" => "restore",
+                "redis_keyspace" => "keyspace",
+                _ => "flush",
+            };
+            let mut request = args.clone();
+            request["op"] = json!(op);
+            match corescope::db_tool(&request) {
+                Ok(v) => text(v, false),
+                Err(e) => text(json!({"error": e}), true),
+            }
+        }
+        "disk_health" => text(json!(corescope::diskhealth::read()), false),
         "disk_growth" => match corescope::disk_growth(args["measure"].as_bool() == Some(true)) {
             Ok(r) => text(json!(r), false),
             Err(e) => text(json!({"error": e}), true),

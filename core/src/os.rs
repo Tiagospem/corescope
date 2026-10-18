@@ -51,6 +51,22 @@ pub struct RawVolume {
     pub kind: [c_char; 32],
 }
 #[repr(C)]
+#[derive(Default, Clone, Copy, Debug)]
+pub struct RawNvmeHealth {
+    pub critical_warning: u8,
+    pub available_spare: u8,
+    pub spare_threshold: u8,
+    pub percentage_used: u8,
+    pub kelvin: u32,
+    pub data_units_read: u64,
+    pub data_units_written: u64,
+    pub power_cycles: u64,
+    pub power_on_hours: u64,
+    pub unsafe_shutdowns: u64,
+    pub media_errors: u64,
+    pub error_log_entries: u64,
+}
+#[repr(C)]
 pub struct RawDisk {
     pub id: u64,
     pub read_bytes: u64,
@@ -67,6 +83,8 @@ unsafe extern "C" {
     pub fn os_uid() -> u32;
     pub fn os_self() -> i32;
     pub fn os_nvme_temperature(driver_id: u64, kelvin: *mut u32) -> i32;
+    pub fn os_nvme_health(driver_id: u64, out: *mut RawNvmeHealth) -> i32;
+    pub fn os_open_under(pid: i32, prefix: *const c_char, example: *mut c_char, cap: i32) -> i32;
     pub fn os_signal(pid: i32, force: i32) -> i32;
 }
 pub fn string(bytes: &[c_char]) -> String {

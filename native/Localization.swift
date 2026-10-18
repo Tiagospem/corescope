@@ -1082,4 +1082,127 @@ private let entries = """
   folga ¦ calm ¦ holgado
   ocupado ¦ busy ¦ ocupado
   no limite ¦ at the limit ¦ al límite
+  %@ arquivos abertos ¦ %@ open files ¦ %@ archivos abiertos
+  %@ arquivos verificados em %@ s, %@. ¦ %@ files checked in %@ s, %@. ¦ %@ archivos revisados en %@ s, %@.
+  %@ ciclos ¦ %@ power cycles ¦ %@ ciclos
+  %@ da vida útil usada ¦ %@ of rated life used ¦ %@ de la vida útil usada
+  %@ desligamentos inesperados ¦ %@ unsafe shutdowns ¦ %@ apagados inesperados
+  %@ erros de mídia ¦ %@ media errors ¦ %@ errores de medio
+  %@ escritos ¦ %@ written ¦ %@ escritos
+  %@ h ligado ¦ %@ h powered on ¦ %@ h encendido
+  %@ liberados. ¦ %@ freed. ¦ %@ liberados.
+  %@ lidos ¦ %@ read ¦ %@ leídos
+  %@ na Lixeira. ¦ %@ in the Trash. ¦ %@ en la Papelera.
+  %@ processos usam este volume: ¦ %@ processes are using this volume: ¦ %@ procesos usan este volumen:
+  %@/h em média ¦ %@/h on average ¦ %@/h de media
+  Arquivos grandes ¦ Large files ¦ Archivos grandes
+  Bytes lidos e escritos por processo desde a última amostra (rusage). Também: corescope top --disk e MCP top_processes by: disk. ¦ Bytes read and written per process since the last sample (rusage). Also: corescope top --disk and MCP top_processes by: disk. ¦ Bytes leídos y escritos por proceso desde la última muestra (rusage). También: corescope top --disk y MCP top_processes by: disk.
+  Concluído. %@ ¦ Done. %@ ¦ Listo. %@
+  Ejetado. Já pode desconectar. ¦ Ejected. You can disconnect it now. ¦ Expulsado. Ya puedes desconectarlo.
+  Ejetar ¦ Eject ¦ Expulsar
+  Ejetar %@ ¦ Eject %@ ¦ Expulsar %@
+  Ejetar… ¦ Eject… ¦ Expulsar…
+  Executar ¦ Run ¦ Ejecutar
+  Executar %@ (%@) ¦ Run %@ (%@) ¦ Ejecutar %@ (%@)
+  Executar %@ ações? ¦ Run %@ actions? ¦ ¿Ejecutar %@ acciones?
+  Falhou (código %@): %@ ¦ Failed (code %@): %@ ¦ Falló (código %@): %@
+  Falhou ao ejetar. ¦ Failed to eject. ¦ No se pudo expulsar.
+  Gerenciado por %@: remova pelo próprio app. ¦ Managed by %@: remove it from that app. ¦ Gestionado por %@: elimínalo desde esa app.
+  Já em execução. ¦ Already running. ¦ Ya en ejecución.
+  Liberar %@ ¦ Free %@ ¦ Liberar %@
+  Liberar espaço com segurança ¦ Free up space safely ¦ Liberar espacio con seguridad
+  Marca "%@" no plano de limpeza abaixo. ¦ Checks "%@" in the cleanup plan below. ¦ Marca "%@" en el plan de limpieza de abajo.
+  Mostra o que usa o volume antes de ejetar ¦ Shows what is using the volume before ejecting ¦ Muestra qué usa el volumen antes de expulsar
+  Mover %@ para a Lixeira ¦ Move %@ to the Trash ¦ Mover %@ a la Papelera
+  Mover para a Lixeira ¦ Move to the Trash ¦ Mover a la Papelera
+  Mover para a Lixeira? ¦ Move to the Trash? ¦ ¿Mover a la Papelera?
+  Nada a liberar agora. ¦ Nothing to free now. ¦ Nada que liberar ahora.
+  Nada a liberar nos caches conhecidos. ¦ Nothing to free in the known caches. ¦ Nada que liberar en las cachés conocidas.
+  Nenhum arquivo acima do tamanho escolhido. ¦ No file above the chosen size. ¦ Ningún archivo por encima del tamaño elegido.
+  Nenhum processo lendo ou escrevendo mais de 64 KB/s. ¦ No process reading or writing more than 64 KB/s. ¦ Ningún proceso leyendo o escribiendo más de 64 KB/s.
+  Nenhum processo seu usa este volume. ¦ None of your processes is using this volume. ¦ Ningún proceso tuyo usa este volumen.
+  Não executado: %@ está em uso. ¦ Not run: %@ is in use. ¦ No ejecutado: %@ está en uso.
+  Núcleo %@ (%@): %@ ¦ Core %@ (%@): %@ ¦ Núcleo %@ (%@): %@
+  Parou no limite de tempo: pode faltar algum. ¦ Stopped at the time limit: some may be missing. ¦ Se detuvo en el límite de tiempo: puede faltar alguno.
+  Pastas vão para a Lixeira (recuperáveis); comandos rodam no seu shell com o caminho completo da ferramenta; dados do Docker são removidos pelo motor (sem volta). Uma ação cuja ferramenta está rodando não é executada. Também: corescope space --plan e MCP cleanup_plan / run_cleanup_plan. ¦ Folders go to the Trash (recoverable); commands run in your shell with the tool's full path; Docker data is removed by the engine (permanent). An action whose tool is running is not run. Also: corescope space --plan and MCP cleanup_plan / run_cleanup_plan. ¦ Las carpetas van a la Papelera (recuperables); los comandos se ejecutan en tu shell con la ruta completa de la herramienta; los datos de Docker los elimina el motor (sin vuelta atrás). No se ejecuta una acción cuya herramienta está en uso. También: corescope space --plan y MCP cleanup_plan / run_cleanup_plan.
+  Procura na sua pasta pessoal (e nas pastas que ela aponta para outros discos) os maiores arquivos: imagens de disco, vídeos, VMs, dumps e modelos. Fica fora: nuvem (OneDrive, iCloud), node_modules, .git e outros volumes montados. ¦ Searches your home folder (and folders it points to on other drives) for the largest files: disk images, videos, VMs, dumps and models. Left out: cloud storage (OneDrive, iCloud), node_modules, .git and other mounted volumes. ¦ Busca en tu carpeta personal (y en las carpetas que apuntan a otros discos) los archivos más grandes: imágenes de disco, vídeos, VMs, dumps y modelos. Quedan fuera: la nube (OneDrive, iCloud), node_modules, .git y otros volúmenes montados.
+  Procurando o que usa o volume… ¦ Looking for what is using the volume… ¦ Buscando qué usa el volumen…
+  Procurar ¦ Search ¦ Buscar
+  Procurar de novo ¦ Search again ¦ Buscar de nuevo
+  Pré-visualizar (Quick Look) ¦ Preview (Quick Look) ¦ Previsualizar (Quick Look)
+  Página SMART/Health do NVMe: percentual da resistência nominal usado, blocos de reserva, dados escritos e lidos (unidades de 512 000 bytes), ciclos, horas ligado, desligamentos inesperados e erros de mídia. ¦ NVMe SMART/Health page: share of rated endurance used, spare blocks, data written and read (512,000-byte units), power cycles, power-on hours, unsafe shutdowns and media errors. ¦ Página SMART/Health del NVMe: porcentaje de la resistencia nominal usado, bloques de reserva, datos escritos y leídos (unidades de 512 000 bytes), ciclos, horas encendido, apagados inesperados y errores de medio.
+  Saúde do SSD (SMART) ¦ SSD health (SMART) ¦ Salud del SSD (SMART)
+  Sem dados de saúde (SMART NVMe %@). ¦ No health data (NVMe SMART %@). ¦ Sin datos de salud (SMART NVMe %@).
+  Serviços do sistema (como o Spotlight) também podem segurar um volume; o macOS diz quais se a ejeção falhar. ¦ System services (like Spotlight) can also hold a volume; macOS names them if the eject fails. ¦ Los servicios del sistema (como Spotlight) también pueden retener un volumen; macOS dice cuáles si la expulsión falla.
+  Subpastas que mais cresceram ¦ Subfolders that grew the most ¦ Subcarpetas que más crecieron
+  Também: corescope large-files e MCP large_files. Arquivos de apps (Docker, OrbStack, Claude, Photos, Hugging Face…) só aparecem: remova pelo próprio app. ¦ Also: corescope large-files and MCP large_files. Files owned by apps (Docker, OrbStack, Claude, Photos, Hugging Face…) are only shown: remove them from that app. ¦ También: corescope large-files y MCP large_files. Los archivos de apps (Docker, OrbStack, Claude, Photos, Hugging Face…) solo se muestran: elimínalos desde esa app.
+  Tempo esgotado (10 min). ¦ Timed out (10 min). ¦ Tiempo agotado (10 min).
+  Tentar ejetar mesmo assim ¦ Try to eject anyway ¦ Intentar expulsar de todos modos
+  Usando o disco agora ¦ Using the disk now ¦ Usando el disco ahora
+  Ver no Histórico ¦ See in History ¦ Ver en el Historial
+  arquivo aberto ¦ open file ¦ archivo abierto
+  atenção ¦ watch ¦ atención
+  em uso: %@ ¦ in use: %@ ¦ en uso: %@
+  lê ao abrir Armazenamento, no máximo a cada 10 min ¦ reads when Storage opens, at most every 10 min ¦ lee al abrir Almacenamiento, como máximo cada 10 min
+  pasta de trabalho no volume ¦ working folder on the volume ¦ carpeta de trabajo en el volumen
+  permanente ¦ permanent ¦ permanente
+  reserva %@ (mín. %@) ¦ spare %@ (min. %@) ¦ reserva %@ (mín. %@)
+  roda a partir do volume ¦ runs from the volume ¦ se ejecuta desde el volumen
+  saudável ¦ healthy ¦ saludable
+  trocar ¦ replace ¦ reemplazar
+  não exposto por este disco ou adaptador ¦ not exposed by this disk or adapter ¦ no expuesto por este disco o adaptador
+  %@ chaves; %@ amostradas (SCAN), memória por chave com MEMORY USAGE. ¦ %@ keys; %@ sampled (SCAN), memory per key with MEMORY USAGE. ¦ %@ claves; %@ muestreadas (SCAN), memoria por clave con MEMORY USAGE.
+  %@ voltou ao snapshot de %@. ¦ %@ is back to the snapshot from %@. ¦ %@ volvió al snapshot de %@.
+  %@%% sem TTL ¦ %@%% without TTL ¦ %@%% sin TTL
+  Abrir em um app de banco (TablePlus, Redis Insight…) ou copiar a URL de conexão, sem senha ¦ Open in a database app (TablePlus, Redis Insight…) or copy the connection URL, without a password ¦ Abrir en una app de bases de datos (TablePlus, Redis Insight…) o copiar la URL de conexión, sin contraseña
+  Abrir no %@ ¦ Open in %@ ¦ Abrir en %@
+  Amostrando chaves… ¦ Sampling keys… ¦ Muestreando claves…
+  Antes de um migrate:fresh ou db:wipe, tire um snapshot; restaurar volta o banco exatamente àquele ponto. O dump roda dentro do contêiner com as credenciais dele; agentes usam db_snapshot pelo MCP. ¦ Before a migrate:fresh or db:wipe, take a snapshot; restoring puts the database back exactly to that point. The dump runs inside the container with its own credentials; agents use db_snapshot over MCP. ¦ Antes de un migrate:fresh o db:wipe, haz un snapshot; restaurar devuelve la base exactamente a ese punto. El dump corre dentro del contenedor con sus propias credenciales; los agentes usan db_snapshot por MCP.
+  Apagando… ¦ Deleting… ¦ Borrando…
+  Apagar este snapshot? ¦ Delete this snapshot? ¦ ¿Borrar este snapshot?
+  Apagar snapshot ¦ Delete snapshot ¦ Borrar snapshot
+  Apagar todas as chaves ¦ Delete every key ¦ Borrar todas las claves
+  Chaves por prefixo, memória e chaves sem TTL (amostra) ¦ Keys by prefix, memory and keys without TTL (sampled) ¦ Claves por prefijo, memoria y claves sin TTL (muestra)
+  Chaves que nunca expiram crescem até alguém apagar. ¦ Keys that never expire grow until someone deletes them. ¦ Las claves que nunca expiran crecen hasta que alguien las borra.
+  Copiar DSN ¦ Copy DSN ¦ Copiar DSN
+  Esvaziar db%@ do Redis :%@? ¦ Empty db%@ of Redis :%@? ¦ ¿Vaciar db%@ de Redis :%@?
+  Esvaziar db%@… ¦ Empty db%@… ¦ Vaciar db%@…
+  FLUSHDB apaga as %@ chaves deste banco, sem volta. Use só em dados de desenvolvimento. ¦ FLUSHDB deletes this database's %@ keys, permanently. Use it only on development data. ¦ FLUSHDB borra las %@ claves de esta base, sin vuelta atrás. Úsalo solo con datos de desarrollo.
+  Falhou: %@ ¦ Failed: %@ ¦ Falló: %@
+  Fazendo snapshot de %@… ¦ Taking a snapshot of %@… ¦ Haciendo snapshot de %@…
+  Fazer snapshot ¦ Take snapshot ¦ Hacer snapshot
+  Novo snapshot… ¦ New snapshot… ¦ Nuevo snapshot…
+  O banco %@ é apagado e recriado como estava em %@. O que mudou depois se perde. ¦ Database %@ is dropped and recreated as it was on %@. Anything changed since is lost. ¦ La base %@ se borra y se recrea como estaba el %@. Lo que cambió después se pierde.
+  Para um banco fora de contêiner, o snapshot só funciona com acesso local sem senha. ¦ For a database outside a container, snapshots need passwordless local access. ¦ Para una base fuera de un contenedor, el snapshot solo funciona con acceso local sin contraseña.
+  Redis :%@ · db%@ ¦ Redis :%@ · db%@ ¦ Redis :%@ · db%@
+  Restaurando %@… ¦ Restoring %@… ¦ Restaurando %@…
+  Restaurar ¦ Restore ¦ Restaurar
+  Restaurar %@? ¦ Restore %@? ¦ ¿Restaurar %@?
+  Restaurar… ¦ Restore… ¦ Restaurar…
+  Snapshot apagado. ¦ Snapshot deleted. ¦ Snapshot borrado.
+  Snapshot de %@ salvo. ¦ Snapshot of %@ saved. ¦ Snapshot de %@ guardado.
+  Snapshots ¦ Snapshots ¦ Snapshots
+  db%@ esvaziado. ¦ db%@ emptied. ¦ db%@ vaciada.
+  ~%@ chaves ¦ ~%@ keys ¦ ~%@ claves
+  no ritmo atual, chega a 100%% às %@ ¦ at this pace, hits 100%% at %@ ¦ a este ritmo, llega al 100%% a las %@
+  no ritmo atual, ~%@ no reinício ¦ at this pace, ~%@ at the reset ¦ a este ritmo, ~%@ al reiniciar
+  via Claude Desktop %@ · sem horário de reinício; atualiza enquanto o Claude Desktop está aberto ¦ via Claude Desktop %@ · no reset time; updates while Claude Desktop is open ¦ vía Claude Desktop %@ · sin hora de reinicio; se actualiza mientras Claude Desktop está abierto
+  Lido de ~/Library/Application Support/Claude/plan-usage-history.json, que o Claude Desktop grava a cada poucos minutos. Ative o status line em Ajustes › Agentes para ter o horário de reinício e o ritmo. ¦ Read from ~/Library/Application Support/Claude/plan-usage-history.json, which Claude Desktop writes every few minutes. Turn on the status line in Settings › Agents for the reset time and pace. ¦ Leído de ~/Library/Application Support/Claude/plan-usage-history.json, que Claude Desktop escribe cada pocos minutos. Activa el status line en Ajustes › Agentes para tener la hora de reinicio y el ritmo.
+  Restaurar suas configurações? ¦ Restore your settings? ¦ ¿Restaurar tu configuración?
+  O CoreScope abriu sem configurações, mas há um backup de %@ em %@ (perfis, Serviços, máquinas e preferências). ¦ CoreScope opened without settings, but there is a backup from %@ in %@ (profiles, Services, machines and preferences). ¦ CoreScope se abrió sin configuración, pero hay una copia de %@ en %@ (perfiles, Servicios, máquinas y preferencias).
+  Começar do zero ¦ Start from scratch ¦ Empezar de cero
+  Backup ilegível: %@ ¦ Unreadable backup: %@ ¦ Copia ilegible: %@
+  Backup das configurações ¦ Settings backup ¦ Copia de la configuración
+  Manter um backup das configurações ¦ Keep a backup of the settings ¦ Mantener una copia de la configuración
+  Alterar… ¦ Change… ¦ Cambiar…
+  Último backup ¦ Last backup ¦ Última copia
+  ainda não ¦ not yet ¦ todavía no
+  Fazer backup agora ¦ Back up now ¦ Hacer copia ahora
+  Backup salvo. ¦ Backup saved. ¦ Copia guardada.
+  Atualizar o app mantém as configurações. Desinstaladores (AppCleaner, CleanMyMac, brew uninstall --zap) apagam ~/Library/Preferences e Application Support; com o backup numa pasta fora de ~/Library, o CoreScope oferece restaurar ao abrir sem configurações. Guarda perfis, Serviços, máquinas, receitas, pastas de projeto e preferências; não guarda o histórico nem os snapshots de banco. Escolha uma pasta no iCloud Drive para levar para outro Mac. ¦ Updating the app keeps the settings. Uninstallers (AppCleaner, CleanMyMac, brew uninstall --zap) delete ~/Library/Preferences and Application Support; with the backup in a folder outside ~/Library, CoreScope offers to restore it when it opens without settings. It keeps profiles, Services, machines, recipes, project folders and preferences; not the history or database snapshots. Pick a folder in iCloud Drive to take them to another Mac. ¦ Actualizar la app mantiene la configuración. Los desinstaladores (AppCleaner, CleanMyMac, brew uninstall --zap) borran ~/Library/Preferences y Application Support; con la copia en una carpeta fuera de ~/Library, CoreScope ofrece restaurarla al abrirse sin configuración. Guarda perfiles, Servicios, máquinas, recetas, carpetas de proyecto y preferencias; no el historial ni los snapshots de bases. Elige una carpeta en iCloud Drive para llevarla a otro Mac.
+  Usar esta pasta ¦ Use this folder ¦ Usar esta carpeta
+  Restaurar este backup? ¦ Restore this backup? ¦ ¿Restaurar esta copia?
+  As configurações atuais são substituídas pelas do backup e o CoreScope reinicia. ¦ The current settings are replaced by the backup's and CoreScope restarts. ¦ La configuración actual se reemplaza por la de la copia y CoreScope se reinicia.
+  Restaurar e reiniciar ¦ Restore and restart ¦ Restaurar y reiniciar
+  alguns segundos depois de uma mudança, só se mudou algo ¦ a few seconds after a change, only if something changed ¦ unos segundos después de un cambio, solo si cambió algo
   """

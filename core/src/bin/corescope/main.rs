@@ -18,7 +18,8 @@ USAGE:
   corescope kill-port PORT [--force]    stop the processes listening on PORT
   corescope agents                      AI agent sessions and what they started
   corescope orphans                     dev runtimes left running without their parent
-  corescope top [--mem|--energy] [-n N] top processes by CPU (or memory, or power)
+  corescope top [--mem|--energy|--disk] [-n N]
+                                        top processes by CPU (or memory, power, disk I/O)
   corescope kill PID [--tree] [--force] stop a process (and its descendants with --tree)
   corescope space [FOLDER...]           reclaimable dev space: node_modules, Rust target/, Xcode,
                                         package caches, unused Docker data (read-only; delete
@@ -37,6 +38,10 @@ USAGE:
   corescope gate                        Claude Code PreToolUse hook: holds heavy Bash commands until
                                         there is room, in projects that enable it
   corescope config [FOLDER]             validate and show the project's .corescope.yml (default: here)
+  corescope db snapshot PORT DATABASE   dump a MySQL/PostgreSQL database (inside its container,
+                                        with the container's own credentials) to a gzipped file
+  corescope db snapshots | db restore ID   list snapshots / put a database back (asks first)
+  corescope db redis PORT [--db N]      Redis memory by key prefix and keys without TTL (sampled)
   corescope db                          local MySQL/PostgreSQL/Redis: size, connections, slow
                                         and long-running queries (no passwords used or read)
   corescope happened TIME [--minutes N] what the Mac was doing around TIME (14:05, 2:05 pm,
@@ -48,6 +53,15 @@ USAGE:
   corescope version [--check]           this CoreScope's version and any update the app found;
                                         --check asks the app to check the release feed now
                                         (one request to GitHub, needs the app running)
+  corescope space --plan                safe cleanup plan: caches and stores tools re-create, with
+                                        estimates, the exact command and whether the tool is busy
+  corescope large-files [--min-mb N] [-n N]
+                                        largest files in your home (default 1024 MB, top 50): kind,
+                                        age and the app that manages it (read-only)
+  corescope eject-check VOLUME          what keeps a volume from ejecting: programs running from it,
+                                        open files and working folders (read-only)
+  corescope disk-health                 SSD health from NVMe SMART: wear, data written, power-on
+                                        hours, unsafe shutdowns, media errors and a verdict
   corescope mcp                         run the local MCP server on stdio
 
 OPTIONS:
@@ -101,6 +115,8 @@ fn main() {
                     "memory"
                 } else if flag("--energy") {
                     "energy"
+                } else if flag("--disk") {
+                    "disk"
                 } else {
                     "cpu"
                 },
@@ -137,9 +153,64 @@ fn main() {
                 "usage: corescope kill PID [--tree] [--force] [--yes]",
             ),
         },
+        Some("space") if flag("--plan") => {
+            let home: std::path::PathBuf =
+                std::env::var_os("HOME").map(Into::into).unwrap_or_default();
+            let actions = corescope::cleanplan::plan(&home, &sample(false).processes, true);
+            if json_out {
+                print(true, json!(actions))
+            } else {
+                for a in &actions {
+                    println!(
+                        "{:>10}  {}{}\n            {}",
+                        format!(
+                            "{}{:.1} GB",
+                            if a.up_to { "≤" } else { "" },
+                            a.estimate as f64 / 1e9
+                        ),
+                        a.title,
+                        a.busy
+                            .as_ref()
+                            .map(|b| format!("  [busy: {b}]"))
+                            .unwrap_or_default(),
+                        a.command
+                    );
+                }
+                0
+            }
+        }
         Some("space") => {
             let folders: Vec<std::path::PathBuf> = positional[1..].iter().map(Into::into).collect();
             print(json_out, space(&folders, !flag("--no-docker")))
+        }
+        Some("db") if positional.len() > 1 => {
+            let arg = |i: usize| positional.get(i).copied().unwrap_or("");
+            let port = |i: usize| arg(i).parse::<u16>().ok();
+            let request = match arg(1) {
+                "snapshots" => json!({"op": "snapshots"}),
+                "snapshot" => json!({"op": "snapshot", "port": port(2), "database": arg(3)}),
+                "restore" => json!({"op": "restore", "id": arg(2)}),
+                "databases" => json!({"op": "databases", "port": port(2)}),
+                "redis" => {
+                    json!({"op": "keyspace", "port": port(2), "db": number("--db").unwrap_or(0)})
+                }
+                other => {
+                    std::process::exit(fail(json_out, &format!("unknown db command: {other}")));
+                }
+            };
+            if arg(1) == "restore"
+                && !flag("--yes")
+                && !confirm(&format!(
+                    "Restore {}? The database goes back to that snapshot",
+                    arg(2)
+                ))
+            {
+                std::process::exit(1);
+            }
+            match corescope::db_tool(&request) {
+                Ok(v) => print(true, v),
+                Err(e) => fail(json_out, &e),
+            }
         }
         Some("db") => print(json_out, databases(&sample(false))),
         Some("logs") => {
@@ -208,6 +279,81 @@ fn main() {
             }
         }
         Some("power") => print(json_out, power(&sample(true))),
+        Some("large-files") => {
+            let home: std::path::PathBuf =
+                std::env::var_os("HOME").map(Into::into).unwrap_or_default();
+            let s = corescope::largefiles::scan(
+                &corescope::largefiles::default_roots(&home),
+                (number("--min-mb").unwrap_or(1024) as u64) << 20,
+                number("-n").unwrap_or(50),
+                Duration::from_secs(120),
+            );
+            if json_out {
+                print(true, json!(s))
+            } else {
+                for f in &s.files {
+                    println!(
+                        "{:>9}  {:<16} {}{}",
+                        format!("{:.1} GB", f.bytes as f64 / 1e9),
+                        f.kind,
+                        f.path,
+                        f.managed_by
+                            .map(|m| format!("  [managed by {m}]"))
+                            .unwrap_or_default()
+                    );
+                }
+                println!(
+                    "{} files scanned in {:.0} s{}",
+                    s.scanned_files,
+                    s.seconds,
+                    if s.partial {
+                        " (stopped at the time limit)"
+                    } else {
+                        ""
+                    }
+                );
+                0
+            }
+        }
+        Some("eject-check") => {
+            let mount = positional[1..].join(" ");
+            let holders = corescope::eject::holders(&mount, &sample(false).processes);
+            if json_out {
+                print(true, json!(holders))
+            } else if holders.is_empty() {
+                println!(
+                    "Nothing of yours holds {mount}. System services (Spotlight) can still; macOS names them if the eject fails."
+                );
+                0
+            } else {
+                for h in &holders {
+                    println!(
+                        "{:>7}  {:<24} {:<15} {}{}",
+                        h.pid,
+                        h.name,
+                        h.reason,
+                        h.example,
+                        if h.files > 1 {
+                            format!("  (+{} more)", h.files - 1)
+                        } else {
+                            String::new()
+                        }
+                    );
+                }
+                0
+            }
+        }
+        Some("disk-health") => {
+            let disks = corescope::diskhealth::read();
+            if json_out {
+                print(true, json!(disks))
+            } else {
+                for d in &disks {
+                    println!("{}", health_text(d));
+                }
+                0
+            }
+        }
         Some("disk-growth") => match corescope::disk_growth(flag("--measure")) {
             Ok(r) if json_out => print(true, json!(r)),
             Ok(r) => {
@@ -310,6 +456,36 @@ fn version(json_out: bool, check: bool) -> i32 {
         );
     }
     0
+}
+
+/// One disk's SMART health for people.
+pub fn health_text(d: &corescope::diskhealth::Health) -> String {
+    if d.status != "ok" {
+        return format!("{}: no NVMe SMART data ({})", d.name, d.status);
+    }
+    let tb = |b: Option<u64>| {
+        b.map(|b| format!("{:.2} TB", b as f64 / 1e12))
+            .unwrap_or("—".into())
+    };
+    let n = |v: Option<u64>| v.map(|v| v.to_string()).unwrap_or("—".into());
+    let mut out = format!(
+        "{}: {} · {}% of rated endurance used · spare {}% (threshold {}%)\n  written {} · read {} · {} h powered on · {} power cycles · {} unsafe shutdowns · {} media errors",
+        d.name,
+        d.verdict.unwrap_or("?"),
+        d.percentage_used.unwrap_or(0),
+        d.available_spare.unwrap_or(0),
+        d.spare_threshold.unwrap_or(0),
+        tb(d.written_bytes),
+        tb(d.read_bytes),
+        n(d.power_on_hours),
+        n(d.power_cycles),
+        n(d.unsafe_shutdowns),
+        n(d.media_errors)
+    );
+    for note in &d.notes {
+        out.push_str(&format!("\n  {note}"));
+    }
+    out
 }
 
 /// The disk growth report as lines for people.
@@ -423,6 +599,7 @@ fn process_json(p: &Process) -> Value {
         "origin": p.origin.as_ref().map(|o| json!({"label": o.label, "kind": o.kind, "pid": o.pid})),
         "ports": p.ports.iter().map(|x| json!({"port": x.port, "exposed": x.exposed})).collect::<Vec<_>>(),
         "cpu_percent": p.cpu.value, "memory_bytes": p.memory.value, "power_watts": p.energy.value,
+        "disk_read_bps": p.read.value, "disk_write_bps": p.write.value,
         "eligible": p.eligible, "orphan": p.orphan.is_some(),
     })
 }
@@ -546,6 +723,10 @@ pub fn top(snapshot: &Snapshot, by: &str, count: usize) -> Value {
         match by {
             "memory" => p.memory.value,
             "energy" => p.energy.value,
+            "disk" => match (p.read.value, p.write.value) {
+                (None, None) => None,
+                (r, w) => Some(r.unwrap_or(0.) + w.unwrap_or(0.)),
+            },
             _ => p.cpu.value,
         }
         .unwrap_or(-1.)
@@ -863,6 +1044,19 @@ pub fn english(error: &str) -> String {
         .find(|(pt, _)| error.starts_with(pt))
         .map(|(_, en)| en.to_string())
         .unwrap_or_else(|| error.to_string())
+}
+
+/// Asks on the terminal; false (refuse) when there is no terminal to ask in.
+fn confirm(question: &str) -> bool {
+    if !std::io::stdin().is_terminal() {
+        eprintln!("refusing without --yes when stdin is not a terminal");
+        return false;
+    }
+    eprint!("{question}? [y/N] ");
+    let _ = std::io::stderr().flush();
+    let mut answer = String::new();
+    let _ = std::io::stdin().read_line(&mut answer);
+    matches!(answer.trim(), "y" | "Y" | "yes")
 }
 
 /// SIGTERM (or SIGKILL) children first, then reports what is gone after two seconds.

@@ -10,6 +10,8 @@ section as the GitHub release notes.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-18
+
 ### Added
 - **Machines › why a systemd unit failed**: the units in a *Failed systemd units* alert are
   clickable. CoreScope runs `systemctl status <unit> --no-pager -n 0` and the unit's journal over
@@ -20,6 +22,31 @@ section as the GitHub release notes.
   errors. Says when journald hides system logs from the ssh user (not in `adm`/`systemd-journal`).
   Hints only explain; CoreScope never changes the server.
 - MCP `explain_failed_unit {host, unit}`: the same status, grouped errors and hints for agents.
+- **Storage**: processes using the disk now; SSD health from NVMe SMART (wear, spare, data written
+  and read, power-on hours, cycles, unsafe shutdowns, media errors, verdict); *What grew today*
+  opens each folder to the subfolders that grew and links to the cleanup plan; a **safe cleanup
+  plan** for caches tools re-create, with estimates, the exact command or folders and busy-tool
+  checks; **large files** in the home folder and its linked drives (one filesystem per root,
+  cloud storage and `node_modules` skipped, app-managed files only shown); **Eject…** shows the
+  processes holding a volume and runs `diskutil eject`. CLI `top --disk`, `disk-health`,
+  `space --plan`, `large-files`, `eject-check`; MCP `disk_health`, `cleanup_plan`,
+  `run_cleanup_plan`, `large_files`, `volume_holders`, `eject_volume`.
+- **Databases**: *Open in* TablePlus, Redis Insight, Sequel Ace, Postico or DBeaver and *Copy DSN*;
+  Redis keys by prefix (sampled, adaptive depth) with keys without TTL and `FLUSHDB` after a
+  confirmation; **snapshots** of MySQL/MariaDB and PostgreSQL databases (inside a container with
+  its own credentials, never seen by CoreScope) and restore. CLI `db snapshot|snapshots|restore|
+  redis`; MCP `db_snapshot`, `db_snapshots`, `db_restore`, `redis_keyspace`, `redis_flush`; the MCP
+  instructions ask agents to snapshot before `migrate:fresh` or `db:wipe`.
+- **Claude limits without the status line**: from Claude Desktop's own samples
+  (`plan-usage-history.json`), local and credential-free. **Pace** per limit window (projected at
+  the reset, or when it reaches 100%). MCP `usage_limits`.
+- **Settings backup** outside `~/Library` (default `~/.corescope/backups`, or a folder you pick),
+  written a few seconds after a change; a launch with empty settings offers to restore it. MCP
+  `backup_settings`.
+
+### Fixed
+- Status line data that carries the reset epoch in `used_percentage` is ignored instead of shown.
+- Sizes and rates read "0 KB" instead of "Zero KB".
 
 ## [0.6.0] - 2026-10-18
 
@@ -295,7 +322,8 @@ First public release.
   compact / standard / detailed layouts and in-panel controls.
 - English, Portuguese and Spanish; offline-only.
 
-[Unreleased]: https://github.com/Tiagospem/corescope/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/Tiagospem/corescope/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/Tiagospem/corescope/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/Tiagospem/corescope/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/Tiagospem/corescope/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/Tiagospem/corescope/compare/v0.4.0...v0.5.0

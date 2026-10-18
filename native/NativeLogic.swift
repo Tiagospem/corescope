@@ -125,11 +125,20 @@ func uniqueOwners(_ pairs: [(port: UInt16, owner: String)]) -> [UInt16: String] 
   return owners.compactMapValues { $0.count == 1 ? $0.first : nil }
 }
 
+/// "0 KB" rather than the system's "Zero KB".
+private func byteFormatter(_ style: ByteCountFormatter.CountStyle) -> ByteCountFormatter {
+  let f = ByteCountFormatter()
+  f.countStyle = style
+  f.allowsNonnumericFormatting = false
+  return f
+}
+private let memoryBytes = byteFormatter(.memory)
+private let fileBytes = byteFormatter(.file)
 func formatBytes(_ value: Double) -> String {
-  ByteCountFormatter.string(fromByteCount: Int64(max(0, value)), countStyle: .memory)
+  memoryBytes.string(fromByteCount: Int64(max(0, value)))
 }
 func formatRate(_ value: Double) -> String {
-  ByteCountFormatter.string(fromByteCount: Int64(max(0, value)), countStyle: .file) + "/s"
+  fileBytes.string(fromByteCount: Int64(max(0, value))) + "/s"
 }
 func formatDuration(_ seconds: TimeInterval) -> String {
   let s = Int(max(0, seconds))
@@ -418,6 +427,8 @@ func parseClaudeLimits(_ data: Data, now: Date = Date()) -> [ClaudeLimitSample] 
   return [("five_hour", 300), ("seven_day", 10080)].compactMap { key, minutes in
     guard let w = object[key] as? [String: Any], let used = (w["used_percentage"] as? NSNumber)?.doubleValue
     else { return nil }
+    // Some Claude Code versions put the reset epoch in used_percentage: not a percentage.
+    guard used <= 100.5 else { return nil }
     let reset = (w["resets_at"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue) }
     if let reset, reset <= now { return nil }
     return ClaudeLimitSample(
@@ -1195,4 +1206,73 @@ func looksLikeTime(_ text: String) -> Bool {
   let rest = words.first(where: { t.hasPrefix($0) }).map { String(t.dropFirst($0.count)).trimmingCharacters(in: .whitespaces) } ?? t
   return rest.range(of: #"^\d{1,2}([:h]\d{2})?\s*(am|pm)?$"#, options: .regularExpression) != nil
     && (rest.contains(":") || rest.contains("h") || rest.hasSuffix("m"))
+}
+
+
+/// Claude Desktop's own usage samples (`~/Library/Application Support/Claude/plan-usage-history.json`,
+/// `{samples: [{t: ms, org, u: {fh, sd}}]}`): the latest 5-hour and weekly percentages. They carry
+/// no reset times; a sample older than its window says nothing about it.
+struct DesktopUsage: Equatable {
+  var fiveHour: Double?
+  var sevenDay: Double?
+  let at: Date
+}
+func parseDesktopUsage(_ data: Data, now: Date = Date()) -> DesktopUsage? {
+  guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+    let samples = object["samples"] as? [[String: Any]],
+    let last = samples.max(by: { (($0["t"] as? NSNumber)?.doubleValue ?? 0) < (($1["t"] as? NSNumber)?.doubleValue ?? 0) }),
+    let t = (last["t"] as? NSNumber)?.doubleValue, let u = last["u"] as? [String: Any]
+  else { return nil }
+  let at = Date(timeIntervalSince1970: t / 1000)
+  let age = now.timeIntervalSince(at)
+  let pct = { (key: String) in (u[key] as? NSNumber)?.doubleValue.flatMap { $0 >= 0 && $0 <= 100 ? $0 : nil } }
+  let usage = DesktopUsage(
+    fiveHour: age < 5 * 3600 ? pct("fh") : nil, sevenDay: age < 7 * 86400 ? pct("sd") : nil, at: at)
+  return usage.fiveHour == nil && usage.sevenDay == nil ? nil : usage
+}
+extension Double {
+  fileprivate func flatMap(_ f: (Double) -> Double?) -> Double? { f(self) }
+}
+
+/// Where a limit window is heading at the average pace since it started: the percentage at the
+/// reset, and when it reaches 100% if that is before the reset. Too early in the window (first
+/// 10 minutes of 5 hours, first hour of a week) there is no pace yet.
+struct LimitPace: Equatable {
+  let projected: Double
+  let fullAt: Date?
+}
+func limitPace(used: Double, windowMinutes: Int, resetsAt: Date, now: Date = Date()) -> LimitPace? {
+  let window = Double(windowMinutes) * 60
+  let remaining = resetsAt.timeIntervalSince(now)
+  let elapsed = window - remaining
+  let minimum: Double = windowMinutes <= 300 ? 600 : 3600
+  guard remaining > 0, elapsed >= minimum, used > 0 else { return nil }
+  let rate = used / elapsed
+  let projected = used + rate * remaining
+  let toFull = (100 - used) / rate
+  return LimitPace(projected: projected, fullAt: toFull < remaining ? now.addingTimeInterval(toFull) : nil)
+}
+
+/// Settings backups: which UserDefaults keys are the user's settings. System and framework keys
+/// (NS…, Apple…, Sparkle's SU…, window and panel positions) and the runtime state of running
+/// profiles (they point at process IDs that will not exist after a restore) stay out.
+enum SettingsBackupLogic {
+  static let runtimeKeys: Set<String> = ["envLaunched", "envExits", "envActive", "envStartedContainers", "panel.lastScreen"]
+  static func isSetting(_ key: String) -> Bool {
+    !(key.hasPrefix("NS") || key.hasPrefix("Apple") || key.hasPrefix("SU") || key.hasPrefix("com.apple")
+      || key.hasPrefix("panel.frame.") || runtimeKeys.contains(key))
+  }
+  static func settings(_ domain: [String: Any]) -> [String: Any] {
+    domain.filter { isSetting($0.key) }
+  }
+  /// A domain that holds nothing the user set: a first launch, or one after an uninstaller
+  /// removed the preferences.
+  static func isFresh(_ domain: [String: Any]?) -> Bool {
+    settings(domain ?? [:]).isEmpty
+  }
+  /// Dated backups to delete, keeping the newest `keep` (names sort by date).
+  static func expired(_ names: [String], keep: Int) -> [String] {
+    let dated = names.filter { $0.hasPrefix("settings-") && $0.hasSuffix(".plist") }.sorted()
+    return Array(dated.dropLast(keep))
+  }
 }

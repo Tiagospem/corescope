@@ -215,6 +215,8 @@ struct MainView: View {
 }
 struct StorageView: View {
   @ObservedObject var monitor = Monitor.shared
+  @ObservedObject var health = DiskHealthStore.shared
+  @ViewState private var ejecting: String?
   var body: some View {
     ScrollView {
       VStack(alignment: .leading, spacing: 16) {
@@ -226,7 +228,10 @@ struct StorageView: View {
               .diskRead(s.history.map(\.disk_read)),
               .diskWrite(s.history.map(\.disk_write)),
             ], legend: [("leitura", Tint.diskRead), ("escrita", Tint.diskWrite)])
+          DiskWritersCard()
           DiskGrowthCard()
+          CleanupPlanCard()
+          LargeFilesCard()
           Card {
             CardHeader(title: L("Dispositivos"), symbol: "externaldrive", count: s.disks.count)
             if s.disks.isEmpty {
@@ -252,7 +257,8 @@ struct StorageView: View {
                   Text(d.temperature.temperature).font(.caption).foregroundStyle(.secondary)
                     .help(d.temperature.explanation)
                 }
-              }.padding(.vertical, 4)
+              }.padding(.top, 4)
+              if let health = health.disks[d.id] { DiskHealthLine(health: health).padding(.leading, 40) }
             }
             Text(
               L("Contadores por dispositivo do IOKit, não por volume APFS. I/O alto não mede saturação ou latência.")
@@ -267,6 +273,10 @@ struct StorageView: View {
                   Text(v.mount).font(.callout.weight(.medium)).textSelection(.enabled)
                   Badge(text: v.kind.uppercased())
                   Spacer()
+                  if v.mount.hasPrefix("/Volumes/") {
+                    Button(L("Ejetar…")) { ejecting = v.mount }.controlSize(.small)
+                      .help(L("Mostra o que usa o volume antes de ejetar"))
+                  }
                   Text(L("%@ livres de %@", "\(v.available.bytes)", "\(v.total.bytes)")).font(.caption)
                     .foregroundStyle(.secondary).monospacedDigit()
                 }
@@ -285,6 +295,8 @@ struct StorageView: View {
         }
       }.padding(20)
     }
+    .onAppear { health.refreshIfOld() }
+    .sheet(item: Binding(get: { ejecting.map(MountID.init) }, set: { ejecting = $0?.id })) { EjectSheet(mount: $0.id) }
   }
 }
 struct SensorsView: View {

@@ -1,11 +1,16 @@
 //! CoreScope: bounded local telemetry and explicitly authorized process control.
 pub mod capacity;
+pub mod cleanplan;
 pub mod containers;
 pub mod databases;
+pub mod dbsnapshot;
 pub mod devspace;
 pub mod diskgrowth;
+pub mod diskhealth;
+pub mod eject;
 pub mod exposure;
 pub mod history;
+pub mod largefiles;
 pub mod logs;
 mod os;
 pub use os::{local_format, parse_moment};
@@ -1532,6 +1537,46 @@ pub(crate) fn volume_free(path: &std::path::Path) -> Option<u64> {
         .max_by_key(|(mount, _)| mount.len())
         .map(|(_, free)| free)
 }
+/// The safe cleanup plan with estimates (`docker`: also ask the container engines).
+#[unsafe(no_mangle)]
+pub extern "C" fn cs_cleanup_plan(docker: i32) -> *mut c_char {
+    response(|| json(Ok(cleanplan::plan(&home(), &processes_now(), docker != 0))))
+}
+/// Files of at least `min_mb` MB in the home folder (and folders it links elsewhere), largest
+/// first; the walk stops after 90 s.
+#[unsafe(no_mangle)]
+pub extern "C" fn cs_large_files(min_mb: u64, limit: u32) -> *mut c_char {
+    response(|| {
+        let roots = largefiles::default_roots(&home());
+        json(Ok(largefiles::scan(
+            &roots,
+            min_mb.max(1) << 20,
+            limit.clamp(1, 500) as usize,
+            std::time::Duration::from_secs(90),
+        )))
+    })
+}
+/// Processes holding a volume (open files, working folder, program), for "eject".
+///
+/// # Safety
+/// `mount` is a valid NUL-terminated UTF-8 path pointer for the duration of this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cs_volume_holders(mount: *const c_char) -> *mut c_char {
+    response(|| {
+        if mount.is_null() {
+            return Err("Volume ausente".into());
+        }
+        let mount = unsafe { CStr::from_ptr(mount) }
+            .to_str()
+            .map_err(|_| "Volume inválido")?;
+        json(Ok(eject::holders(mount, &processes_now())))
+    })
+}
+/// SSD health of every physical disk (NVMe SMART log page), read on demand.
+#[unsafe(no_mangle)]
+pub extern "C" fn cs_disk_health() -> *mut c_char {
+    response(|| json(Ok(diskhealth::read())))
+}
 /// Disk growth: `report` reads the saved measurements; `measure` measures now (seconds), saves
 /// and reports.
 ///
@@ -1648,6 +1693,118 @@ pub extern "C" fn cs_databases() -> *mut c_char {
     })
 }
 
+/// The local database at `port` (MySQL, PostgreSQL or Redis among processes and containers).
+pub fn database_at(port: u16) -> Option<databases::Endpoint> {
+    let containers = containers::Reader::default().read(false).containers;
+    databases::detect(&processes_now(), &containers)
+        .into_iter()
+        .find(|e| e.port == port)
+}
+/// Connection string for a local endpoint, without a password (apps ask for one if needed).
+pub fn dsn(e: &databases::Endpoint, database: Option<&str>) -> String {
+    let db = database.unwrap_or("");
+    match e.kind {
+        "mysql" => format!("mysql://root@127.0.0.1:{}/{db}", e.port),
+        "postgres" => {
+            let user = std::env::var("USER").unwrap_or_else(|_| "postgres".into());
+            let user = if e.container.is_some() {
+                "postgres".to_string()
+            } else {
+                user
+            };
+            format!(
+                "postgresql://{user}@127.0.0.1:{}/{}",
+                e.port,
+                if db.is_empty() { "postgres" } else { db }
+            )
+        }
+        _ => format!(
+            "redis://127.0.0.1:{}/{}",
+            e.port,
+            if db.is_empty() { "0" } else { db }
+        ),
+    }
+}
+/// Database tools shared by the app, the CLI and MCP. `op`: keyspace {port, db, sample},
+/// flush {port, db}, databases {port}, dsn {port, database}, snapshots, snapshot {port,
+/// database}, restore {id}, delete {id}.
+pub fn db_tool(v: &serde_json::Value) -> Result<serde_json::Value, String> {
+    use serde_json::json;
+    let home = home();
+    let dir = dbsnapshot::default_dir(&home);
+    let port = v["port"].as_u64().and_then(|p| u16::try_from(p).ok());
+    let endpoint = || {
+        port.and_then(database_at)
+            .ok_or_else(|| "no local database on that port".to_string())
+    };
+    let fail = |f: databases::Failure| match f {
+        databases::Failure::Auth => "the server wants a password".to_string(),
+        databases::Failure::Other(m) => m,
+    };
+    let db = v["db"].as_u64().unwrap_or(0).min(255) as u32;
+    match v["op"].as_str().unwrap_or("") {
+        "keyspace" => {
+            let e = endpoint()?;
+            if e.kind != "redis" {
+                return Err("keyspace is for Redis".into());
+            }
+            let sample = v["sample"].as_u64().unwrap_or(2000).clamp(50, 20_000) as usize;
+            databases::redis::keyspace(e.port, db, sample)
+                .map(|k| json!(k))
+                .map_err(fail)
+        }
+        "flush" => {
+            let e = endpoint()?;
+            if e.kind != "redis" {
+                return Err("flush is for Redis".into());
+            }
+            databases::redis::flush(e.port, db).map_err(fail)?;
+            Ok(json!({"flushed": db}))
+        }
+        "databases" => Ok(json!(dbsnapshot::databases(&endpoint()?, &home)?)),
+        "dsn" => Ok(json!(dsn(&endpoint()?, v["database"].as_str()))),
+        "snapshots" => Ok(json!(dbsnapshot::list(&dir))),
+        "snapshot" => {
+            let e = endpoint()?;
+            let database = v["database"].as_str().ok_or("database is required")?;
+            Ok(json!(dbsnapshot::create(
+                &e,
+                database,
+                &dir,
+                &home,
+                now() as i64
+            )?))
+        }
+        "restore" => {
+            let id = v["id"].as_str().ok_or("id is required")?;
+            let s = dbsnapshot::find(&dir, id).ok_or("no such snapshot")?;
+            dbsnapshot::restore(&s, &home)?;
+            Ok(json!({"restored": s}))
+        }
+        "delete" => {
+            let id = v["id"].as_str().ok_or("id is required")?;
+            dbsnapshot::delete(&dir, id)?;
+            Ok(json!({"deleted": id}))
+        }
+        _ => Err("unknown operation".into()),
+    }
+}
+/// `db_tool` for the app.
+///
+/// # Safety
+/// `request` is a valid NUL-terminated UTF-8 JSON pointer for the duration of this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cs_db_tool(request: *const c_char) -> *mut c_char {
+    response(|| {
+        if request.is_null() {
+            return Err("Consulta ausente".into());
+        }
+        let v: serde_json::Value =
+            serde_json::from_slice(unsafe { CStr::from_ptr(request) }.to_bytes())
+                .map_err(|e| e.to_string())?;
+        db_tool(&v).map(|v| v.to_string())
+    })
+}
 /// `.corescope.yml` files under `roots` (plus suggested roots with `auto`), parsed and validated.
 ///
 /// # Safety

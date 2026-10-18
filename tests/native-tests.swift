@@ -221,6 +221,30 @@ import Foundation
     precondition(CostWeight(percent: 0.05) == .low && CostWeight(percent: 0.5) == .medium && CostWeight(percent: 3) == .high)
     precondition(isCoreScopeHelper(path: "/Applications/CoreScope.app/Contents/Resources/bin/corescope"))
     precondition(!isCoreScopeHelper(path: "/usr/local/bin/corescope"))
+    // Settings backup: which keys, fresh domains, rotation.
+    let domain: [String: Any] = ["interval": 3.0, "envProfiles": Data(), "envLaunched": Data(), "NSWindow Frame main": "x",
+                                 "SUHasLaunchedBefore": true, "panel.frame.1": "r", "sshHosts": ["a"]]
+    precondition(Set(SettingsBackupLogic.settings(domain).keys) == ["interval", "envProfiles", "sshHosts"])
+    precondition(SettingsBackupLogic.isFresh(["NSOSPLastRootDirectory": Data(), "SUHasLaunchedBefore": true]))
+    precondition(SettingsBackupLogic.isFresh(nil) && !SettingsBackupLogic.isFresh(domain))
+    let names = (1...23).map { String(format: "settings-2026-10-%02d-120000.plist", $0) } + ["latest.plist", "notes.txt"]
+    let gone = SettingsBackupLogic.expired(names.shuffled(), keep: 20)
+    precondition(gone == ["settings-2026-10-01-120000.plist", "settings-2026-10-02-120000.plist", "settings-2026-10-03-120000.plist"])
+    // Claude limits: epoch leak guard, Claude Desktop samples, pace.
+    let leaked = #"{"five_hour":{"used_percentage":1792300000,"resets_at":1792300000},"seven_day":{"used_percentage":40,"resets_at":4102444800}}"#
+    precondition(parseClaudeLimits(Data(leaked.utf8), now: Date(timeIntervalSince1970: 1_792_000_000)).map(\.id) == ["seven_day"])
+    let nowT = Date(timeIntervalSince1970: 1_800_000_000)
+    let desktop = #"{"version":2,"samples":[{"t":1799990000000,"org":"o","u":{"fh":9,"sd":50}},{"t":1799999000000,"org":"o","u":{"fh":2,"sd":79}}]}"#
+    precondition(parseDesktopUsage(Data(desktop.utf8), now: nowT) == DesktopUsage(fiveHour: 2, sevenDay: 79, at: Date(timeIntervalSince1970: 1_799_999_000)))
+    let old = #"{"samples":[{"t":1799900000000,"u":{"fh":30,"sd":60}}]}"#
+    precondition(parseDesktopUsage(Data(old.utf8), now: nowT)?.fiveHour == nil, "older than 5 h: no 5-hour figure")
+    precondition(parseDesktopUsage(Data(old.utf8), now: nowT)?.sevenDay == 60)
+    // 5-hour window, 2 h in, 40% used: 20%/h → 100% in 3 h, exactly at the reset (not before).
+    let pace = limitPace(used: 40, windowMinutes: 300, resetsAt: nowT.addingTimeInterval(3 * 3600), now: nowT)!
+    precondition(abs(pace.projected - 100) < 0.001 && pace.fullAt == nil)
+    let fast = limitPace(used: 60, windowMinutes: 300, resetsAt: nowT.addingTimeInterval(3 * 3600), now: nowT)!
+    precondition(abs(fast.projected - 150) < 0.001 && fast.fullAt == nowT.addingTimeInterval(4800), "40% left at 30%/h: 80 min")
+    precondition(limitPace(used: 5, windowMinutes: 300, resetsAt: nowT.addingTimeInterval(4.95 * 3600), now: nowT) == nil, "too early")
     // corescope:// links and the quick-action palette.
     precondition(AppLink(URL(string: "corescope://open/ports")!) == .open(page: "ports"))
     precondition(AppLink(URL(string: "corescope://")!) == .open(page: nil))
@@ -237,7 +261,7 @@ import Foundation
     precondition(looksLikeTime("14:05") && looksLikeTime("2:05 pm") && looksLikeTime("14h05") && looksLikeTime("ontem 9:30"))
     precondition(!looksLikeTime("8000") && !looksLikeTime("redis") && !looksLikeTime("14"))
     print(
-      "29 native assertions passed: descendants, cycle, ordering, off-screen recovery, negative-origin monitor, forest roots, flatten, collapse, totals, ancestors, filter, formatting, container ports, shared ports, demo paths, debounce, sustained thresholds, new arrivals, port parsing, shortcut label, agent stalls, health targets, shared containers, ssh stats, gate hook, machine alerts, failed unit explanations, service history, own cost, links, palette; plus settings JSON, Unicode escapes, status line install/chain, Claude limits, update versions, release notes, appcast"
+      "31 native assertions passed: descendants, cycle, ordering, off-screen recovery, negative-origin monitor, forest roots, flatten, collapse, totals, ancestors, filter, formatting, container ports, shared ports, demo paths, debounce, sustained thresholds, new arrivals, port parsing, shortcut label, agent stalls, health targets, shared containers, ssh stats, gate hook, machine alerts, failed unit explanations, service history, own cost, links, palette, Claude Desktop usage, limit pace, settings backup; plus settings JSON, Unicode escapes, status line install/chain, Claude limits, update versions, release notes, appcast"
     )
     print(
       "token usage assertions passed: timestamps, formatting, Claude block dedupe, embedded entries, partial lines, long-line skip, fast/full parity, Codex repeats and forks"
