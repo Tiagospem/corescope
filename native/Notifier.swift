@@ -152,6 +152,24 @@ final class Notifier: NSObject, ObservableObject, UNUserNotificationCenterDelega
     center.add(UNNotificationRequest(identifier: "stall.\(key)", content: content, trigger: nil))
   }
 
+  /// The daily update check found a new version; clicking opens Settings › Updates. Shown only
+  /// when CoreScope may already notify: turning update checks on never asks for permission.
+  func updateAvailable(version: String) {
+    let center = self.center ?? UNUserNotificationCenter.current()
+    if self.center == nil {
+      center.delegate = self
+      self.center = center
+    }
+    let content = UNMutableNotificationContent()
+    content.title = L("CoreScope %@ disponível", version)
+    content.body = L("Veja as novidades e instale em Ajustes › Atualizações.")
+    content.threadIdentifier = "update"
+    center.getNotificationSettings { settings in
+      guard settings.authorizationStatus == .authorized else { return }
+      center.add(UNNotificationRequest(identifier: "update.\(version)", content: content, trigger: nil))
+    }
+  }
+
   private func describe(_ p: ProcessItem) -> String {
     let ports = p.ports.prefix(3).map { ":\($0.port)" }.joined(separator: " ")
     return [
@@ -201,7 +219,7 @@ final class Notifier: NSObject, ObservableObject, UNUserNotificationCenterDelega
         } else {
           let id = response.notification.request.identifier
           WindowOpener.shared.showMain(
-            page: id.hasPrefix("stall.") ? .agents : id.hasPrefix("service.machine.") ? .machines
+            page: id.hasPrefix("update.") ? .settings : id.hasPrefix("stall.") ? .agents : id.hasPrefix("service.machine.") ? .machines
               : id.hasPrefix("service.") ? .health : id.hasPrefix("drain.") ? .energy : .processes)
         }
       }

@@ -500,6 +500,13 @@ final class Preferences: ObservableObject {
   @Published var drainWatts = UserDefaults.standard.object(forKey: "drainWatts") as? Double ?? 3 {
     didSet { save("drainWatts", drainWatts) }
   }
+  /// Opt-in update checks (Settings › Updates): off until the user turns them on.
+  @Published var checkForUpdates = UserDefaults.standard.bool(forKey: "checkForUpdates") {
+    didSet {
+      save("checkForUpdates", checkForUpdates)
+      UpdateStore.shared.apply()
+    }
+  }
   var notificationsEnabled: Bool {
     notifyOrphans || notifyHeavy || notifyPressure || notifyStalls || notifyServiceDown || notifyAgentDrain
   }

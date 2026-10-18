@@ -44,6 +44,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     _ = ProjectFileStore.shared
     _ = DiskGrowthStore.shared
     ControlServer.shared.apply()
+    UpdateStore.shared.apply()
     // Dock presence follows the main window when the user chose "only while open".
     let center = NotificationCenter.default
     for name in [NSWindow.didBecomeKeyNotification, NSWindow.willCloseNotification] {
@@ -347,6 +348,7 @@ struct MenuSummary: View {
         Button(L("Abrir CoreScope")) { open(nil) }.keyboardShortcut("o")
         Button(L("Processos")) { open(.processes) }
         Spacer()
+        UpdateBadge { open(.settings) } placeholder: { EmptyView() }
         Button(L("Sair")) { NSApp.terminate(nil) }.keyboardShortcut("q")
       }.controlSize(.regular)
     }.padding(14).frame(width: 372).id(prefs.language).watchesContainers(stats: false)

@@ -1040,4 +1040,31 @@ private let entries = """
   As máquinas marcadas são lidas pelo ssh a cada 60 s enquanto o painel está visível, no mesmo ritmo da página Máquinas (as duas abertas não leem mais vezes). ¦ Checked machines are read over ssh every 60 s while the panel is visible, on the same schedule as the Machines page (both open never read more often). ¦ Las máquinas marcadas se leen por ssh cada 60 s mientras el panel está visible, al mismo ritmo que la página Máquinas (las dos abiertas no leen más veces).
   Mostrar no painel flutuante ¦ Show in the floating panel ¦ Mostrar en el panel flotante
   %@ hosts a cada 60 s com a página aberta; %@ sempre, pelo painel flutuante ¦ %@ hosts every 60 s with the page open; %@ always, for the floating panel ¦ %@ hosts cada 60 s con la página abierta; %@ siempre, por el panel flotante
+  Atualizações ¦ Updates ¦ Actualizaciones
+  Procurar atualizações (uma vez por dia) ¦ Check for updates (once a day) ¦ Buscar actualizaciones (una vez al día)
+  Procurar atualizações ¦ Update check ¦ Búsqueda de actualizaciones
+  um pedido ao GitHub por dia, no máximo ¦ one request to GitHub a day at most ¦ una solicitud a GitHub al día como máximo
+  Versão instalada ¦ Installed version ¦ Versión instalada
+  Procurar agora ¦ Check now ¦ Buscar ahora
+  Você está na versão mais recente · verificado %@ ¦ You're on the latest version · checked %@ ¦ Tienes la versión más reciente · comprobado %@
+  Última verificação %@ ¦ Last checked %@ ¦ Última comprobación %@
+  CoreScope %@ disponível ¦ CoreScope %@ available ¦ CoreScope %@ disponible
+  Baixando… ¦ Downloading… ¦ Descargando…
+  Instalando e reabrindo… ¦ Installing and relaunching… ¦ Instalando y reabriendo…
+  Instalar e reabrir ¦ Install and relaunch ¦ Instalar y reabrir
+  Ver no GitHub ¦ View on GitHub ¦ Ver en GitHub
+  Veja as novidades e instale em Ajustes › Atualizações. ¦ See what's new and install it in Settings › Updates. ¦ Mira las novedades e instálala en Ajustes › Actualizaciones.
+  Esta cópia não tem a chave de atualização (build local). ¦ This copy has no update key (local build). ¦ Esta copia no tiene la clave de actualización (build local).
+  Desligado por padrão. Ligado, o CoreScope busca no máximo uma vez por dia o appcast da última versão no GitHub (github.com e o servidor de downloads do GitHub), sem identificadores nem dados do Mac. Só instala quando você clica em Instalar e reabrir, e só uma atualização assinada com a chave do projeto (EdDSA). Também: corescope version --check. ¦ Off by default. When on, CoreScope fetches the latest release's appcast from GitHub at most once a day (github.com and GitHub's download server), with no identifiers or data about this Mac. It installs only when you click Install and relaunch, and only an update signed with the project's key (EdDSA). Also: corescope version --check. ¦ Desactivado por defecto. Activado, CoreScope descarga como máximo una vez al día el appcast de la última versión en GitHub (github.com y el servidor de descargas de GitHub), sin identificadores ni datos del Mac. Solo instala cuando haces clic en Instalar y reabrir, y solo una actualización firmada con la clave del proyecto (EdDSA). También: corescope version --check.
+  Desempenho ¦ Performance ¦ Rendimiento
+  Eficiência ¦ Efficiency ¦ Eficiencia
+  desempenho ¦ performance ¦ rendimiento
+  eficiência ¦ efficiency ¦ eficiencia
+  Rápidos: builds, testes e o app em uso ¦ Fast: builds, tests and the app you're using ¦ Rápidos: builds, pruebas y la app en uso
+  Econômicos: tarefas leves e em segundo plano ¦ Economical: light and background tasks ¦ Económicos: tareas ligeras y en segundo plano
+  Núcleo %@: %@ ¦ Core %@: %@ ¦ Núcleo %@: %@
+  Cada quadrado é um núcleo; mais cheio, mais ocupado. ¦ Each tile is a core; the fuller, the busier. ¦ Cada cuadro es un núcleo; cuanto más lleno, más ocupado.
+  folga ¦ calm ¦ holgado
+  ocupado ¦ busy ¦ ocupado
+  no limite ¦ at the limit ¦ al límite
   """

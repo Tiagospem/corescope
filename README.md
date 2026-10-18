@@ -263,6 +263,7 @@ corescope wait                     # wait until the Mac has room (the project's 
 corescope exposure                 # what listens beyond localhost, riskiest first
 corescope happened "2:05 pm"       # what the Mac was doing then (needs History on)
 corescope disk-growth --measure    # which usual folders grew today
+corescope version --check          # this version, and whether a newer release exists (asks the app)
 ```
 
 Termination follows the app's rules: only your own processes, never system services or the command's own ancestors (an agent cannot stop its own session), identity revalidated right before each signal, and no signal without `--yes` when there is no terminal to confirm in.
@@ -299,7 +300,8 @@ With *Agents can use the app through MCP* (on by default once the server is regi
 | `list_services` / `add_service` / `remove_service` / `check_services` | Services health checks |
 | `list_machines` / `add_machine` / `remove_machine` / `refresh_machines` | SSH machines |
 | `cleanup_status` / `scan_dev_space` / `clean_dev_space` | Cleanup: cached result, a new scan, and moving items from the latest scan to the Trash |
-| `get_settings` / `set_setting` | Notification toggles, thresholds, cleanup folders, collector interval and the floating panel (nothing that reaches outside the Mac) |
+| `get_settings` / `set_setting` | Notification toggles, thresholds, cleanup folders, collector interval, the floating panel and `check_for_updates` (the only one that reaches outside the Mac: the daily release check, see [Privacy](#privacy)) |
+| `update_status` | Installed and latest version, the new release's notes and the last check; makes no request. Installing stays a click in Settings |
 | `corescope_cost` | What CoreScope itself spends (app, helpers, children) and each feature's measured CPU, to tell you what to turn off |
 | `list_stuck_agents` | Busy sessions and whether they look stuck |
 
@@ -329,6 +331,23 @@ The server finds its agent session from its own parent chain. A process counts a
 
 Each release lists SHA-256 checksums (`SHA256SUMS.txt`) so you can verify the download with `shasum -a 256 CoreScope-*.dmg`.
 
+### Updates (opt-in)
+
+*Settings › Updates › Check for updates* is **off by default**. Turned on, CoreScope looks for a new
+release once a day; *Check now* (or `corescope version --check`) looks once whenever you ask. A new
+version shows up in Settings with its changelog, as `↑ <version>` next to the version in the sidebar
+and the menu bar popover, and as one notification. **Install and relaunch** downloads it, checks its
+signature, replaces the app (the bundled `corescope` command included, so links in `~/.local/bin`
+and MCP registrations keep working) and reopens it; nothing installs without that click.
+
+Updates use [Sparkle](https://sparkle-project.org). Because the app is signed ad hoc rather than
+with an Apple Developer ID, trust comes from an EdDSA key instead: the release workflow signs both
+the update archive and the appcast with the project's private key (a GitHub Actions secret, never in
+the repository), and the app accepts only what verifies against the public key built into it
+(`SUPublicEDKey`). A download that fails the check is discarded. The installed update is not
+quarantined, so Gatekeeper does not block it again. Builds from source carry the same key and can
+update too; downloading the DMG by hand keeps working as before.
+
 ### Build from source
 
 **Requirements:** macOS 14 or later · Xcode Command Line Tools (Swift 6) · Rust/Cargo. Developed and validated on Apple Silicon (MacBook Air M4, macOS 27). Releases are universal (`UNIVERSAL=1 ./scripts/build.sh`, needs `rustup target add x86_64-apple-darwin`); the Intel slice is built and checked but not yet run on an Intel Mac — reports welcome.
@@ -346,7 +365,9 @@ The build produces `build/CoreScope.app`, signed **ad hoc** for your machine. To
 
 ## Privacy
 
-CoreScope is **local-only**: no network access, no telemetry, no accounts. The one exception is yours to make: a *Services* check pointing outside this Mac contacts only that URL or host (the app warns when you add one).
+CoreScope is **local-only by default**: no network access, no telemetry, no accounts. The exceptions are yours to make: a *Services* check pointing outside this Mac contacts only that URL or host (the app warns when you add one), and the update check below.
+
+- **Update checks are opt-in and off by default** (Settings › Updates). With the toggle off and no *Check now*, the updater is not even started and the app makes no request. When on — or when you click *Check now* or run `corescope version --check` — CoreScope makes one HTTPS request, at most once a day for the automatic check, for `https://github.com/Tiagospem/corescope/releases/latest/download/appcast.xml` (GitHub redirects it to the release download and then to its asset host, `release-assets.githubusercontent.com`). The request carries the usual HTTP headers with a user agent like `CoreScope/0.6.0 Sparkle/2.10.0`; no identifiers, no system profile (Sparkle's profiling is disabled), nothing about your processes. GitHub sees your IP address, as with any download. Only after you click *Install and relaunch* does it download the release zip from the same place. `corescope version` without `--check` asks the running app what it already knows and makes no request.
 
 - Process names, executables, users, start times, working directories and listening ports are read locally through public macOS APIs (`libproc`, `sysctl`, IOKit). Working directories and ports are read only for **your own** processes.
 - **Arguments and environment variables are never collected.**

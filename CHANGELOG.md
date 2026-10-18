@@ -21,9 +21,22 @@ section as the GitHub release notes.
   extra reads show in CoreScope's own cost.
 - MCP `get_settings` / `set_setting`: `panel_agents`, `panel_machines` and
   `panel_machine_hosts`; `list_machines` says which machines the panel shows.
+- **Updates (opt-in, off by default)**: *Settings › Updates* checks the latest GitHub release once
+  a day, or when you click *Check now*. A new version shows its changelog in Settings, `↑ <version>`
+  next to the version in the sidebar and the menu bar popover, and one notification; **Install and
+  relaunch** downloads it, verifies its EdDSA signature and replaces the app, bundled `corescope`
+  command included. Built on Sparkle 2, trusted through the project's update key because the app is
+  signed ad hoc. With the toggle off, CoreScope makes no request. `corescope version [--check]`, MCP
+  `update_status` and the `check_for_updates` setting.
+- Releases publish a signed `appcast.xml` next to the DMG and zip.
 
 ### Changed
-- Turning on a non-notification setting through MCP no longer asks for notification permission.
+- **CPU per core**, redesigned: performance and efficiency cores in plain words (what each kind
+  runs), a big average per group, and one tile per core that fills up and turns from green to amber
+  to orange with load, the percentage written inside; a colour legend replaces the data-source
+  line (still on hover).
+- Turning on a setting that posts no notifications (the floating panel ones) through MCP no
+  longer asks for notification permission.
 
 ## [0.5.1] - 2026-10-17
 

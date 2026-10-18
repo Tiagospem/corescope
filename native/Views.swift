@@ -135,8 +135,11 @@ struct MainView: View {
               Text(L("CoreScope")).font(.system(size: 13, weight: .semibold))
               Text(verbatim: "v\(AppVersion.short)").font(.caption2).monospacedDigit().foregroundStyle(.tertiary)
                 .help(L("Versão %@ (build %@)", AppVersion.short, AppVersion.build))
+            }.lineLimit(1)
+            // An available update takes the subtitle's place, so the name never wraps.
+            UpdateBadge { page = .settings } placeholder: {
+              Text(L("Monitor para desenvolvedores")).font(.caption2).foregroundStyle(.secondary)
             }
-            Text(L("Monitor para desenvolvedores")).font(.caption2).foregroundStyle(.secondary)
           }
         }.frame(maxWidth: .infinity, alignment: .leading).padding(14)
       }

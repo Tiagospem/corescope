@@ -321,6 +321,10 @@ enum ControlAPI {
       }
 
     case "app.cost": reply(SelfCost.current().json())
+    case "app.update_status": reply(UpdateStore.shared.json())
+    case "app.update_check":
+      // Asked for by the user (corescope version --check): one request to the release feed.
+      UpdateStore.shared.check { reply(UpdateStore.shared.json()) }
     case "settings.get": reply(["settings": AgentSettings.read()])
     case "settings.set":
       guard let key = args["key"] as? String else { return reply(["error": "key is required"]) }
@@ -535,15 +539,17 @@ enum ControlAPI {
 }
 
 /// The preferences agents may read and change: notifications, thresholds, cleanup folders and
-/// what the floating panel shows.
-/// Anything that reaches outside the Mac or edits another app's files stays with the user.
+/// what the floating panel shows. Anything that reaches outside the Mac or edits another app's
+/// files stays with the user; the one exception, check_for_updates, contacts only the release
+/// feed (and hosts ask first).
 enum AgentSettings {
   private static let bools: [String: ReferenceWritableKeyPath<Preferences, Bool>] = [
     "notify_orphans": \.notifyOrphans, "notify_heavy_processes": \.notifyHeavy,
     "notify_memory_pressure": \.notifyPressure, "notify_stuck_agents": \.notifyStalls,
     "notify_service_down": \.notifyServiceDown, "notify_agent_battery_drain": \.notifyAgentDrain,
     "economy_mode_on_battery": \.economyMode, "notify_machine_alerts": \.notifyMachines,
-    "floating_panel": \.panelVisible, "panel_agents": \.panelAgents, "panel_machines": \.panelMachines,
+    "floating_panel": \.panelVisible, "check_for_updates": \.checkForUpdates,
+    "panel_agents": \.panelAgents, "panel_machines": \.panelMachines,
   ]
   private static let numbers: [String: (ReferenceWritableKeyPath<Preferences, Double>, ClosedRange<Double>)] = [
     "stuck_agent_minutes": (\.stallMinutes, 1...240), "agent_drain_watts": (\.drainWatts, 0.5...50),
@@ -564,7 +570,8 @@ enum AgentSettings {
     if let path = bools[key] {
       guard let v = value as? Bool else { return "\(key) takes true or false" }
       p[keyPath: path] = v
-      if v, key.hasPrefix("notify_") { Notifier.shared.activate() }
+      // Only settings that post notifications ask macOS for permission.
+      if v, key.hasPrefix("notify_") || key == "check_for_updates" { Notifier.shared.activate() }
       return nil
     }
     if let (path, range) = numbers[key] {

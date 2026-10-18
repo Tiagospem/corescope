@@ -23,16 +23,20 @@ for lang in pt en es; do
   mkdir -p "$APP/Contents/Resources/$lang.lproj"
   echo '"CFBundleDisplayName" = "CoreScope";' > "$APP/Contents/Resources/$lang.lproj/InfoPlist.strings"
 done
+# Sparkle installs updates (Settings › Updates, opt-in). Its EdDSA public key: every update
+# archive and the appcast itself must be signed by the matching private key (a CI secret).
+SPARKLE=$(./scripts/sparkle.sh)
+UPDATE_PUBLIC_KEY="bxj8UTY/IIWBqAcQxflL60mwUToQ3Tc3PJPLkI5QluI="
 APPS=() CLIS=()
 for arch in $ARCHS; do
   lib="core/target/$(rust_target "$arch")/release"
-  swiftc -O -swift-version 5 -target "$arch-apple-macosx14.0" -import-objc-header native/CoreScopeFFI.h native/*.swift "$lib/libcorescope.a" -lsqlite3 -framework SwiftUI -framework AppKit -framework IOKit -framework CoreFoundation -framework ServiceManagement -framework UserNotifications -framework Carbon -o "build/CoreScope-$arch"
+  swiftc -O -swift-version 5 -target "$arch-apple-macosx14.0" -import-objc-header native/CoreScopeFFI.h native/*.swift "$lib/libcorescope.a" -lsqlite3 -framework SwiftUI -framework AppKit -framework IOKit -framework CoreFoundation -framework ServiceManagement -framework UserNotifications -framework Carbon -F "$SPARKLE" -framework Sparkle -Xlinker -rpath -Xlinker @executable_path/../Frameworks -o "build/CoreScope-$arch"
   APPS+=("build/CoreScope-$arch")
   CLIS+=("$lib/corescope")
 done
 lipo -create "${APPS[@]}" -output "$APP/Contents/MacOS/CoreScope"
 rm -f "${APPS[@]}"
-cat > "$APP/Contents/Info.plist" <<'PLIST'
+cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
@@ -55,8 +59,24 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <key>CFBundleURLName</key><string>local.corescope.app</string>
 <key>CFBundleURLSchemes</key><array><string>corescope</string></array>
 </dict></array>
+<key>SUFeedURL</key><string>https://github.com/Tiagospem/corescope/releases/latest/download/appcast.xml</string>
+<key>SUPublicEDKey</key><string>$UPDATE_PUBLIC_KEY</string>
+<key>SURequireSignedFeed</key><true/>
+<key>SUVerifyUpdateBeforeExtraction</key><true/>
+<key>SUEnableAutomaticChecks</key><false/>
+<key>SUAllowsAutomaticUpdates</key><false/>
+<key>SUEnableSystemProfiling</key><false/>
+<key>SUScheduledCheckInterval</key><integer>86400</integer>
 </dict></plist>
 PLIST
+# Sparkle.framework, re-signed ad hoc like the app; its XPC services are only for sandboxed apps.
+rm -rf "$APP/Contents/Frameworks" && mkdir -p "$APP/Contents/Frameworks"
+ditto "$SPARKLE/Sparkle.framework" "$APP/Contents/Frameworks/Sparkle.framework"
+FW="$APP/Contents/Frameworks/Sparkle.framework"
+rm -rf "$FW/XPCServices" "$FW/Versions/B/XPCServices"
+codesign --force --sign - --options runtime "$FW/Versions/B/Autoupdate"
+codesign --force --sign - --options runtime "$FW/Versions/B/Updater.app"
+codesign --force --sign - --options runtime "$FW"
 # Command-line tool (corescope ports, kill-port, agents, mcp…), signed before the app.
 mkdir -p "$APP/Contents/Resources/bin"
 lipo -create "${CLIS[@]}" -output "$APP/Contents/Resources/bin/corescope"

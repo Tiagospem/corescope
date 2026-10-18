@@ -329,9 +329,21 @@ fn app_tools() -> Vec<(
             vec![],
         ),
         (
+            "update_status",
+            "app.update_status",
+            "Whether a newer CoreScope release is available: installed and latest version, its \
+          release notes, the last check and whether daily checks are on (setting check_for_updates). \
+          Reads what the app already knows; it makes no request. Installing is the user's click in \
+          Settings › Updates.",
+            json!({}),
+            vec![],
+        ),
+        (
             "get_settings",
             "settings.get",
-            "CoreScope settings agents may change: notification toggles, thresholds, cleanup folders, and what the floating panel shows (panel_agents, panel_machines, panel_machine_hosts).",
+            "CoreScope settings agents may change: notification toggles, thresholds, cleanup folders, \
+          what the floating panel shows (panel_agents, panel_machines, panel_machine_hosts), \
+          check_for_updates (daily update check against the GitHub release feed, off by default).",
             json!({}),
             vec![],
         ),
@@ -354,7 +366,7 @@ fn app_tools() -> Vec<(
 }
 
 /// One request to the app's control socket.
-fn app(op: &str, args: &Value) -> Value {
+pub fn app(op: &str, args: &Value) -> Value {
     use std::os::unix::net::UnixStream;
     let path = std::path::PathBuf::from(std::env::var_os("HOME").unwrap_or_default())
         .join("Library/Application Support/CoreScope/control.sock");

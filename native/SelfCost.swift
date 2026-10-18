@@ -186,6 +186,7 @@ struct SelfCost {
       f("cleanup", L("Limpeza"), on: true, L("só quando você pede um escaneamento"), measured: "cleanup"),
       f("diskgrowth", L("Crescimento do disco"), on: true, L("mede no máximo a cada 6 h, alguns segundos de disco"), measured: "diskgrowth"),
       f("economy", L("Modo economia"), on: p.economyMode, L("só na bateria, a cada coleta")),
+      f("updates", L("Procurar atualizações"), on: p.checkForUpdates, L("um pedido ao GitHub por dia, no máximo")),
       f("mcp", L("Acesso do MCP ao app"), on: p.mcpAppAccess, L("socket local parado até um agente pedir algo")),
     ]
   }

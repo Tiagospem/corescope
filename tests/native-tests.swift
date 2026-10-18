@@ -35,6 +35,7 @@ import Foundation
     precondition(formatDuration(3725) == "1 h 2 min")
     precondition(projectName("/") == nil && projectName("/tmp/app") == "app")
     tokenTests()
+    updateTests()
     // VM helper ports split among the containers that published them.
     let split = splitPorts([6379, 3306, 8025, 1025, 5555]) {
       [6379: "redis", 3306: "mysql", 8025: "mail", 1025: "mail"][$0]
@@ -235,7 +236,7 @@ import Foundation
     precondition(looksLikeTime("14:05") && looksLikeTime("2:05 pm") && looksLikeTime("14h05") && looksLikeTime("ontem 9:30"))
     precondition(!looksLikeTime("8000") && !looksLikeTime("redis") && !looksLikeTime("14"))
     print(
-      "28 native assertions passed: descendants, cycle, ordering, off-screen recovery, negative-origin monitor, forest roots, flatten, collapse, totals, ancestors, filter, formatting, container ports, shared ports, demo paths, debounce, sustained thresholds, new arrivals, port parsing, shortcut label, agent stalls, health targets, shared containers, ssh stats, gate hook, machine alerts, service history, own cost, links, palette; plus settings JSON, Unicode escapes, status line install/chain, Claude limits"
+      "28 native assertions passed: descendants, cycle, ordering, off-screen recovery, negative-origin monitor, forest roots, flatten, collapse, totals, ancestors, filter, formatting, container ports, shared ports, demo paths, debounce, sustained thresholds, new arrivals, port parsing, shortcut label, agent stalls, health targets, shared containers, ssh stats, gate hook, machine alerts, service history, own cost, links, palette; plus settings JSON, Unicode escapes, status line install/chain, Claude limits, update versions, release notes, appcast"
     )
     print(
       "token usage assertions passed: timestamps, formatting, Claude block dedupe, embedded entries, partial lines, long-line skip, fast/full parity, Codex repeats and forks"
@@ -348,4 +349,45 @@ func tokenTests() {
     }
   }
   precondition(combined == TokenCounts(input: 120, output: 20, cacheWrite: 0, cacheRead: 180))
+}
+
+/// Version order, release notes blocks and the appcast the release workflow publishes.
+func updateTests() {
+  precondition(UpdateLogic.isNewer("0.6.0", than: "0.5.1"))
+  precondition(UpdateLogic.isNewer("v0.10.0", than: "0.9.9"))
+  precondition(UpdateLogic.isNewer("1.0.0", than: "1.0.0-beta.2"))
+  precondition(UpdateLogic.isNewer("1.0.0-beta.10", than: "1.0.0-beta.2"))
+  precondition(!UpdateLogic.isNewer("0.5.1", than: "0.5.1"))
+  precondition(!UpdateLogic.isNewer("0.5", than: "0.5.0"))
+  precondition(!UpdateLogic.isNewer("0.5.0", than: "0.5.1"))
+  precondition(UpdateLogic.compare("dev", "0.5.1") == .orderedAscending)
+
+  let notes = """
+    ### Added
+    - **Updates**: opt-in daily check, with
+      the notes shown in Settings.
+    - `corescope version --check`.
+
+    ### Fixed
+    Paragraph line one
+    continued.
+    """
+  precondition(
+    NoteBlock.parse(notes) == [
+      .heading("Added"), .bullet("**Updates**: opt-in daily check, with the notes shown in Settings."),
+      .bullet("`corescope version --check`."), .heading("Fixed"), .text("Paragraph line one continued."),
+    ])
+
+  let item = AppcastItem(
+    build: "10", version: "0.6.0",
+    url: "https://github.com/Tiagospem/corescope/releases/download/v0.6.0/CoreScope-0.6.0-macos-universal.zip",
+    length: 12_345_678, edSignature: "c2lnbmF0dXJlPT0=", notes: notes + "\nOdd ]]> & <tags>",
+    date: Date(timeIntervalSince1970: 1_792_000_000))
+  let xml = Appcast.render([item])
+  precondition(xml.contains("<sparkle:version>10</sparkle:version>"))
+  precondition(xml.contains("<sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>"))
+  precondition(xml.contains(#"sparkle:format="markdown""#))
+  guard let parsed = Appcast.parse(Data(xml.utf8)), parsed.count == 1 else { fatalError("appcast does not parse") }
+  precondition(parsed[0] == item)
+  precondition(Appcast.parse(Data("<rss><channel><item>".utf8)) == nil)
 }
