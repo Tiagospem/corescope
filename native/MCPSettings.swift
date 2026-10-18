@@ -197,32 +197,25 @@ private struct AgentHooksTable: View {
   let hooks: [String: Bool]
   let codexTrust: [String: String]?
   let set: (AgentHook, HookHost, Bool) -> Void
+  /// Separate Form rows (a Grid inside one row mis-measures its height).
   var body: some View {
-    VStack(alignment: .leading, spacing: 8) {
-      Text(L("Hooks dos agentes")).font(.callout.weight(.medium))
-      Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 6) {
-        GridRow {
-          Text("")
-          ForEach(HookHost.allCases) { Text($0.rawValue).font(.caption.weight(.semibold)).foregroundStyle(.secondary) }
-        }
-        ForEach(AgentHook.allCases, id: \.self) { hook in
-          GridRow {
-            VStack(alignment: .leading, spacing: 1) {
-              Text(title(hook))
-              Text(detail(hook)).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            }
-            ForEach(HookHost.allCases) { host in
-              Toggle("", isOn: Binding(get: { hooks[hookKey(hook, host)] == true }, set: { set(hook, host, $0) }))
-                .toggleStyle(.switch).labelsHidden().controlSize(.small).disabled(!host.available)
-                .help(host.available ? host.shortPath : L("%@ não está configurado neste Mac", host.rawValue))
-            }
+    ForEach(AgentHook.allCases, id: \.self) { hook in
+      VStack(alignment: .leading, spacing: 6) {
+        Text(title(hook))
+        Text(detail(hook)).font(.caption).foregroundStyle(.secondary)
+        HStack(spacing: 18) {
+          ForEach(HookHost.allCases) { host in
+            Toggle(host.rawValue, isOn: Binding(get: { hooks[hookKey(hook, host)] == true }, set: { set(hook, host, $0) }))
+              .toggleStyle(.switch).controlSize(.small).disabled(!host.available)
+              .help(host.available ? host.shortPath : L("%@ não está configurado neste Mac", host.rawValue))
           }
         }
       }
-      if AgentHook.allCases.contains(where: { hooks[hookKey($0, .codex)] == true }) { codexNote }
-      Text(L("Os hooks rodam o corescope deste app; cada arquivo ganha um backup antes de mudar e só as entradas do CoreScope são mexidas. Agentes sem hooks recebem o mesmo pelo MCP (agent_context) ou pela seção no CLAUDE.md / AGENTS.md de cada projeto."))
-        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+      .padding(.vertical, 2)
     }
+    if AgentHook.allCases.contains(where: { hooks[hookKey($0, .codex)] == true }) { codexNote }
+    Text(L("Os hooks rodam o corescope deste app; cada arquivo ganha um backup antes de mudar e só as entradas do CoreScope são mexidas. Agentes sem hooks recebem o mesmo pelo MCP (agent_context) ou pela seção no CLAUDE.md / AGENTS.md de cada projeto."))
+      .font(.caption).foregroundStyle(.secondary)
   }
   private func title(_ hook: AgentHook) -> String {
     hook == .context ? L("Contexto do projeto no início da sessão") : L("Esperar folga antes de comandos pesados")
@@ -247,6 +240,6 @@ private struct AgentHooksTable: View {
         Text(L("O Codex ainda não roda estes hooks: abra o Codex, digite /hooks e confie nos do CoreScope. Depois disso eles rodam em toda sessão."))
       }
     }
-    .font(.caption).fixedSize(horizontal: false, vertical: true)
+    .font(.caption)
   }
 }
