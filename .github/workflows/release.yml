@@ -13,6 +13,8 @@ on:
       - scripts/build.sh
       - scripts/package.sh
       - scripts/release-notes.sh
+      - scripts/bump-cask.sh
+      - packaging/homebrew/**
       - scripts/appcast.sh
       - scripts/appcast.swift
       - scripts/sparkle.sh
@@ -78,6 +80,15 @@ jobs:
             rm dist/appcast.xml
           fi
 
+      - name: Check the Homebrew cask bump
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          SHA=$(awk -v f="CoreScope-$VERSION-macos-universal.zip" '$2 == f { print $1 }' dist/SHA256SUMS.txt)
+          cp packaging/homebrew/corescope.rb build/corescope.rb
+          ./scripts/bump-cask.sh build/corescope.rb "$VERSION" "$SHA"
+          ruby -c build/corescope.rb
+
       - name: Release notes
         env:
           VERSION: ${{ steps.version.outputs.version }}
@@ -122,3 +133,54 @@ jobs:
             "CoreScope-$VERSION-macos-universal.dmg" \
             "CoreScope-$VERSION-macos-universal.zip" \
             SHA256SUMS.txt appcast.xml
+
+  # Optional: with a HOMEBREW_TAP_TOKEN secret (a fine-grained token with Contents read and write on
+  # Tiagospem/homebrew-tap only), the published release's version and zip checksum go into the tap's
+  # Casks/corescope.rb, seeded from packaging/homebrew/corescope.rb when the tap has none yet.
+  # Without the secret the job does nothing.
+  homebrew:
+    name: Bump the Homebrew cask
+    needs: [package, publish]
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+      VERSION: ${{ needs.package.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: env.HOMEBREW_TAP_TOKEN != ''
+        with:
+          path: corescope
+          persist-credentials: false
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: env.HOMEBREW_TAP_TOKEN != ''
+        with:
+          repository: Tiagospem/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: tap
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: env.HOMEBREW_TAP_TOKEN != ''
+        with:
+          name: release
+          path: dist
+
+      - name: Update and push the cask
+        if: env.HOMEBREW_TAP_TOKEN != ''
+        run: |
+          SHA=$(awk -v f="CoreScope-$VERSION-macos-universal.zip" '$2 == f { print $1 }' dist/SHA256SUMS.txt)
+          mkdir -p tap/Casks
+          [ -f tap/Casks/corescope.rb ] || cp corescope/packaging/homebrew/corescope.rb tap/Casks/corescope.rb
+          ./corescope/scripts/bump-cask.sh tap/Casks/corescope.rb "$VERSION" "$SHA"
+          cd tap
+          git add Casks/corescope.rb
+          if git diff --cached --quiet; then
+            echo "The tap already has CoreScope $VERSION"
+            exit 0
+          fi
+          git -c user.name="github-actions[bot]" \
+            -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -m "corescope $VERSION"
+          git push

@@ -19,6 +19,10 @@ section as the GitHub release notes.
   signed ad hoc. With the toggle off, CoreScope makes no request. `corescope version [--check]`, MCP
   `update_status` and the `check_for_updates` setting.
 - Releases publish a signed `appcast.xml` next to the DMG and zip.
+- **Homebrew cask**: `brew install --cask tiagospem/tap/corescope` installs the release zip and
+  links the `corescope` command. The cask (`auto_updates`, macOS 14+, `zap` for the app's data) is
+  in `packaging/homebrew/`; with a `HOMEBREW_TAP_TOKEN` secret the release workflow bumps its
+  version and checksum in the tap after publishing.
 
 ### Changed
 - **CPU per core**, redesigned: performance and efficiency cores in plain words (what each kind
