@@ -401,6 +401,9 @@ struct ProjectChangesView: View {
   @ViewState private var selection: Set<String> = []
   @ViewState private var message = ""
   @ViewState private var confirmDiscard: [GitFileChange]?
+  @ObservedObject private var ai = AISettings.shared
+  @ViewState private var generating = false
+  @ViewState private var consent: CommitContextData?
 
   /// In a window of its own (from the floating panel or menu bar) there is no "back".
   let inWindow: Bool
@@ -446,6 +449,9 @@ struct ProjectChangesView: View {
       if kept != selection { selection = kept } else { requestDiffs() }
     }
     .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in store.reload() }
+    .sheet(item: Binding(get: { consent.map(ConsentItem.init) }, set: { consent = $0?.context })) { item in
+      AIConsentSheet(context: item.context) { send(item.context) }
+    }
     .confirmationDialog(discardTitle, isPresented: Binding(get: { confirmDiscard != nil }, set: { if !$0 { confirmDiscard = nil } })) {
       Button(L("Descartar"), role: .destructive) {
         if let files = confirmDiscard { store.discard(files) }
@@ -661,6 +667,16 @@ struct ProjectChangesView: View {
       HStack {
         Text(commitHint).font(.caption).foregroundStyle(.secondary).lineLimit(2)
         Spacer()
+        if ai.enabled {
+          Button {
+            generate()
+          } label: {
+            if generating { ProgressView().controlSize(.small) } else { Label(L("Gerar mensagem"), systemImage: "sparkles") }
+          }
+          .fixedSize()
+          .disabled(generating || stagedCount == 0 || store.busy)
+          .help(L("Escreve a mensagem a partir do diff em stage (%@). Você revisa antes de commitar.", ai.provider.title))
+        }
         Button {
           store.commit(message) { ok in if ok { message = "" } }
         } label: {
@@ -683,6 +699,42 @@ struct ProjectChangesView: View {
       }
     }
   }
+  /// Reads the staged changes; the first time with a provider, shows what will be sent.
+  private func generate() {
+    generating = true
+    let folder = project.folder
+    DispatchQueue.global(qos: .userInitiated).async {
+      let r = AICommit.context(folder: folder)
+      DispatchQueue.main.async {
+        switch r {
+        case .failure(let e):
+          generating = false
+          store.error = e.message
+        case .success(let c):
+          if ai.consented.contains(ai.provider.rawValue) {
+            send(c)
+          } else {
+            generating = false
+            consent = c
+          }
+        }
+      }
+    }
+  }
+  private func send(_ c: CommitContextData) {
+    generating = true
+    DispatchQueue.global(qos: .userInitiated).async {
+      let r = AICommit.generate(c)
+      DispatchQueue.main.async {
+        generating = false
+        switch r {
+        case .success(let text): message = text
+        case .failure(let f): store.error = L("Não deu para gerar a mensagem: %@", f.message)
+        }
+      }
+    }
+  }
+
   private var commitHint: String {
     if (store.status?.conflicts ?? 0) > 0 { return L("Resolva os conflitos antes de commitar.") }
     if stagedCount == 0 { return L("Nada em stage: marque os arquivos que entram no commit.") }
@@ -732,4 +784,9 @@ private struct ChangeRowView: View {
     default: .orange
     }
   }
+}
+
+private struct ConsentItem: Identifiable {
+  let context: CommitContextData
+  var id: String { context.repo + String(context.diff.count) }
 }

@@ -112,7 +112,8 @@ const DESTRUCTIVE: [&str; 13] = [
     "remove_machine",
 ];
 /// Tools that change state without destroying anything.
-const CHANGES: [&str; 14] = [
+const CHANGES: [&str; 15] = [
+    "generate_commit_message",
     "set_project",
     "agent_hooks",
     "write_agent_instructions",
@@ -336,6 +337,18 @@ fn app_tools() -> Vec<(
             "cleanup.scan",
             "Scan for reclaimable developer space now (can take ~30 s) and return the result with ids.",
             json!({}),
+            vec![],
+        ),
+        (
+            "generate_commit_message",
+            "ai.commit_message",
+            "Suggest a commit message for a project's staged changes with the AI provider the \
+             user set up in CoreScope (Settings › AI; off by default). Sends the staged diff \
+             (no lockfiles or binaries, cut at the user's limit) to that provider, so it works \
+             only when the feature is on and the user already confirmed what is sent once in the \
+             app. Returns the message; it never commits.",
+            json!({"project": {"type": "string", "description": "Registered project id or name"},
+                   "folder": {"type": "string"}}),
             vec![],
         ),
         (

@@ -383,6 +383,142 @@ pub fn delta(before: &Summary, after: &Summary) -> Option<Delta> {
     })
 }
 
+/// Files whose diff says nothing to a commit message (generated lockfiles, minified bundles).
+pub fn is_lockfile(path: &str) -> bool {
+    let name = path.rsplit('/').next().unwrap_or(path);
+    matches!(
+        name,
+        "package-lock.json"
+            | "npm-shrinkwrap.json"
+            | "yarn.lock"
+            | "pnpm-lock.yaml"
+            | "bun.lockb"
+            | "bun.lock"
+            | "Cargo.lock"
+            | "composer.lock"
+            | "Gemfile.lock"
+            | "poetry.lock"
+            | "uv.lock"
+            | "Pipfile.lock"
+            | "go.sum"
+            | "Podfile.lock"
+            | "Package.resolved"
+            | "mix.lock"
+            | "pubspec.lock"
+            | "flake.lock"
+    ) || name.ends_with(".min.js")
+        || name.ends_with(".min.css")
+        || name.ends_with(".map")
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct StagedFile {
+    pub path: String,
+    pub added: Option<u64>,
+    pub removed: Option<u64>,
+    /// Left out of the diff: a lockfile or a binary.
+    pub omitted: Option<&'static str>,
+}
+/// What a commit message generator gets: only what is staged, never the working tree.
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct CommitContext {
+    /// The repository folder's name.
+    pub repo: String,
+    pub branch: Option<String>,
+    pub files: Vec<StagedFile>,
+    /// The staged diff of the files not omitted, cut at `max_bytes`.
+    pub diff: String,
+    pub truncated: bool,
+}
+
+/// The staged changes for a commit message: file list with +/-, and the unified diff without
+/// lockfiles and binaries, cut at `max_bytes` on a line boundary.
+pub fn commit_context(folder: &Path, max_bytes: usize) -> Result<CommitContext, String> {
+    let root = root_of(folder)?;
+    let numstat = read(
+        &root,
+        &[
+            "-c",
+            "core.quotepath=false",
+            "diff",
+            "--cached",
+            "--numstat",
+            "-z",
+            "-M",
+        ],
+    )?;
+    let stats = parse_numstat(&numstat);
+    if stats.is_empty() {
+        return Err("nothing is staged".into());
+    }
+    let mut files: Vec<StagedFile> = stats
+        .into_iter()
+        .map(|(path, lines)| {
+            let omitted = if lines.is_none() {
+                Some("binary")
+            } else if is_lockfile(&path) {
+                Some("lockfile")
+            } else {
+                None
+            };
+            StagedFile {
+                added: lines.map(|l| l.0),
+                removed: lines.map(|l| l.1),
+                omitted,
+                path,
+            }
+        })
+        .collect();
+    files.sort_by(|a, b| a.path.cmp(&b.path));
+    let keep: Vec<&str> = files
+        .iter()
+        .filter(|f| f.omitted.is_none())
+        .map(|f| f.path.as_str())
+        .collect();
+    let mut diff = String::new();
+    if !keep.is_empty() {
+        let mut args = vec![
+            "-c",
+            "core.quotepath=false",
+            "diff",
+            "--cached",
+            "--no-color",
+            "--no-ext-diff",
+            "-M",
+            "--",
+        ];
+        args.extend(keep.iter().copied());
+        diff = read(&root, &args)?;
+    }
+    let max_bytes = max_bytes.max(1024);
+    let truncated = diff.len() > max_bytes;
+    if truncated {
+        let cut = diff[..diff
+            .char_indices()
+            .map(|(i, _)| i)
+            .take_while(|i| *i <= max_bytes)
+            .last()
+            .unwrap_or(0)]
+            .rfind('\n')
+            .map(|i| i + 1)
+            .unwrap_or(0);
+        diff.truncate(cut);
+    }
+    let branch = git::read(&root, &["symbolic-ref", "--short", "-q", "HEAD"])
+        .map(|b| b.trim().to_string())
+        .filter(|b| !b.is_empty());
+    Ok(CommitContext {
+        repo: root
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default(),
+        branch,
+        files,
+        diff,
+        truncated,
+    })
+}
+
 /// Paths given to git: relative to the repository, never escaping it.
 pub fn valid_paths(paths: &[String]) -> Result<Vec<&str>, String> {
     if paths.is_empty() {
@@ -985,8 +1121,41 @@ mod tests {
             Duration::from_secs(5),
         )
         .unwrap();
+        std::fs::write(repo.join("Cargo.lock"), "lock\n".repeat(50)).unwrap();
+        std::fs::write(repo.join("logo.png"), [0u8, 1, 2, 0, 255]).unwrap();
+        stage(&repo, &["Cargo.lock".into(), "logo.png".into()]).unwrap();
+        let ctx = commit_context(&repo, 4096).unwrap();
+        let omitted: Vec<(&str, Option<&str>)> = ctx
+            .files
+            .iter()
+            .map(|f| (f.path.as_str(), f.omitted))
+            .collect();
+        assert_eq!(
+            omitted,
+            [
+                ("Cargo.lock", Some("lockfile")),
+                ("a.txt", None),
+                ("logo.png", Some("binary"))
+            ]
+        );
+        assert!(ctx.diff.contains("+b") && !ctx.diff.contains("lock\n") && !ctx.truncated);
+        assert_eq!(ctx.branch.as_deref(), Some("main"));
+        std::fs::write(repo.join("a.txt"), "x\n".repeat(5000)).unwrap();
+        stage(&repo, &["a.txt".into()]).unwrap();
+        let cut = commit_context(&repo, 2048).unwrap();
+        assert!(cut.truncated && cut.diff.len() <= 2048 && cut.diff.ends_with('\n'));
+        unstage(&repo, &["Cargo.lock".into(), "logo.png".into()]).unwrap();
+        std::fs::remove_file(repo.join("Cargo.lock")).unwrap();
+        std::fs::remove_file(repo.join("logo.png")).unwrap();
+        std::fs::write(repo.join("a.txt"), "a\nb\n").unwrap();
+        stage(&repo, &["a.txt".into()]).unwrap();
         let out = commit(&repo, "change a\n\nwith a body").unwrap();
         assert!(out.contains("change a"), "{out}");
+        assert!(
+            commit_context(&repo, 4096)
+                .unwrap_err()
+                .contains("nothing is staged")
+        );
         let s = status(&repo).unwrap();
         assert_eq!((s.staged, s.untracked), (0, 1));
         assert_eq!(s.last_commit.unwrap().subject, "change a");

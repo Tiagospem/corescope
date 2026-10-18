@@ -41,7 +41,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the FFI contract and sampli
 
 These are not negotiable, because they are what CoreScope is:
 
-- **Local only.** No network access, telemetry or accounts. The only requests are opt-in and off by default: Services checks the user points outside the Mac, and the daily update check (Settings › Updates), which contacts only the release feed. Don't read credentials or tokens, not even to show a usage limit.
+- **Local only.** No network access, telemetry or accounts. The only requests are opt-in and off by default: Services checks the user points outside the Mac, the daily update check (Settings › Updates), which contacts only the release feed, and AI commit messages (Settings › AI), which send a project's staged diff to the provider the user picked only when they click *Generate message*, after showing them once exactly what goes. Don't read credentials or tokens, not even to show a usage limit; the one key CoreScope holds is an AI provider's API key the user pastes in, kept in the Keychain and never in preferences, files or logs.
 - **Public APIs only.** No private or undocumented frameworks, symbols or entitlements, no root, no privileged helpers, no SIP or security changes. If a value has no public source, show it as unavailable instead of guessing.
 - **No process arguments or environment variables.** Working directories and ports are read only for the user's own processes.
 - **Never kill automatically.** Every termination is user-initiated, targets only eligible processes, and revalidates identity (PID + start time + executable) right before signaling.

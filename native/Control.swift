@@ -362,6 +362,36 @@ enum ControlAPI {
       if let error = AgentSettings.write(key, args["value"]) { return reply(["error": error]) }
       reply(["settings": AgentSettings.read()])
 
+    case "ai.commit_message":
+      let ai = AISettings.shared
+      guard ai.enabled else {
+        reply(["error": "AI commit messages are off (CoreScope Settings › AI). Ask the user to turn them on."])
+        return
+      }
+      guard ai.consented.contains(ai.provider.rawValue) else {
+        reply(["error": "The user has not yet confirmed what is sent to \(ai.provider.title). Ask them to click Generate message once in CoreScope's changes panel."])
+        return
+      }
+      DispatchQueue.global(qos: .userInitiated).async {
+        var folder = args["folder"] as? String
+        if folder == nil, let key = args["project"] as? String,
+          let list = try? ProjectsTool.call(["op": "list"], as: [ProjectEntry].self).get()
+        {
+          folder = (list.first { $0.id == key } ?? list.first { $0.name.caseInsensitiveCompare(key) == .orderedSame })?.folder
+        }
+        guard let folder else {
+          reply(["error": "pass project (id or name) or folder"])
+          return
+        }
+        switch AICommit.context(folder: folder) {
+        case .failure(let e): reply(["error": e.message])
+        case .success(let c):
+          switch AICommit.generate(c) {
+          case .success(let text): reply(["message": text, "provider": ai.provider.title, "diff_truncated": c.truncated])
+          case .failure(let f): reply(["error": f.message])
+          }
+        }
+      }
     case "agents.hooks":
       DispatchQueue.global(qos: .userInitiated).async {
         var failure: String?

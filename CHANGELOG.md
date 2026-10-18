@@ -54,6 +54,16 @@ section as the GitHub release notes.
   `delta`, tested), so it says what moved — new/modified/staged/deleted/conflict counts, a new
   commit or a branch switch — and never fires for a save that changes nothing. Clicking opens the
   changes.
+- **AI commit message** (phase 6, opt-in, off by default): *Generate message* in the changes
+  panel writes the message from the staged diff only (core `commit_context`: lockfiles and
+  binaries left out, cut at a configurable size, tested) with the provider set in *Settings › AI*:
+  Claude Code `claude -p` or Codex `codex exec` already signed in (no tools, no MCP, outside any
+  project), the Anthropic / OpenAI (Responses) / Gemini API with the key in the Keychain only, or
+  Ollama / LM Studio. Editable instructions (Conventional Commits, title up to 72 characters),
+  message language, model as free text with suggestions, *Test connection*, and a one-time
+  consent per provider showing exactly what is sent. The message is editable and nothing commits
+  on its own. MCP `generate_commit_message`. CONTRIBUTING and Privacy document the exception to
+  local-only.
 - **Agents follow the project's `.corescope.yml` on their own**: *Settings › MCP server › Agent
   hooks* installs, per agent (Claude Code `~/.claude/settings.json`, Codex `~/.codex/hooks.json`,
   each backed up first), a SessionStart hook (`corescope context --hook`) that gives each new

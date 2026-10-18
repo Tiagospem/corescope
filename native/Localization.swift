@@ -1375,4 +1375,52 @@ private let entries = """
   Alterações em %@ ¦ Changes in %@ ¦ Cambios en %@
   Desligadas por padrão. Uma notificação local por projeto no máximo a cada intervalo, só quando algo mudou desde a última (novos, modificados, em stage, commits, troca de branch) — salvar um arquivo já modificado não conta. Clicar abre as alterações. ¦ Off by default. At most one local notification per project per interval, only when something changed since the last one (new, modified, staged, commits, branch switch) — saving an already modified file doesn't count. Clicking opens the changes. ¦ Desactivadas por defecto. Como mucho una notificación local por proyecto por intervalo, solo cuando algo cambió desde la última (nuevos, modificados, preparados, commits, cambio de rama) — guardar un archivo ya modificado no cuenta. Al hacer clic se abren los cambios.
   Notifica alterações a cada %@ min ¦ Notifies changes every %@ min ¦ Notifica cambios cada %@ min
+  Claude Code instalado (claude -p) ¦ Installed Claude Code (claude -p) ¦ Claude Code instalado (claude -p)
+  Codex instalado (codex exec) ¦ Installed Codex (codex exec) ¦ Codex instalado (codex exec)
+  Ollama (local) ¦ Ollama (local) ¦ Ollama (local)
+  LM Studio (local) ¦ LM Studio (local) ¦ LM Studio (local)
+  Crie uma chave em platform.claude.com › API keys. ¦ Create a key at platform.claude.com › API keys. ¦ Crea una clave en platform.claude.com › API keys.
+  Crie uma chave em platform.openai.com › API keys. ¦ Create a key at platform.openai.com › API keys. ¦ Crea una clave en platform.openai.com › API keys.
+  Crie uma chave em aistudio.google.com › Get API key. ¦ Create a key at aistudio.google.com › Get API key. ¦ Crea una clave en aistudio.google.com › Get API key.
+  Usa o login do próprio Claude Code; nenhuma chave aqui. ¦ Uses Claude Code's own login; no key here. ¦ Usa el inicio de sesión de Claude Code; ninguna clave aquí.
+  Usa o login do próprio Codex; nenhuma chave aqui. ¦ Uses Codex's own login; no key here. ¦ Usa el inicio de sesión de Codex; ninguna clave aquí.
+  Roda no seu Mac; nada sai da máquina. ¦ Runs on your Mac; nothing leaves it. ¦ Se ejecuta en tu Mac; nada sale de la máquina.
+  O Codex não devolveu uma mensagem. ¦ Codex returned no message. ¦ Codex no devolvió ningún mensaje.
+  Falta a chave da API no Keychain. ¦ The API key is missing from the Keychain. ¦ Falta la clave de la API en el Llavero.
+  Endereço inválido: %@ ¦ Invalid address: %@ ¦ Dirección no válida: %@
+  Sem resposta. ¦ No response. ¦ Sin respuesta.
+  A resposta veio sem texto. ¦ The response had no text. ¦ La respuesta llegó sin texto.
+  %@ não foi encontrado neste Mac. ¦ %@ wasn't found on this Mac. ¦ No se encontró %@ en este Mac.
+  %@ demorou demais. ¦ %@ took too long. ¦ %@ tardó demasiado.
+  IA (opcional) ¦ AI (optional) ¦ IA (opcional)
+  Gerar mensagens de commit com IA ¦ Generate commit messages with AI ¦ Generar mensajes de commit con IA
+  Desligado por padrão: é o único recurso do CoreScope que pode mandar código para fora do Mac. Ligado, nada é enviado sozinho — só quando você clica em Gerar mensagem, e na primeira vez com cada provedor o CoreScope mostra exatamente o que vai: o nome do repositório, a branch, a lista de arquivos e o diff em stage (sem lockfiles nem binários, cortado no limite abaixo). O commit continua sendo um clique seu. ¦ Off by default: it is the only CoreScope feature that can send code off the Mac. When on, nothing is sent by itself — only when you click Generate message, and the first time with each provider CoreScope shows exactly what goes: the repository's name, the branch, the file list and the staged diff (no lockfiles or binaries, cut at the limit below). Committing is still your click. ¦ Desactivado por defecto: es la única función de CoreScope que puede enviar código fuera del Mac. Activado, nada se envía solo — solo cuando haces clic en Generar mensaje, y la primera vez con cada proveedor CoreScope muestra exactamente lo que se envía: el nombre del repositorio, la rama, la lista de archivos y el diff preparado (sin lockfiles ni binarios, recortado al límite de abajo). El commit sigue siendo un clic tuyo.
+  Provedor ¦ Provider ¦ Proveedor
+  Modelo ¦ Model ¦ Modelo
+  padrão do provedor ¦ provider's default ¦ predeterminado del proveedor
+  Sugestões de modelos rápidos e baratos; confira os nomes atuais na documentação do provedor. ¦ Suggestions of fast, inexpensive models; check the current names in the provider's documentation. ¦ Sugerencias de modelos rápidos y baratos; comprueba los nombres actuales en la documentación del proveedor.
+  Chave da API ¦ API key ¦ Clave de la API
+  salva no Keychain ¦ saved in the Keychain ¦ guardada en el Llavero
+  cole a chave ¦ paste the key ¦ pega la clave
+  Endereço ¦ Address ¦ Dirección
+  A chave fica só no Keychain do macOS, nunca em preferências, arquivos ou logs. ¦ The key lives only in the macOS Keychain, never in preferences, files or logs. ¦ La clave vive solo en el Llavero de macOS, nunca en preferencias, archivos ni logs.
+  Idioma da mensagem ¦ Message language ¦ Idioma del mensaje
+  O do app ¦ The app's ¦ El de la app
+  Limite do diff enviado ¦ Diff size limit ¦ Límite del diff enviado
+  Instruções ¦ Instructions ¦ Instrucciones
+  Restaurar padrão ¦ Restore default ¦ Restaurar predeterminado
+  Testar conexão ¦ Test connection ¦ Probar conexión
+  Pedir confirmação de novo ¦ Ask again ¦ Volver a pedir confirmación
+  Mostra outra vez o que será enviado antes do próximo envio a cada provedor. ¦ Shows again what will be sent before the next request to each provider. ¦ Vuelve a mostrar lo que se enviará antes del próximo envío a cada proveedor.
+  O teste manda só uma frase curta, nenhum código. ¦ The test sends one short sentence, no code. ¦ La prueba envía solo una frase corta, nada de código.
+  Respondeu: %@ ¦ Replied: %@ ¦ Respondió: %@
+  Enviar para %@? ¦ Send to %@? ¦ ¿Enviar a %@?
+  Isto sai do seu Mac e vai para o provedor escolhido, que processa conforme os termos dele. Só desta vez a cada provedor o CoreScope pergunta; depois, Gerar mensagem envia direto. ¦ This leaves your Mac for the provider you chose, which processes it under its own terms. CoreScope asks only this once per provider; after that, Generate message sends right away. ¦ Esto sale de tu Mac hacia el proveedor elegido, que lo procesa según sus términos. CoreScope pregunta solo esta vez por proveedor; después, Generar mensaje envía directamente.
+  Vai para o servidor local configurado; nada sai do Mac. ¦ Goes to the configured local server; nothing leaves the Mac. ¦ Va al servidor local configurado; nada sale del Mac.
+  Repositório %@ · %@ arquivos · %@ do diff%@ ¦ Repository %@ · %@ files · %@ of diff%@ ¦ Repositorio %@ · %@ archivos · %@ de diff%@
+  (cortado) ¦ (cut) ¦ (recortado)
+  Enviar e gerar ¦ Send and generate ¦ Enviar y generar
+  Gerar mensagem ¦ Generate message ¦ Generar mensaje
+  Escreve a mensagem a partir do diff em stage (%@). Você revisa antes de commitar. ¦ Writes the message from the staged diff (%@). You review it before committing. ¦ Escribe el mensaje a partir del diff preparado (%@). Lo revisas antes del commit.
+  Não deu para gerar a mensagem: %@ ¦ Couldn't generate the message: %@ ¦ No se pudo generar el mensaje: %@
   """
