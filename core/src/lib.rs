@@ -10,6 +10,7 @@ pub mod diskhealth;
 pub mod eject;
 pub mod exposure;
 pub mod git;
+pub mod gitbranches;
 pub mod gitchanges;
 pub mod history;
 pub mod largefiles;
@@ -1795,7 +1796,8 @@ pub fn db_tool(v: &serde_json::Value) -> Result<serde_json::Value, String> {
 /// Projects shared by the app, the CLI and MCP. `op`: list, check {folder}, add {folder, name,
 /// template}, rename {id, name}, set {id, show_in_panel, notify_minutes}, remove {id},
 /// init {folder}; and the repository's changes: status {folder}, diff {folder, path, staged},
-/// stage/unstage/discard {folder, paths}, commit {folder, message}, ignored {folder, paths}.
+/// stage/unstage/discard {folder, paths}, commit {folder, message}, ignored {folder, paths};
+/// branches {folder}, worktrees {folder}, worktree_size {folder, path}.
 pub fn projects_tool(v: &serde_json::Value) -> Result<serde_json::Value, String> {
     use serde_json::json;
     let file = projects::default_path(&home());
@@ -1845,6 +1847,12 @@ pub fn projects_tool(v: &serde_json::Value) -> Result<serde_json::Value, String>
         }
         "init" => Ok(json!(git::init(&folder()?)?)),
         "status" => Ok(json!(gitchanges::status(&folder()?)?)),
+        "branches" => Ok(json!(gitbranches::branches(&folder()?)?)),
+        "worktrees" => Ok(json!(gitbranches::worktrees(&folder()?, &processes_now())?)),
+        "worktree_size" => {
+            let path = v["path"].as_str().ok_or("path is required")?;
+            Ok(json!({"path": path, "bytes": gitbranches::worktree_size(&folder()?, path)?}))
+        }
         "diff" => {
             let path = v["path"].as_str().ok_or("path is required")?;
             let staged = v["staged"].as_bool().unwrap_or(false);

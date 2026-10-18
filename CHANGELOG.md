@@ -31,6 +31,15 @@ section as the GitHub release notes.
   *Projects (git)* in CoreScope's own cost. `corescope status`, `corescope://project/NAME`, MCP
   `project_git_status`, `project_git_diff`, `project_git_stage`, `project_git_commit`,
   `project_git_discard`.
+- **Projects › Branches and worktrees** (phase 3, view only): collapsible sections on each
+  repository's card, closed by default and read only when opened. Local branches (`git branch
+  --format`): current first, last commit, ahead/behind or upstream gone, checked out in another
+  worktree. Worktrees (`git worktree list --porcelain`, main included): branch, agent, merged,
+  uncommitted changes, process working in it, lock, folder gone, last commit and a size measured
+  in the background and cached for 10 minutes, without counting nested worktrees twice. Removal
+  stays on the Cleanup page, linked from the section. `corescope branches`, `corescope worktrees`
+  accepts a project name, MCP `project_branches` / `project_worktrees`.
+- Demo mode also anonymizes project names and branch names on the Projects page.
 
 ### Fixed
 - The Navigate menu gives ⌘1–⌘9 to the first nine pages only; more pages would have crashed it.

@@ -62,6 +62,7 @@ USAGE:
                                         open files and working folders (read-only)
   corescope projects                    registered projects: branch, worktree, .corescope.yml status
   corescope status [PROJECT|FOLDER]     git changes of a project (or this folder): branch, staged, modified, new
+  corescope branches [PROJECT|FOLDER]   local branches: current, last commit, ahead/behind, worktree
   corescope disk-health                 SSD health from NVMe SMART: wear, data written, power-on
                                         hours, unsafe shutdowns, media errors and a verdict
   corescope mcp                         run the local MCP server on stdio
@@ -238,7 +239,15 @@ fn main() {
         }
         Some("containers") => print(json_out, containers()),
         Some("worktrees") => {
-            let folders: Vec<std::path::PathBuf> = positional[1..].iter().map(Into::into).collect();
+            // A registered project's name stands for its folder.
+            let folders: Vec<std::path::PathBuf> = positional[1..]
+                .iter()
+                .map(|t| {
+                    project_folder(Some(t))
+                        .unwrap_or_else(|_| t.to_string())
+                        .into()
+                })
+                .collect();
             print(json_out, worktrees(&folders))
         }
         Some("gate") => gate(),
@@ -346,29 +355,11 @@ fn main() {
             }
         }
         Some("status") => (|| -> i32 {
-            let target = positional.get(1).map(|t| t.to_string());
-            let folder = match target {
-                None => std::env::current_dir()
-                    .map(|d| d.to_string_lossy().into_owned())
-                    .unwrap_or_default(),
-                Some(t) if std::path::Path::new(&t).is_dir() => std::fs::canonicalize(&t)
-                    .map(|d| d.to_string_lossy().into_owned())
-                    .unwrap_or(t),
-                Some(t) => {
-                    let list =
-                        corescope::projects_tool(&json!({"op": "list"})).unwrap_or(json!([]));
-                    match list.as_array().into_iter().flatten().find(|p| {
-                        p["id"].as_str() == Some(t.as_str())
-                            || p["name"]
-                                .as_str()
-                                .is_some_and(|n| n.eq_ignore_ascii_case(&t))
-                    }) {
-                        Some(p) => p["folder"].as_str().unwrap_or("").to_string(),
-                        None => {
-                            eprintln!("No project or folder called {t}.");
-                            return 1;
-                        }
-                    }
+            let folder = match project_folder(positional.get(1).copied()) {
+                Ok(f) => f,
+                Err(e) => {
+                    eprintln!("{e}");
+                    return 1;
                 }
             };
             let s = match corescope::projects_tool(&json!({"op": "status", "folder": folder})) {
@@ -434,6 +425,51 @@ fn main() {
             }
             if n("truncated") > 0 {
                 println!("  … and {} more", n("truncated"));
+            }
+            0
+        })(),
+        Some("branches") => (|| -> i32 {
+            let folder = match project_folder(positional.get(1).copied()) {
+                Ok(f) => f,
+                Err(e) => {
+                    eprintln!("{e}");
+                    return 1;
+                }
+            };
+            let v = match corescope::projects_tool(&json!({"op": "branches", "folder": folder})) {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!("{e}");
+                    return 1;
+                }
+            };
+            if json_out {
+                return print(true, v);
+            }
+            for b in v["branches"].as_array().into_iter().flatten() {
+                let mut sync = match (b["ahead"].as_u64(), b["behind"].as_u64()) {
+                    _ if b["gone"].as_bool() == Some(true) => "upstream gone".to_string(),
+                    (Some(a), Some(r)) => format!("↑{a} ↓{r}"),
+                    _ => "no upstream".into(),
+                };
+                if let Some(w) = b["worktree"].as_str() {
+                    sync += &format!("  (worktree {w})");
+                }
+                println!(
+                    "{} {:<32} {:<9} {:<14} {}",
+                    if b["current"].as_bool() == Some(true) {
+                        "*"
+                    } else {
+                        " "
+                    },
+                    b["name"].as_str().unwrap_or(""),
+                    b["head"].as_str().unwrap_or(""),
+                    sync,
+                    b["subject"].as_str().unwrap_or("")
+                );
+            }
+            if let Some(n) = v["truncated"].as_u64().filter(|n| *n > 0) {
+                println!("  … and {n} more");
             }
             0
         })(),
@@ -1658,6 +1694,33 @@ fn print(json_out: bool, value: Value) -> i32 {
         println!("{value}");
     }
     0
+}
+
+/// A registered project's folder (id or name), a folder given on the command line, or the
+/// current folder.
+fn project_folder(target: Option<&str>) -> Result<String, String> {
+    let Some(t) = target else {
+        return std::env::current_dir()
+            .map(|d| d.to_string_lossy().into_owned())
+            .map_err(|e| e.to_string());
+    };
+    if std::path::Path::new(t).is_dir() {
+        return Ok(std::fs::canonicalize(t)
+            .map(|d| d.to_string_lossy().into_owned())
+            .unwrap_or_else(|_| t.to_string()));
+    }
+    let list = corescope::projects_tool(&json!({"op": "list"})).unwrap_or(json!([]));
+    list.as_array()
+        .into_iter()
+        .flatten()
+        .find(|p| {
+            p["id"].as_str() == Some(t)
+                || p["name"]
+                    .as_str()
+                    .is_some_and(|n| n.eq_ignore_ascii_case(t))
+        })
+        .and_then(|p| p["folder"].as_str().map(str::to_string))
+        .ok_or_else(|| format!("No project or folder called {t}."))
 }
 
 #[cfg(test)]

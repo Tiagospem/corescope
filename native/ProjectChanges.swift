@@ -416,7 +416,7 @@ struct ProjectChangesView: View {
     VStack(alignment: .leading, spacing: 6) {
       HStack(spacing: 8) {
         Button(action: back) { Label(L("Projetos"), systemImage: "chevron.left") }.buttonStyle(.borderless)
-        Text(project.name).font(.title3.weight(.semibold))
+        Text(shownProjectName(project)).font(.title3.weight(.semibold))
         Spacer()
         if store.loading || store.busy { ProgressView().controlSize(.small) }
         Button {
@@ -431,7 +431,7 @@ struct ProjectChangesView: View {
       if let s = store.status {
         HStack(spacing: 8) {
           Image(systemName: "arrow.triangle.branch").foregroundStyle(Tint.brand)
-          Text(s.branch.head ?? L("HEAD destacado em %@", s.branch.oid.map { String($0.prefix(7)) } ?? "?")).font(.callout.weight(.medium))
+          Text(s.branch.head.map(shownBranch) ?? L("HEAD destacado em %@", s.branch.oid.map { String($0.prefix(7)) } ?? "?")).font(.callout.weight(.medium))
           if let up = s.branch.upstream {
             Text(Demo.enabled ? "origin" : up).font(.caption).foregroundStyle(.secondary)
             Badge(text: "↑\(s.branch.ahead ?? 0)  ↓\(s.branch.behind ?? 0)", color: (s.branch.behind ?? 0) > 0 ? .orange : .secondary)

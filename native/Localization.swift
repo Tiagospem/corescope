@@ -1289,4 +1289,23 @@ private let entries = """
   Alterações ¦ Changes ¦ Cambios
   Projetos (git) ¦ Projects (git) ¦ Proyectos (git)
   só com as alterações de um projeto abertas: FSEvents, recarrega no máximo a cada 0,5 s e ignora o que o .gitignore cobre ¦ only while a project's changes are open: FSEvents, reloads at most every 0.5 s and ignores what .gitignore covers ¦ solo con los cambios de un proyecto abiertos: FSEvents, recarga como mucho cada 0,5 s e ignora lo que cubre .gitignore
+  Mostrar todas (%@) ¦ Show all (%@) ¦ Mostrar todas (%@)
+  Branches locais ¦ Local branches ¦ Ramas locales
+  Em uso no worktree %@ ¦ Checked out in worktree %@ ¦ En uso en el worktree %@
+  Upstream: %@ ¦ Upstream: %@ ¦ Upstream: %@
+  upstream removido ¦ upstream gone ¦ upstream eliminado
+  em dia ¦ up to date ¦ al día
+  Só o working tree principal: nenhum git worktree add neste repositório. ¦ Only the main working tree: no git worktree add in this repository. ¦ Solo el working tree principal: ningún git worktree add en este repositorio.
+  Limpar worktrees na Limpeza ¦ Clean up worktrees in Cleanup ¦ Limpiar worktrees en Limpieza
+  principal ¦ main ¦ principal
+  este projeto ¦ this project ¦ este proyecto
+  pasta sumiu ¦ folder gone ¦ carpeta eliminada
+  O git ainda lista este worktree; git worktree prune (ou a Limpeza) tira da lista. ¦ Git still lists this worktree; git worktree prune (or Cleanup) takes it off the list. ¦ Git aún lista este worktree; git worktree prune (o Limpieza) lo quita de la lista.
+  Medindo o tamanho… ¦ Measuring the size… ¦ Midiendo el tamaño…
+  mergeado ¦ merged ¦ fusionado
+  não mergeado ¦ not merged ¦ sin fusionar
+  em uso ¦ in use ¦ en uso
+  Em uso por %@ ¦ In use by %@ ¦ En uso por %@
+  bloqueado ¦ locked ¦ bloqueado
+  git worktree lock: o git não remove este worktree ¦ git worktree lock: git won't remove this worktree ¦ git worktree lock: git no elimina este worktree
   """

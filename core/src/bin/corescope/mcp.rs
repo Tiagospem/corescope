@@ -613,6 +613,25 @@ fn core_tools() -> Vec<Value> {
             &["path"],
         ),
         tool(
+            "project_branches",
+            "A project's local branches, current first then newest: last commit (hash, subject, \
+             author, time), upstream with ahead/behind or gone, and the other worktree a branch \
+             is checked out in. Read-only.",
+            json!({"project": {"type": "string"}, "folder": {"type": "string"}}),
+            &[],
+        ),
+        tool(
+            "project_worktrees",
+            "Every working tree of a project's repository (main first): path, branch, the agent \
+             that made it, merged into the default branch, uncommitted changes, a process \
+             working in it, git lock, folder gone, last commit, and size when already measured \
+             (pass `measure` with a worktree path to measure it). Removing worktrees is done on \
+             the Cleanup page (scan_dev_space / clean_dev_space). Read-only.",
+            json!({"project": {"type": "string"}, "folder": {"type": "string"},
+                   "measure": {"type": "string", "description": "A worktree path to measure"}}),
+            &[],
+        ),
+        tool(
             "project_git_stage",
             "Stage (git add -A) or, with `unstage` true, unstage files of a project. Paths are \
              relative to the repository root.",
@@ -906,7 +925,9 @@ fn call(params: &Value) -> Value {
         | "project_git_diff"
         | "project_git_stage"
         | "project_git_commit"
-        | "project_git_discard" => {
+        | "project_git_discard"
+        | "project_branches"
+        | "project_worktrees" => {
             let folder = match project_folder(args) {
                 Ok(f) => f,
                 Err(e) => return text(json!({"error": e}), true),
@@ -916,6 +937,20 @@ fn call(params: &Value) -> Value {
                 "project_git_diff" => "diff",
                 "project_git_commit" => "commit",
                 "project_git_discard" => "discard",
+                "project_branches" => "branches",
+                "project_worktrees" if args["measure"].is_string() => {
+                    let mut request = json!({"op": "worktree_size", "folder": folder,
+                                             "path": args["measure"]});
+                    if let Err(e) = corescope::projects_tool(&request) {
+                        return text(json!({"error": e}), true);
+                    }
+                    request["op"] = json!("worktrees");
+                    return match corescope::projects_tool(&request) {
+                        Ok(v) => text(v, false),
+                        Err(e) => text(json!({"error": e}), true),
+                    };
+                }
+                "project_worktrees" => "worktrees",
                 _ if args["unstage"].as_bool() == Some(true) => "unstage",
                 _ => "stage",
             };

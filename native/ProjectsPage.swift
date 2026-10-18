@@ -279,7 +279,7 @@ struct ProjectGitView: View {
     if git.is_repo {
       HStack(spacing: 6) {
         Image(systemName: "arrow.triangle.branch").foregroundStyle(Tint.brand)
-        Text(git.branch ?? (git.detached ? L("HEAD destacado em %@", git.head ?? "?") : L("sem commits ainda")))
+        Text(git.branch.map(shownBranch) ?? (git.detached ? L("HEAD destacado em %@", git.head ?? "?") : L("sem commits ainda")))
           .font(.callout.weight(.medium))
         if git.is_worktree { Badge(text: L("worktree"), color: .orange) }
         if let sub = git.subfolder { Badge(text: L("subpasta %@", sub), color: .secondary) }
@@ -318,7 +318,7 @@ private struct ProjectCard: View {
             TextField(L("Nome"), text: $draft).textFieldStyle(.roundedBorder).frame(maxWidth: 280)
               .onSubmit(save)
           } else {
-            Text(project.name).font(.system(size: 14, weight: .semibold))
+            Text(shownProjectName(project)).font(.system(size: 14, weight: .semibold))
           }
           Text(shown(project.folder)).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
         }
@@ -347,11 +347,16 @@ private struct ProjectCard: View {
       if let check {
         ProjectGitView(git: check.git) { confirmInit = true }
         ProjectConfigView(config: check.config)
+        if check.git.is_repo {
+          Divider()
+          ProjectBranchesSection(project: project)
+          ProjectWorktreesSection(project: project)
+        }
       } else {
         ProgressView().controlSize(.small)
       }
     }
-    .confirmationDialog(L("Remover %@ da lista?", project.name), isPresented: $confirmRemove) {
+    .confirmationDialog(L("Remover %@ da lista?", shownProjectName(project)), isPresented: $confirmRemove) {
       Button(L("Remover"), role: .destructive) { store.remove(project) }
       Button(L("Cancelar"), role: .cancel) {}
     } message: {
