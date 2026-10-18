@@ -362,6 +362,33 @@ enum ControlAPI {
       if let error = AgentSettings.write(key, args["value"]) { return reply(["error": error]) }
       reply(["settings": AgentSettings.read()])
 
+    case "agents.limits":
+      let agents = AgentStore.shared
+      func window(_ w: LimitWindow) -> [String: Any] {
+        var out: [String: Any] = [
+          "window": w.windowMinutes == 300 ? "5h" : w.windowMinutes == 10080 ? "7d" : "\(w.windowMinutes)m",
+          "used_percent": w.usedPercent,
+          "resets_at": w.resetsAt.map { ISO8601DateFormatter().string(from: $0) } ?? NSNull(),
+        ]
+        if let r = w.resetsAt, let pace = limitPace(used: w.usedPercent, windowMinutes: w.windowMinutes, resetsAt: r) {
+          out["projected_percent_at_reset"] = (pace.projected * 10).rounded() / 10
+          out["full_at"] = pace.fullAt.map { ISO8601DateFormatter().string(from: $0) } ?? NSNull()
+        }
+        return out
+      }
+      let at = { (d: Date?) -> Any in d.map { ISO8601DateFormatter().string(from: $0) } ?? NSNull() }
+      reply([
+        "claude": [
+          "source": agents.claude.windows.isEmpty ? NSNull() : agents.claude.source as Any,
+          "observed_at": at(agents.claude.observedAt),
+          "windows": agents.claude.windows.map(window),
+        ],
+        "codex": [
+          "plan": agents.codex.plan ?? NSNull(), "observed_at": at(agents.codex.observedAt),
+          "windows": agents.codex.windows.map(window),
+        ],
+        "note": "Claude: 'statusline' comes from Claude Code's status line (with reset times); 'desktop' from Claude Desktop's local samples (no reset times). Pace is the average since the window started.",
+      ])
     case "agents.stuck":
       let watch = StallWatch.shared
       var out: [[String: Any]] = []

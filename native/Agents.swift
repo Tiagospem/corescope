@@ -24,6 +24,19 @@ struct LimitWindow: Identifiable, Equatable {
       : L("reinicia em %@", formatDuration(resetsAt.timeIntervalSinceNow))
   }
   var color: Color { usedPercent >= 90 ? .red : usedPercent >= 70 ? .orange : Tint.brand }
+  /// Where the window is heading at its average pace so far (needs the reset time).
+  var paceText: String? {
+    guard let resetsAt, !expired, let pace = limitPace(used: usedPercent, windowMinutes: windowMinutes, resetsAt: resetsAt)
+    else { return nil }
+    if let full = pace.fullAt {
+      return L("no ritmo atual, chega a 100%% às %@", full.formatted(date: windowMinutes > 300 ? .abbreviated : .omitted, time: .shortened))
+    }
+    return L("no ritmo atual, ~%@ no reinício", String(format: "%.0f%%", min(pace.projected, 100)))
+  }
+  var paceWarning: Bool {
+    guard let resetsAt else { return false }
+    return limitPace(used: usedPercent, windowMinutes: windowMinutes, resetsAt: resetsAt)?.fullAt != nil
+  }
 }
 /// Metadata Claude Code keeps per running session in ~/.claude/sessions/<pid>.json.
 struct ClaudeSessionMeta: Decodable, Equatable {
@@ -143,6 +156,8 @@ struct ClaudeUsage: Equatable {
   var windows: [LimitWindow] = []
   /// When the status line last ran with usage data (the file's modification time).
   var observedAt: Date?
+  /// "statusline" or "desktop" (Claude Desktop's own samples, no reset times).
+  var source = "statusline"
   var weekly: LimitWindow? { windows.first { $0.windowMinutes == 10080 } ?? windows.last }
 }
 /// A limit row with the agent it belongs to, for the compact lists in the popover and panel.
@@ -396,7 +411,9 @@ final class AgentStore: ObservableObject {
       let cost = CostMeter.begin()
       defer { CostMeter.end("agents", cost) }
       let codex = (live ? CodexAppServer.readLimits() : nil) ?? (keepLive ? nil : self.readCodex())
-      let claude = readClaude ? self.readClaudeLimits() : ClaudeUsage()
+      var claude = readClaude ? self.readClaudeLimits() : ClaudeUsage()
+      // Claude Desktop samples the same limits while it runs: a local file, no credentials.
+      if claude.windows.isEmpty, let desktop = Self.readDesktopUsage() { claude = desktop }
       let sessions = Self.readClaudeSessions()
       let threads = CodexThreads.read()
       let writes = Transcripts.lastWrites(claude: Array(sessions.values), codex: threads)
@@ -455,6 +472,16 @@ final class AgentStore: ObservableObject {
   }
 
   private static let home = FileManager.default.homeDirectoryForCurrentUser
+  static let desktopUsageFile = home.appendingPathComponent("Library/Application Support/Claude/plan-usage-history.json")
+  private static func readDesktopUsage() -> ClaudeUsage? {
+    guard let data = try? Data(contentsOf: desktopUsageFile), data.count < 1 << 20,
+      let u = parseDesktopUsage(data)
+    else { return nil }
+    var windows: [LimitWindow] = []
+    if let fh = u.fiveHour { windows.append(LimitWindow(id: "five_hour", usedPercent: fh, windowMinutes: 300, resetsAt: nil)) }
+    if let sd = u.sevenDay { windows.append(LimitWindow(id: "seven_day", usedPercent: sd, windowMinutes: 10080, resetsAt: nil)) }
+    return ClaudeUsage(windows: windows, observedAt: u.at, source: "desktop")
+  }
   private static func newest(in dir: URL, files: Bool) -> [URL] {
     let keys: [URLResourceKey] = [.contentModificationDateKey, .isDirectoryKey]
     let items =
@@ -581,6 +608,9 @@ struct LimitBar: View {
       if !compact, let reset = window.resetText {
         Text(reset).font(.caption).foregroundStyle(.secondary)
       }
+      if !compact, let pace = window.paceText {
+        Text(pace).font(.caption).foregroundStyle(window.paceWarning ? Color.orange : .secondary)
+      }
     }
     .help(window.resetText ?? "")
     .accessibilityElement(children: .combine)
@@ -634,10 +664,18 @@ struct LimitsCard: View {
             LimitPlaceholder(title: "Claude Code", text: claudeNote)
           } else {
             ForEach(agents.claude.windows) { w in LimitBar(title: "Claude", window: w) }
-            Text(
-              [agents.claude.observedAt.map { L("atualizado %@", $0.formatted(date: .omitted, time: .shortened)) },
-               L("renova a cada resposta do Claude Code")].compactMap { $0 }.joined(separator: " · ")
-            ).font(.caption2).foregroundStyle(.secondary)
+            if agents.claude.source == "desktop" {
+              let at = agents.claude.observedAt ?? Date()
+              Text(
+                L("via Claude Desktop %@ · sem horário de reinício; atualiza enquanto o Claude Desktop está aberto", at.formatted(.relative(presentation: .named)))
+              ).font(.caption2).foregroundStyle(-at.timeIntervalSinceNow > 900 ? Color.orange : .secondary)
+                .help(L("Lido de ~/Library/Application Support/Claude/plan-usage-history.json, que o Claude Desktop grava a cada poucos minutos. Ative o status line em Ajustes › Agentes para ter o horário de reinício e o ritmo."))
+            } else {
+              Text(
+                [agents.claude.observedAt.map { L("atualizado %@", $0.formatted(date: .omitted, time: .shortened)) },
+                 L("renova a cada resposta do Claude Code")].compactMap { $0 }.joined(separator: " · ")
+              ).font(.caption2).foregroundStyle(.secondary)
+            }
           }
         }.frame(maxWidth: .infinity, alignment: .leading)
       }

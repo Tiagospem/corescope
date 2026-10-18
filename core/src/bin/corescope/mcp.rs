@@ -330,6 +330,15 @@ fn app_tools() -> Vec<(
             vec![],
         ),
         (
+            "usage_limits",
+            "agents.limits",
+            "Claude and Codex usage limits as CoreScope sees them: percent used per window (5h, 7d), \
+             reset time, where it came from, and the pace (percent projected at the reset, and when \
+             it reaches 100% if before). Use it before long agent work to avoid hitting a limit midway.",
+            json!({}),
+            vec![],
+        ),
+        (
             "eject_volume",
             "volumes.eject",
             "Eject an external volume (/Volumes/…) with diskutil. If it fails, returns diskutil's \

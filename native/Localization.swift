@@ -1184,4 +1184,8 @@ private let entries = """
   Snapshots ¦ Snapshots ¦ Snapshots
   db%@ esvaziado. ¦ db%@ emptied. ¦ db%@ vaciada.
   ~%@ chaves ¦ ~%@ keys ¦ ~%@ claves
+  no ritmo atual, chega a 100%% às %@ ¦ at this pace, hits 100%% at %@ ¦ a este ritmo, llega al 100%% a las %@
+  no ritmo atual, ~%@ no reinício ¦ at this pace, ~%@ at the reset ¦ a este ritmo, ~%@ al reiniciar
+  via Claude Desktop %@ · sem horário de reinício; atualiza enquanto o Claude Desktop está aberto ¦ via Claude Desktop %@ · no reset time; updates while Claude Desktop is open ¦ vía Claude Desktop %@ · sin hora de reinicio; se actualiza mientras Claude Desktop está abierto
+  Lido de ~/Library/Application Support/Claude/plan-usage-history.json, que o Claude Desktop grava a cada poucos minutos. Ative o status line em Ajustes › Agentes para ter o horário de reinício e o ritmo. ¦ Read from ~/Library/Application Support/Claude/plan-usage-history.json, which Claude Desktop writes every few minutes. Turn on the status line in Settings › Agents for the reset time and pace. ¦ Leído de ~/Library/Application Support/Claude/plan-usage-history.json, que Claude Desktop escribe cada pocos minutos. Activa el status line en Ajustes › Agentes para tener la hora de reinicio y el ritmo.
   """

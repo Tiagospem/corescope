@@ -418,6 +418,8 @@ func parseClaudeLimits(_ data: Data, now: Date = Date()) -> [ClaudeLimitSample] 
   return [("five_hour", 300), ("seven_day", 10080)].compactMap { key, minutes in
     guard let w = object[key] as? [String: Any], let used = (w["used_percentage"] as? NSNumber)?.doubleValue
     else { return nil }
+    // Some Claude Code versions put the reset epoch in used_percentage: not a percentage.
+    guard used <= 100.5 else { return nil }
     let reset = (w["resets_at"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue) }
     if let reset, reset <= now { return nil }
     return ClaudeLimitSample(
@@ -1195,4 +1197,49 @@ func looksLikeTime(_ text: String) -> Bool {
   let rest = words.first(where: { t.hasPrefix($0) }).map { String(t.dropFirst($0.count)).trimmingCharacters(in: .whitespaces) } ?? t
   return rest.range(of: #"^\d{1,2}([:h]\d{2})?\s*(am|pm)?$"#, options: .regularExpression) != nil
     && (rest.contains(":") || rest.contains("h") || rest.hasSuffix("m"))
+}
+
+
+/// Claude Desktop's own usage samples (`~/Library/Application Support/Claude/plan-usage-history.json`,
+/// `{samples: [{t: ms, org, u: {fh, sd}}]}`): the latest 5-hour and weekly percentages. They carry
+/// no reset times; a sample older than its window says nothing about it.
+struct DesktopUsage: Equatable {
+  var fiveHour: Double?
+  var sevenDay: Double?
+  let at: Date
+}
+func parseDesktopUsage(_ data: Data, now: Date = Date()) -> DesktopUsage? {
+  guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+    let samples = object["samples"] as? [[String: Any]],
+    let last = samples.max(by: { (($0["t"] as? NSNumber)?.doubleValue ?? 0) < (($1["t"] as? NSNumber)?.doubleValue ?? 0) }),
+    let t = (last["t"] as? NSNumber)?.doubleValue, let u = last["u"] as? [String: Any]
+  else { return nil }
+  let at = Date(timeIntervalSince1970: t / 1000)
+  let age = now.timeIntervalSince(at)
+  let pct = { (key: String) in (u[key] as? NSNumber)?.doubleValue.flatMap { $0 >= 0 && $0 <= 100 ? $0 : nil } }
+  let usage = DesktopUsage(
+    fiveHour: age < 5 * 3600 ? pct("fh") : nil, sevenDay: age < 7 * 86400 ? pct("sd") : nil, at: at)
+  return usage.fiveHour == nil && usage.sevenDay == nil ? nil : usage
+}
+extension Double {
+  fileprivate func flatMap(_ f: (Double) -> Double?) -> Double? { f(self) }
+}
+
+/// Where a limit window is heading at the average pace since it started: the percentage at the
+/// reset, and when it reaches 100% if that is before the reset. Too early in the window (first
+/// 10 minutes of 5 hours, first hour of a week) there is no pace yet.
+struct LimitPace: Equatable {
+  let projected: Double
+  let fullAt: Date?
+}
+func limitPace(used: Double, windowMinutes: Int, resetsAt: Date, now: Date = Date()) -> LimitPace? {
+  let window = Double(windowMinutes) * 60
+  let remaining = resetsAt.timeIntervalSince(now)
+  let elapsed = window - remaining
+  let minimum: Double = windowMinutes <= 300 ? 600 : 3600
+  guard remaining > 0, elapsed >= minimum, used > 0 else { return nil }
+  let rate = used / elapsed
+  let projected = used + rate * remaining
+  let toFull = (100 - used) / rate
+  return LimitPace(projected: projected, fullAt: toFull < remaining ? now.addingTimeInterval(toFull) : nil)
 }
