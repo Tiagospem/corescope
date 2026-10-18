@@ -41,7 +41,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the FFI contract and sampli
 
 These are not negotiable, because they are what CoreScope is:
 
-- **Local only.** No network access, telemetry, accounts or update checks. Don't read credentials or tokens, not even to show a usage limit.
+- **Local only.** No network access, telemetry or accounts. The only requests are opt-in and off by default: Services checks the user points outside the Mac, and the daily update check (Settings › Updates), which contacts only the release feed. Don't read credentials or tokens, not even to show a usage limit.
 - **Public APIs only.** No private or undocumented frameworks, symbols or entitlements, no root, no privileged helpers, no SIP or security changes. If a value has no public source, show it as unavailable instead of guessing.
 - **No process arguments or environment variables.** Working directories and ports are read only for the user's own processes.
 - **Never kill automatically.** Every termination is user-initiated, targets only eligible processes, and revalidates identity (PID + start time + executable) right before signaling.
@@ -79,6 +79,43 @@ material cannot be rendered offscreen.
 Demo mode replaces your user name, folders, project names and session titles, but process and
 container names stay real: inspect the images before committing them. Set `WARMUP=<seconds>`
 (default 75) for a longer warm-up.
+
+## Releases and updates
+
+Pushing a tag `v<version>` runs `.github/workflows/release.yml`: it builds the universal app, the
+DMG, the zip and `SHA256SUMS.txt`, then `scripts/appcast.sh` signs the zip and writes
+`appcast.xml` (itself signed), published with the release. The app's updater (Sparkle, pinned and
+checksum-verified by `scripts/sparkle.sh`) reads that appcast from the latest release. Bump both
+`CFBundleShortVersionString` and `CFBundleVersion` in `scripts/build.sh` for every release: Sparkle
+compares the build number.
+
+**The update key.** An ad hoc signed app cannot rely on Apple code signing to trust an update, so
+every update must be signed with the project's EdDSA key:
+
+1. Once, on the maintainer's Mac: `build/vendor/Sparkle-*/bin/generate_keys` (after any build) —
+   the private key goes to the login Keychain and the public key is printed.
+2. Put the public key in `UPDATE_PUBLIC_KEY` in `scripts/build.sh` (it becomes `SUPublicEDKey`).
+3. Export the private key with `generate_keys -x private-key.txt`, store its contents as the
+   repository secret `SPARKLE_ED_PRIVATE_KEY` (`gh secret set SPARKLE_ED_PRIVATE_KEY < private-key.txt`),
+   and delete the file. Never commit it. Tag builds fail without the secret, and `appcast.sh`
+   refuses a key that does not match `UPDATE_PUBLIC_KEY`. Losing the key means shipped apps can no
+   longer update (users would download the next DMG by hand), so keep the Keychain item backed up.
+
+Pull requests that touch the release tooling run the same packaging with a throwaway key.
+
+**Testing an update locally**, without publishing anything: build two copies with different
+`CFBundleVersion`s, give both a test key and bundle identifier, serve the newer one's zip and appcast
+from `localhost`, and point the older one at it:
+
+```bash
+build/appcast keygen                                   # after scripts/appcast.sh has run once
+SPARKLE_ED_PRIVATE_KEY=… EXPECTED_PUBLIC_KEY=… ./scripts/appcast.sh http://127.0.0.1:8000
+defaults write <bundle id> updateFeedURL http://127.0.0.1:8000/appcast.xml
+```
+
+`updateFeedURL` only changes where the feed is read; whatever it serves must still verify
+against the app's public key. Use a different bundle identifier for test copies: CoreScope keeps a
+single instance per identifier, and quit them before deleting.
 
 ## Pull requests
 

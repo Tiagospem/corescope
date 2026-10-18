@@ -1,10 +1,13 @@
 #!/bin/bash
 # Prints GitHub release notes for a version: its CHANGELOG.md section, the commits since
 # the previous tag, install / first-launch steps and the checksums from dist/.
-# Usage: scripts/release-notes.sh <version> [ref]   (ref defaults to v<version>, else HEAD)
+# Usage: scripts/release-notes.sh [--changelog] <version> [ref]   (ref defaults to v<version>, else HEAD)
+#   --changelog prints only the CHANGELOG.md section (the notes the app's update card shows).
 set -euo pipefail
 cd "$(dirname "$0")/.."
-VERSION=${1:?usage: release-notes.sh <version> [ref]}
+ONLY_CHANGELOG=0
+if [ "${1:-}" = --changelog ]; then ONLY_CHANGELOG=1; shift; fi
+VERSION=${1:?usage: release-notes.sh [--changelog] <version> [ref]}
 REF=${2:-v$VERSION}
 git rev-parse -q --verify "$REF^{commit}" >/dev/null || REF=HEAD
 PREV=$(git describe --tags --abbrev=0 --match 'v[0-9]*' "$REF^" 2>/dev/null || true)
@@ -21,6 +24,7 @@ if [ -z "$SECTION" ]; then
 fi
 
 echo "$SECTION"
+[ "$ONLY_CHANGELOG" = 1 ] && exit 0
 echo
 if [ -n "$PREV" ]; then
   echo "### Commits since $PREV"
