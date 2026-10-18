@@ -244,7 +244,7 @@ For scripts that need an answer rather than an action, use the command line belo
 
 ### ⌨️ Command line
 
-Install it from *Settings → Command line* (a link in `~/.local/bin`). Every command accepts `--json`, so agents can use it too:
+Install it from *Settings → Command line* (a link in `~/.local/bin`), or get it with the [Homebrew cask](#homebrew). Every command accepts `--json`, so agents can use it too:
 
 ```bash
 corescope ports                    # listening ports with process, project and origin
@@ -330,6 +330,22 @@ The server finds its agent session from its own parent chain. A process counts a
    ```
 
 Each release lists SHA-256 checksums (`SHA256SUMS.txt`) so you can verify the download with `shasum -a 256 CoreScope-*.dmg`.
+
+### Homebrew
+
+```bash
+brew install --cask tiagospem/tap/corescope
+```
+
+The cask in [Tiagospem/homebrew-tap](https://github.com/Tiagospem/homebrew-tap) installs the same universal release zip, checked against its SHA-256, and links the bundled `corescope` command into Homebrew's `bin`, so *Settings → Command line* is optional. `brew uninstall --cask corescope` removes the app; add `--zap` to also delete its data (`~/Library/Application Support/CoreScope`, preferences and caches).
+
+Homebrew does not make the app notarized: it is still signed ad hoc, so Gatekeeper blocks the first launch exactly as with the DMG. Open it once, then click **Open Anyway** in **System Settings → Privacy & Security**, or clear the quarantine flag Homebrew set:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/CoreScope.app
+```
+
+The cask is marked `auto_updates`: CoreScope updates itself (see below), so `brew upgrade` leaves it alone. `brew upgrade --greedy` reinstalls it from the latest release instead, quarantined again, so Gatekeeper asks once more.
 
 ### Updates (opt-in)
 

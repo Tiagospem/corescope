@@ -118,6 +118,17 @@ defaults write <bundle id> updateFeedURL http://127.0.0.1:8000/appcast.xml
 against the app's public key. Use a different bundle identifier for test copies: CoreScope keeps a
 single instance per identifier, and quit them before deleting.
 
+**The Homebrew tap.** `packaging/homebrew/corescope.rb` is the cask published in
+[Tiagospem/homebrew-tap](https://github.com/Tiagospem/homebrew-tap) as `Casks/corescope.rb`. After
+the GitHub release is published, the release workflow's `homebrew` job writes the new version and
+the zip's SHA-256 into the tap's cask (`scripts/bump-cask.sh`) and pushes it, seeding it from this
+repository when the tap has none. It needs the repository secret `HOMEBREW_TAP_TOKEN`: a
+fine-grained token with *Contents: read and write* on the tap repository only. Without the secret
+the job skips its steps and the release is unaffected. Change the cask's other stanzas in the tap
+(and mirror them here). Check a cask change with `brew style` and `brew audit --cask --strict
+--online` from a local tap; `--new` fails by design, since the app is not notarized and the
+repository is too new for homebrew/cask, which is why the cask lives in its own tap.
+
 ## Pull requests
 
 1. Branch from `main` (it is protected, so all changes land through PRs).
