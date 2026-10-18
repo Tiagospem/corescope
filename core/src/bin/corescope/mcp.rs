@@ -112,7 +112,8 @@ const DESTRUCTIVE: [&str; 13] = [
     "remove_machine",
 ];
 /// Tools that change state without destroying anything.
-const CHANGES: [&str; 13] = [
+const CHANGES: [&str; 14] = [
+    "set_project",
     "agent_hooks",
     "write_agent_instructions",
     "project_git_stage",
@@ -652,6 +653,15 @@ fn core_tools() -> Vec<Value> {
             &["files"],
         ),
         tool(
+            "set_project",
+            "Change a registered project's options: `show_in_panel` puts it (branch and change \
+             counts) in CoreScope's floating panel and menu bar; `notify_minutes` (1, 5 or 15, \
+             or null to turn off) sets change notifications. `project` is its id or name.",
+            json!({"project": {"type": "string"}, "show_in_panel": {"type": "boolean"},
+                   "notify_minutes": {"type": ["integer", "null"], "enum": [1, 5, 15, null]}}),
+            &["project"],
+        ),
+        tool(
             "project_branches",
             "A project's local branches, current first then newest: last commit (hash, subject, \
              author, time), upstream with ahead/behind or gone, and the other worktree a branch \
@@ -959,6 +969,38 @@ fn call(params: &Value) -> Value {
                 })
                 .collect();
             text(json!({"projects": rows}), false)
+        }
+        "set_project" => {
+            let wanted = args["project"].as_str().unwrap_or("");
+            let list = corescope::projects_tool(&json!({"op": "list"})).unwrap_or(json!([]));
+            let Some(id) = list
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|p| {
+                    p["id"].as_str() == Some(wanted)
+                        || p["name"]
+                            .as_str()
+                            .is_some_and(|n| n.eq_ignore_ascii_case(wanted))
+                })
+                .and_then(|p| p["id"].as_str().map(str::to_string))
+            else {
+                return text(
+                    json!({"error": format!("no registered project called {wanted}")}),
+                    true,
+                );
+            };
+            let mut request = json!({"op": "set", "id": id});
+            if let Some(show) = args.get("show_in_panel") {
+                request["show_in_panel"] = show.clone();
+            }
+            if let Some(n) = args.get("notify_minutes") {
+                request["notify_minutes"] = n.clone();
+            }
+            match corescope::projects_tool(&request) {
+                Ok(v) => text(v, false),
+                Err(e) => text(json!({"error": e}), true),
+            }
         }
         "agent_context" | "write_agent_instructions" => {
             let folder = args["folder"]

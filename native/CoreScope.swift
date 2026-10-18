@@ -248,6 +248,7 @@ struct MenuSummary: View {
       if let s = monitor.snapshot {
         PortQuickLookup(snapshot: s)
         MenuProfilesAndServices()
+        MenuProjects()
         Grid(horizontalSpacing: 8, verticalSpacing: 8) {
           GridRow {
             MiniTile(
@@ -359,6 +360,8 @@ struct MenuSummary: View {
         Button(L("Sair")) { NSApp.terminate(nil) }.keyboardShortcut("q")
       }.controlSize(.regular)
     }.padding(14).frame(width: 372).id(prefs.language).watchesContainers(stats: false)
+      .onAppear { PanelProjectsStore.shared.use("menu", true) }
+      .onDisappear { PanelProjectsStore.shared.use("menu", false) }
   }
   private func open(_ page: Page?) {
     // The popover is the key window at click time; dismiss it before showing the main window.

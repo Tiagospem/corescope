@@ -1351,4 +1351,8 @@ private let entries = """
   %@ removidos ¦ %@ deleted ¦ %@ eliminados
   Abrir as alterações ¦ Open the changes ¦ Abrir los cambios
   Nada para mostrar. ¦ Nothing to show. ¦ Nada que mostrar.
+  Clique para abrir as alterações ¦ Click to open the changes ¦ Haz clic para abrir los cambios
+  PROJETOS ¦ PROJECTS ¦ PROYECTOS
+  Projetos no painel ¦ Projects in the panel ¦ Proyectos en el panel
+  Adicionar projetos… ¦ Add projects… ¦ Añadir proyectos…
   """

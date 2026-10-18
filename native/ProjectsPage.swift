@@ -396,6 +396,8 @@ private struct ProjectCard: View {
               draft = project.name
               editing = true
             }
+            Toggle(L("Mostrar no painel"), isOn: Binding(get: { project.show_in_panel }, set: { PanelProjectsStore.shared.setShown(project, $0) }))
+              .disabled(check?.git.is_repo != true)
             Button(L("Instruções para agentes…")) { instructions = true }
               .disabled(check?.config.exists != true || check?.config.error != nil)
             Divider()

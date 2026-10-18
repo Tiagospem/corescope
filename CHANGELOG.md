@@ -44,6 +44,10 @@ section as the GitHub release notes.
   stays on the Cleanup page, linked from the section. `corescope branches`, `corescope worktrees`
   accepts a project name, MCP `project_branches` / `project_worktrees`.
 - Demo mode also anonymizes project names and branch names on the Projects page.
+- **Projects in the floating panel and the menu bar** (phase 4): *Show in panel* per project (card
+  menu, the panel's menu, MCP `set_project`) adds a row with name, branch and change counts to
+  every panel layout and to the menu bar popover, read when they appear and kept live by file
+  watchers only while visible; a click opens the project's changes in a window of their own.
 - **Agents follow the project's `.corescope.yml` on their own**: *Settings › MCP server › Agent
   hooks* installs, per agent (Claude Code `~/.claude/settings.json`, Codex `~/.codex/hooks.json`,
   each backed up first), a SessionStart hook (`corescope context --hook`) that gives each new

@@ -402,8 +402,11 @@ struct ProjectChangesView: View {
   @ViewState private var message = ""
   @ViewState private var confirmDiscard: [GitFileChange]?
 
-  init(project: ProjectEntry, back: @escaping () -> Void) {
+  /// In a window of its own (from the floating panel or menu bar) there is no "back".
+  let inWindow: Bool
+  init(project: ProjectEntry, inWindow: Bool = false, back: @escaping () -> Void) {
     self.project = project
+    self.inWindow = inWindow
     self.back = back
     _store = StateObject(wrappedValue: ProjectChangesStore(folder: project.folder))
   }
@@ -457,7 +460,7 @@ struct ProjectChangesView: View {
   private var header: some View {
     VStack(alignment: .leading, spacing: 6) {
       HStack(spacing: 8) {
-        Button(action: back) { Label(L("Projetos"), systemImage: "chevron.left") }.buttonStyle(.borderless)
+        if !inWindow { Button(action: back) { Label(L("Projetos"), systemImage: "chevron.left") }.buttonStyle(.borderless) }
         Text(shownProjectName(project)).font(.title3.weight(.semibold))
         Spacer()
         if store.loading || store.busy { ProgressView().controlSize(.small) }

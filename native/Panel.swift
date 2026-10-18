@@ -165,6 +165,7 @@ struct FloatingView: View {
   @ObservedObject var prefs = Preferences.shared
   @ObservedObject var agents = AgentStore.shared
   @ObservedObject var machines = MachineStore.shared
+  @ObservedObject var panelProjects = PanelProjectsStore.shared
   @Environment(\.accessibilityReduceTransparency) var reduceTransparency
   private var k: CGFloat { CGFloat(prefs.panelScale) }
   /// The panel is sized to its content, so flexible children need explicit widths.
@@ -201,6 +202,9 @@ struct FloatingView: View {
     }
     // The panel's machines are read once a minute while it shows them; the Machines page shares
     // the cadence (refreshStale), so both open never probe a host more often.
+    // Projects marked "Show in panel": read and watched only while the panel is visible.
+    .onAppear { PanelProjectsStore.shared.use("panel", prefs.panelVisible) }
+    .onChange(of: prefs.panelVisible) { _, visible in PanelProjectsStore.shared.use("panel", visible) }
     .task(id: polledMachines) {
       let hosts = polledMachines
       guard !hosts.isEmpty else { return }
@@ -253,6 +257,20 @@ struct FloatingView: View {
               machineTint(state), state?.stats?.loadFraction.map { min(1, $0) }
             ).help(machineHelp(host, state))
           }
+        }
+        ForEach(panelProjects.projects.prefix(3)) { p in
+          let sum = panelProjects.summaries[p.id]
+          Button {
+            ProjectChangesWindows.show(p)
+          } label: {
+            VStack(alignment: .leading, spacing: 2 * k) {
+              Text(String(shownProjectName(p).uppercased().prefix(12))).font(.system(size: 8.5 * k, weight: .bold))
+                .foregroundStyle(Tint.brand.opacity(0.9)).lineLimit(1).fixedSize()
+              ProjectCountsLabel(summary: sum, size: 11 * k)
+            }
+          }
+          .buttonStyle(.plain)
+          .help([shownProjectName(p), sum?.branch.head.map(shownBranch), projectCountsText(sum)].compactMap { $0 }.joined(separator: "\n"))
         }
         if !s.orphans.isEmpty {
           Badge(text: "\(s.orphans.count)", color: .orange, symbol: "exclamationmark.triangle.fill")
@@ -341,6 +359,7 @@ struct FloatingView: View {
         statusLine(s)
         if prefs.panelAgents { agentsSection(s) }
         if prefs.panelMachines { machinesSection }
+        PanelProjectsSection(scale: k)
         if prefs.panelMode == "detailed" { detail(s) }
       } else {
         ProgressView(L("Coletando…")).controlSize(.small)
@@ -717,6 +736,7 @@ struct PanelMenu: View {
     Toggle(L("Mostrar limites dos agentes"), isOn: $prefs.limitsInPanel)
     Toggle(L("Mostrar agentes"), isOn: $prefs.panelAgents)
     Toggle(L("Mostrar máquinas remotas"), isOn: $prefs.panelMachines)
+    PanelProjectsMenu()
     Divider()
     Button(L("Abrir CoreScope")) { WindowOpener.shared.showMain() }
     Button(L("Ver processos")) { WindowOpener.shared.showMain(page: .processes) }
