@@ -48,6 +48,12 @@ section as the GitHub release notes.
   menu, the panel's menu, MCP `set_project`) adds a row with name, branch and change counts to
   every panel layout and to the menu bar popover, read when they appear and kept live by file
   watchers only while visible; a click opens the project's changes in a window of their own.
+- **Change notifications per project** (phase 5, opt-in, off by default): every 1, 5 or 15 min
+  (card menu, Settings › Notifications, MCP `set_project`). Watchers only mark a project as
+  touched; at its interval it is read once and compared with the last notification (core
+  `delta`, tested), so it says what moved — new/modified/staged/deleted/conflict counts, a new
+  commit or a branch switch — and never fires for a save that changes nothing. Clicking opens the
+  changes.
 - **Agents follow the project's `.corescope.yml` on their own**: *Settings › MCP server › Agent
   hooks* installs, per agent (Claude Code `~/.claude/settings.json`, Codex `~/.codex/hooks.json`,
   each backed up first), a SessionStart hook (`corescope context --hook`) that gives each new

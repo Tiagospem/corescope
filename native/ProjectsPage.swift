@@ -102,6 +102,9 @@ final class ProjectsStore: ObservableObject {
         if list != self.projects { self.projects = list }
         if checks != self.checks { self.checks = checks }
         if summaries != self.summaries { self.summaries = summaries }
+        // A setting changed elsewhere (MCP set_project, the CLI): follow it.
+        let notifying = Set(list.filter { $0.notify_minutes != nil }.map(\.id))
+        if notifying != Set(ProjectNotifier.shared.projects.map(\.id)) { ProjectNotifier.shared.sync() }
         self.syncWatchers()
       }
     }
@@ -370,7 +373,13 @@ private struct ProjectCard: View {
             TextField(L("Nome"), text: $draft).textFieldStyle(.roundedBorder).frame(maxWidth: 280)
               .onSubmit(save)
           } else {
-            Text(shownProjectName(project)).font(.system(size: 14, weight: .semibold))
+            HStack(spacing: 5) {
+              Text(shownProjectName(project)).font(.system(size: 14, weight: .semibold))
+              if let n = project.notify_minutes {
+                Image(systemName: "bell.fill").font(.caption2).foregroundStyle(.secondary)
+                  .help(L("Notifica alterações a cada %@ min", "\(n)"))
+              }
+            }
           }
           Text(shown(project.folder)).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
         }
@@ -396,6 +405,7 @@ private struct ProjectCard: View {
               draft = project.name
               editing = true
             }
+            ProjectNotifyPicker(project: project).disabled(check?.git.is_repo != true)
             Toggle(L("Mostrar no painel"), isOn: Binding(get: { project.show_in_panel }, set: { PanelProjectsStore.shared.setShown(project, $0) }))
               .disabled(check?.git.is_repo != true)
             Button(L("Instruções para agentes…")) { instructions = true }

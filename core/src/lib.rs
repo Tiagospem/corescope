@@ -1850,6 +1850,13 @@ pub fn projects_tool(v: &serde_json::Value) -> Result<serde_json::Value, String>
         "init" => Ok(json!(git::init(&folder()?)?)),
         "status" => Ok(json!(gitchanges::status(&folder()?)?)),
         "summary" => Ok(json!(gitchanges::summary(&folder()?)?)),
+        "notify_check" => {
+            let now = gitchanges::summary(&folder()?)?;
+            let before: Option<gitchanges::Summary> =
+                serde_json::from_value(v["before"].clone()).ok();
+            let delta = before.as_ref().and_then(|b| gitchanges::delta(b, &now));
+            Ok(json!({"summary": now, "delta": delta}))
+        }
         "file_diffs" => {
             let paths: Vec<String> = v["paths"]
                 .as_array()

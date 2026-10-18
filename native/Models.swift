@@ -509,6 +509,7 @@ final class Preferences: ObservableObject {
   }
   var notificationsEnabled: Bool {
     notifyOrphans || notifyHeavy || notifyPressure || notifyStalls || notifyServiceDown || notifyAgentDrain
+      || ProjectNotifier.shared.active
   }
   // Global port lookup shortcut (Carbon key code + modifier mask); default ⌥⌘K.
   @Published var hotkeyEnabled = UserDefaults.standard.object(forKey: "hotkeyEnabled") as? Bool ?? true

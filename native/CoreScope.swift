@@ -42,6 +42,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     FloatingController.shared.apply()
     Hotkey.shared.apply()
     Notifier.shared.activate()
+    ProjectNotifier.shared.sync()
     _ = HealthStore.shared
     _ = ProjectFileStore.shared
     _ = DiskGrowthStore.shared

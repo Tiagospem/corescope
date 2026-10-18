@@ -4,7 +4,7 @@
 //! tracked changes, and commit. Everything goes through the `git` CLI so hooks, signing and the
 //! user's config apply.
 use crate::git::{self, Output};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
 use std::time::Duration;
@@ -41,7 +41,8 @@ impl FileChange {
     }
 }
 
-#[derive(Clone, Debug, Serialize, PartialEq, Default)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
+#[serde(default)]
 pub struct Branch {
     pub head: Option<String>,
     pub oid: Option<String>,
@@ -288,7 +289,8 @@ pub fn status(folder: &Path) -> Result<Status, String> {
 
 /// What a compact row needs (floating panel, menu bar): branch and counts, from one
 /// `git status` (no line counts).
-#[derive(Clone, Debug, Serialize, PartialEq, Default)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
+#[serde(default)]
 pub struct Summary {
     pub branch: Branch,
     pub staged: usize,
@@ -322,6 +324,63 @@ pub fn summary(folder: &Path) -> Result<Summary, String> {
     )?;
     let (branch, files) = parse_status(&raw);
     Ok(summarize(branch, &files))
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct CountChange {
+    /// "staged", "modified", "untracked", "removed" or "conflicts".
+    pub kind: &'static str,
+    pub before: usize,
+    pub after: usize,
+}
+/// What changed in a project between two notifications.
+#[derive(Clone, Debug, Serialize, PartialEq, Default)]
+pub struct Delta {
+    pub changes: Vec<CountChange>,
+    /// The branch changed (checkout, switch).
+    pub branch_from: Option<String>,
+    pub branch_to: Option<String>,
+    /// A commit was made (or pulled) on the same branch: HEAD moved.
+    pub new_head: bool,
+    /// Uncommitted changes in total, now.
+    pub total: usize,
+}
+/// The difference worth a notification, or None when nothing that counts moved. Saving a file
+/// that was already modified changes nothing here, so it never notifies on its own.
+pub fn delta(before: &Summary, after: &Summary) -> Option<Delta> {
+    let pairs = [
+        ("conflicts", before.conflicts, after.conflicts),
+        ("staged", before.staged, after.staged),
+        ("modified", before.modified, after.modified),
+        ("untracked", before.untracked, after.untracked),
+        ("removed", before.removed, after.removed),
+    ];
+    let changes: Vec<CountChange> = pairs
+        .into_iter()
+        .filter(|(_, b, a)| b != a)
+        .map(|(kind, before, after)| CountChange {
+            kind,
+            before,
+            after,
+        })
+        .collect();
+    let (branch_from, branch_to) = if before.branch.head != after.branch.head {
+        (before.branch.head.clone(), after.branch.head.clone())
+    } else {
+        (None, None)
+    };
+    let new_head =
+        branch_to.is_none() && before.branch.oid.is_some() && before.branch.oid != after.branch.oid;
+    if changes.is_empty() && branch_to.is_none() && branch_from.is_none() && !new_head {
+        return None;
+    }
+    Some(Delta {
+        changes,
+        branch_from,
+        branch_to,
+        new_head,
+        total: after.staged + after.modified + after.untracked + after.removed + after.conflicts,
+    })
 }
 
 /// Paths given to git: relative to the repository, never escaping it.
@@ -781,6 +840,54 @@ mod tests {
         );
         assert!(valid_paths(&["a/b.rs".into()]).is_ok());
         assert_eq!(bytecount(b"a\nb\nc"), 3);
+    }
+
+    #[test]
+    fn notification_delta_counts_only_what_moved() {
+        let base = Summary {
+            branch: Branch {
+                head: Some("main".into()),
+                oid: Some("aaa".into()),
+                ..Default::default()
+            },
+            modified: 2,
+            untracked: 1,
+            ..Default::default()
+        };
+        assert_eq!(
+            delta(&base, &base.clone()),
+            None,
+            "saving an already modified file"
+        );
+        let mut more = base.clone();
+        more.untracked = 4;
+        more.modified = 5;
+        let d = delta(&base, &more).unwrap();
+        let kinds: Vec<(&str, usize, usize)> = d
+            .changes
+            .iter()
+            .map(|c| (c.kind, c.before, c.after))
+            .collect();
+        assert_eq!(kinds, [("modified", 2, 5), ("untracked", 1, 4)]);
+        assert_eq!(d.total, 9);
+        assert!(!d.new_head && d.branch_to.is_none());
+        let mut committed = base.clone();
+        committed.modified = 0;
+        committed.untracked = 0;
+        committed.branch.oid = Some("bbb".into());
+        let d = delta(&base, &committed).unwrap();
+        assert!(d.new_head && d.total == 0);
+        let mut switched = base.clone();
+        switched.branch.head = Some("feature".into());
+        switched.branch.oid = Some("ccc".into());
+        let d = delta(&base, &switched).unwrap();
+        assert_eq!(
+            (d.branch_from.as_deref(), d.branch_to.as_deref(), d.new_head),
+            (Some("main"), Some("feature"), false),
+            "a checkout is a branch change, not a new commit"
+        );
+        let back: Summary = serde_json::from_value(serde_json::to_value(&more).unwrap()).unwrap();
+        assert_eq!(back, more, "the app hands the last summary back as JSON");
     }
 
     #[test]

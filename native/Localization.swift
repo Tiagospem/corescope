@@ -1355,4 +1355,24 @@ private let entries = """
   PROJETOS ¦ PROJECTS ¦ PROYECTOS
   Projetos no painel ¦ Projects in the panel ¦ Proyectos en el panel
   Adicionar projetos… ¦ Add projects… ¦ Añadir proyectos…
+  conflitos ¦ conflicts ¦ conflictos
+  em stage ¦ staged ¦ preparados
+  modificados ¦ modified ¦ modificados
+  novos ¦ new ¦ nuevos
+  removidos ¦ deleted ¦ eliminados
+  branch: %@ → %@ ¦ branch: %@ → %@ ¦ rama: %@ → %@
+  novo commit em %@ ¦ new commit on %@ ¦ nuevo commit en %@
+  novo commit ¦ new commit ¦ nuevo commit
+  sem alterações agora ¦ no changes now ¦ sin cambios ahora
+  1 alteração agora ¦ 1 change now ¦ 1 cambio ahora
+  %@ alterações agora ¦ %@ changes now ¦ %@ cambios ahora
+  Notificar alterações ¦ Notify changes ¦ Notificar cambios
+  Desligado ¦ Off ¦ Desactivado
+  A cada 1 min ¦ Every 1 min ¦ Cada 1 min
+  A cada 5 min ¦ Every 5 min ¦ Cada 5 min
+  A cada 15 min ¦ Every 15 min ¦ Cada 15 min
+  Alterações nos projetos ¦ Project changes ¦ Cambios en los proyectos
+  Alterações em %@ ¦ Changes in %@ ¦ Cambios en %@
+  Desligadas por padrão. Uma notificação local por projeto no máximo a cada intervalo, só quando algo mudou desde a última (novos, modificados, em stage, commits, troca de branch) — salvar um arquivo já modificado não conta. Clicar abre as alterações. ¦ Off by default. At most one local notification per project per interval, only when something changed since the last one (new, modified, staged, commits, branch switch) — saving an already modified file doesn't count. Clicking opens the changes. ¦ Desactivadas por defecto. Como mucho una notificación local por proyecto por intervalo, solo cuando algo cambió desde la última (nuevos, modificados, preparados, commits, cambio de rama) — guardar un archivo ya modificado no cuenta. Al hacer clic se abren los cambios.
+  Notifica alterações a cada %@ min ¦ Notifies changes every %@ min ¦ Notifica cambios cada %@ min
   """

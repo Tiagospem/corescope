@@ -119,6 +119,7 @@ struct PreferencesView: View {
         Text(
           L("Uma sessão ocupada (Claude Code, Codex) que não escreve na própria transcrição por esse tempo. Se um comando iniciado nesta vez está usando CPU, é só um comando longo; se está parado, pode estar esperando uma entrada. Vale também para o selo na página Agentes. Lê apenas datas de modificação, nunca o conteúdo.")
         ).font(.caption).foregroundStyle(.secondary)
+        ProjectNotifySettings()
         if notifier.denied && p.notificationsEnabled {
           HStack {
             Text(L("O macOS está bloqueando as notificações do CoreScope."))
