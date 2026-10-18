@@ -127,65 +127,150 @@ struct OverviewView: View {
   }
 }
 
-/// Busy % per logical CPU, grouped by performance (P) and efficiency (E) cores.
+/// Busy % per logical CPU, grouped by performance (P) and efficiency (E) cores: one tile per core
+/// that fills up and warms from green to orange with load, the percentage written inside.
 private struct CoresCard: View {
   let snapshot: Snapshot
   var body: some View {
     let cores = Array(snapshot.core_load.enumerated())
-    let groups: [(String, [(offset: Int, element: CoreLoad)])] =
+    let groups: [CoreGroup] =
       cores.contains { $0.element.kind.isEmpty }
-      ? [(L("Núcleos"), cores)]
-      : [
-        (L("Desempenho (P)"), cores.filter { $0.element.kind == "P" }),
-        (L("Eficiência (E)"), cores.filter { $0.element.kind == "E" }),
-      ]
+      ? [CoreGroup(kind: "", cores: cores)]
+      : [CoreGroup(kind: "P", cores: cores.filter { $0.element.kind == "P" }),
+        CoreGroup(kind: "E", cores: cores.filter { $0.element.kind == "E" })].filter { !$0.cores.isEmpty }
     Card {
-      CardHeader(title: L("CPU por núcleo"), symbol: "cpu", tint: Tint.cpu, count: snapshot.core_load.count)
+      CardHeader(title: L("CPU por núcleo"), symbol: "cpu", tint: Tint.cpu) {
+        Text(L("%@ núcleos", "\(cores.count)")).font(.caption).foregroundStyle(.secondary)
+      }
       if cores.isEmpty {
         EmptyNote(text: L("Contadores por núcleo temporariamente indisponíveis."))
       }
-      ForEach(groups, id: \.0) { title, items in
-        VStack(alignment: .leading, spacing: 6) {
-          HStack {
-            Text(L("%@ · %@", title, "\(items.count)")).font(.caption.weight(.semibold))
-            Spacer()
-            let values = items.compactMap(\.element.value)
-            Text(values.isEmpty ? "—" : L("média %@", String(format: "%.0f%%", values.reduce(0, +) / Double(values.count))))
-              .font(.caption).foregroundStyle(.secondary).monospacedDigit()
-          }.accessibilityElement(children: .combine).accessibilityAddTraits(.isHeader)
-          HStack(alignment: .bottom, spacing: 5) {
-            ForEach(items, id: \.offset) { index, core in
-              CoreBar(index: index, core: core)
-            }
-          }.frame(height: 64)
-        }
-      }
-      Text(L(snapshot.core_source)).font(.caption).foregroundStyle(.secondary).lineLimit(2)
-        .help(L("Ticks por CPU lógica via host_processor_info; o tipo de cada núcleo vem do IODeviceTree e é conferido com sysctl hw.perflevel0/1."))
+      // One column grid for every group, so P and E tiles line up and fill the card.
+      let columns = min(8, max(1, groups.map(\.cores.count).max() ?? 1))
+      ForEach(groups, id: \.kind) { group in CoreGroupView(group: group, columns: columns) }
+      CoreLegend()
+        .help(
+          L(snapshot.core_source) + "\n"
+            + L("Ticks por CPU lógica via host_processor_info; o tipo de cada núcleo vem do IODeviceTree e é conferido com sysctl hw.perflevel0/1."))
     }
   }
 }
-private struct CoreBar: View {
+
+private struct CoreGroup {
+  let kind: String
+  let cores: [(offset: Int, element: CoreLoad)]
+  var average: Double? {
+    let values = cores.compactMap(\.element.value)
+    return values.isEmpty ? nil : values.reduce(0, +) / Double(values.count)
+  }
+  var title: String {
+    switch kind {
+    case "P": L("Desempenho")
+    case "E": L("Eficiência")
+    default: L("Núcleos")
+    }
+  }
+  var symbol: String {
+    switch kind {
+    case "P": "bolt.fill"
+    case "E": "leaf.fill"
+    default: "cpu"
+    }
+  }
+  var subtitle: String? {
+    switch kind {
+    case "P": L("Rápidos: builds, testes e o app em uso")
+    case "E": L("Econômicos: tarefas leves e em segundo plano")
+    default: nil
+    }
+  }
+}
+
+/// Green while calm, yellow when busy, orange near the limit; the same scale as the legend.
+private func coreHeat(_ value: Double) -> Color {
+  value >= 85 ? Tint.warning : value >= 50 ? coreBusy : Tint.cpu
+}
+private let coreBusy = Color(red: 0.98, green: 0.78, blue: 0.24)
+
+private struct CoreGroupView: View {
+  let group: CoreGroup
+  let columns: Int
+  var body: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      HStack(alignment: .center, spacing: 9) {
+        Image(systemName: group.symbol).font(.system(size: 12, weight: .semibold))
+          .foregroundStyle(group.kind == "E" ? Tint.cpu.opacity(0.75) : Tint.cpu)
+          .frame(width: 26, height: 26)
+          .background(Tint.cpu.opacity(0.12), in: RoundedRectangle(cornerRadius: 7))
+          .accessibilityHidden(true)
+        VStack(alignment: .leading, spacing: 1) {
+          Text(L("%@ · %@", group.title, "\(group.cores.count)")).font(.callout.weight(.semibold))
+          if let subtitle = group.subtitle {
+            Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+          }
+        }
+        Spacer(minLength: 6)
+        VStack(alignment: .trailing, spacing: 0) {
+          Text(group.average.map { String(format: "%.0f%%", $0) } ?? "—")
+            .font(.system(size: 20, weight: .semibold, design: .rounded)).monospacedDigit()
+          HStack(spacing: 4) {
+            Circle().fill(group.average.map(coreHeat) ?? .secondary).frame(width: 6, height: 6)
+            Text(L("média")).font(.caption2).foregroundStyle(.secondary)
+          }
+        }
+      }.accessibilityElement(children: .combine).accessibilityAddTraits(.isHeader)
+      LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: columns), alignment: .leading, spacing: 6) {
+        ForEach(group.cores, id: \.offset) { index, core in CoreTile(index: index, core: core) }
+      }
+    }
+  }
+}
+
+private struct CoreTile: View {
   let index: Int
   let core: CoreLoad
+  @Environment(\.colorScheme) private var scheme
   var body: some View {
-    let value = core.value ?? 0
-    VStack(spacing: 3) {
+    let value = min(100, max(0, core.value ?? 0))
+    let color = coreHeat(value)
+    ZStack(alignment: .bottom) {
+      RoundedRectangle(cornerRadius: 7).fill(Color.primary.opacity(0.06))
       GeometryReader { g in
-        ZStack(alignment: .bottom) {
-          RoundedRectangle(cornerRadius: 3).fill(Color.primary.opacity(0.07))
-          RoundedRectangle(cornerRadius: 3)
-            .fill(value >= 90 ? Tint.warning : core.kind == "E" ? Tint.cpu.opacity(0.6) : Tint.cpu)
-            .frame(height: core.value == nil ? 0 : max(2, g.size.height * value / 100))
+        VStack(spacing: 0) {
+          Spacer(minLength: 0)
+          LinearGradient(colors: [color.opacity(0.55), color.opacity(0.85)], startPoint: .top, endPoint: .bottom)
+            .frame(height: core.value == nil ? 0 : max(3, g.size.height * value / 100))
         }
-      }
-      Text("\(index)").font(.system(size: 9)).foregroundStyle(.tertiary).monospacedDigit()
+      }.clipShape(RoundedRectangle(cornerRadius: 7))
+      RoundedRectangle(cornerRadius: 7).strokeBorder(color.opacity(core.value == nil ? 0 : 0.35), lineWidth: 1)
+      Text(core.value.map { String(format: "%.0f%%", $0) } ?? "—")
+        .font(.system(size: 12, weight: .semibold, design: .rounded)).monospacedDigit()
+        .shadow(color: .black.opacity(scheme == .dark ? 0.25 : 0), radius: 1)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
-    .frame(maxWidth: 26)
-    .help(L("CPU %@ (%@): %@", "\(index)", core.kind.isEmpty ? "?" : core.kind, core.value.map { String(format: "%.0f%%", $0) } ?? "—"))
+    .frame(height: 46)
+    .help(core.kind.isEmpty
+      ? L("Núcleo %@: %@", "\(index)", core.value.map { String(format: "%.0f%%", $0) } ?? "—")
+      : L("Núcleo %@ (%@): %@", "\(index)", core.kind == "P" ? L("desempenho") : L("eficiência"), core.value.map { String(format: "%.0f%%", $0) } ?? "—"))
     .accessibilityElement()
     .accessibilityLabel(core.kind.isEmpty ? L("Núcleo %@", "\(index)") : L("Núcleo %@ (%@)", "\(index)", core.kind))
     .accessibilityValue(core.value.map { String(format: "%.0f%%", $0) } ?? L("indisponível"))
+  }
+}
+
+/// How to read the tiles, in place of the data source (now on hover).
+private struct CoreLegend: View {
+  var body: some View {
+    HStack(spacing: 12) {
+      Text(L("Cada quadrado é um núcleo; mais cheio, mais ocupado.")).foregroundStyle(.secondary)
+      Spacer(minLength: 4)
+      ForEach([(Tint.cpu, L("folga")), (coreBusy, L("ocupado")), (Tint.warning, L("no limite"))], id: \.1) { color, label in
+        HStack(spacing: 4) {
+          RoundedRectangle(cornerRadius: 2).fill(color.opacity(0.7)).frame(width: 9, height: 9)
+          Text(label).foregroundStyle(.secondary)
+        }
+      }
+    }.font(.caption).lineLimit(1).minimumScaleFactor(0.85)
   }
 }
 

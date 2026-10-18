@@ -33,6 +33,7 @@ struct PreferencesView: View {
           L("Sem confirmação, o botão ✕ envia SIGTERM no primeiro clique. Encerrar árvore e forçar (SIGKILL) sempre pedem confirmação.")
         ).font(.caption).foregroundStyle(.secondary)
       }
+      UpdateSettings()
       Section(L("Coleta")) {
         Picker(L("Atualização"), selection: $p.interval) {
           Text(L("A cada 2 segundos")).tag(2.0)

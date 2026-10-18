@@ -45,6 +45,9 @@ USAGE:
   corescope disk-growth [--measure]     which usual folders grew today (caches, Xcode, simulators,
                                         container VMs, package stores, models, Downloads, Trash);
                                         --measure measures now (seconds) before reporting
+  corescope version [--check]           this CoreScope's version and any update the app found;
+                                        --check asks the app to check the release feed now
+                                        (one request to GitHub, needs the app running)
   corescope mcp                         run the local MCP server on stdio
 
 OPTIONS:
@@ -234,6 +237,7 @@ fn main() {
                 Err(e) => fail(json_out, &e),
             }
         }
+        Some("version") => version(json_out, flag("--check")),
         Some("mcp") => mcp::serve(),
         Some(other) => fail(
             json_out,
@@ -241,6 +245,71 @@ fn main() {
         ),
     };
     std::process::exit(code);
+}
+
+/// Version and build of the app bundle this command lives in (Contents/Resources/bin).
+fn bundle_version() -> Option<(String, String)> {
+    let exe = std::env::current_exe().ok()?.canonicalize().ok()?;
+    let plist = exe.parent()?.parent()?.parent()?.join("Info.plist");
+    let text = std::fs::read_to_string(plist).ok()?;
+    Some((
+        plist_string(&text, "CFBundleShortVersionString")?,
+        plist_string(&text, "CFBundleVersion").unwrap_or_default(),
+    ))
+}
+/// The <string> after <key>KEY</key> in an XML plist.
+pub fn plist_string(plist: &str, key: &str) -> Option<String> {
+    let after = &plist[plist.find(&format!("<key>{key}</key>"))?..];
+    let start = after.find("<string>")? + "<string>".len();
+    let end = after[start..].find("</string>")?;
+    Some(after[start..start + end].trim().to_string())
+}
+
+/// `corescope version [--check]`: the network request, when asked for, is made by the app.
+fn version(json_out: bool, check: bool) -> i32 {
+    let (version, build) = bundle_version().unwrap_or(("dev".into(), "0".into()));
+    let status = mcp::app(
+        if check {
+            "app.update_check"
+        } else {
+            "app.update_status"
+        },
+        &json!({}),
+    );
+    if json_out {
+        println!(
+            "{}",
+            json!({"version": version, "build": build, "update": status})
+        );
+        return if check && status.get("error").is_some() {
+            1
+        } else {
+            0
+        };
+    }
+    println!("CoreScope {version} (build {build})");
+    if let Some(error) = status["error"].as_str() {
+        if check || status["state"].as_str() == Some("error") {
+            eprintln!("corescope: could not check for updates: {error}");
+            return 1;
+        }
+        return 0;
+    }
+    if let Some(latest) = status["latest_version"].as_str() {
+        println!(
+            "Update available: {latest}. Install it from CoreScope › Settings › Updates (Install and relaunch)."
+        );
+        if check && let Some(notes) = status["release_notes"].as_str().filter(|n| !n.is_empty()) {
+            println!("\n{notes}");
+        }
+    } else if check {
+        println!("Up to date.");
+    } else if status["check_for_updates"].as_bool() == Some(false) {
+        println!(
+            "Update checks are off (Settings › Updates); `corescope version --check` checks once."
+        );
+    }
+    0
 }
 
 /// The disk growth report as lines for people.
@@ -1265,6 +1334,17 @@ fn print(json_out: bool, value: Value) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn plist_string_reads_the_value_after_its_key() {
+        let plist = "<dict><key>CFBundleVersion</key><string>9</string>\n\
+            <key>CFBundleShortVersionString</key>\n  <string> 0.6.0 </string></dict>";
+        assert_eq!(
+            plist_string(plist, "CFBundleShortVersionString").as_deref(),
+            Some("0.6.0")
+        );
+        assert_eq!(plist_string(plist, "CFBundleVersion").as_deref(), Some("9"));
+        assert_eq!(plist_string(plist, "SUFeedURL"), None);
+    }
     #[test]
     fn free_port_is_bindable_and_skips_taken() {
         let held = TcpListener::bind("127.0.0.1:0").unwrap();

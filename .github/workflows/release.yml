@@ -13,6 +13,10 @@ on:
       - scripts/build.sh
       - scripts/package.sh
       - scripts/release-notes.sh
+      - scripts/appcast.sh
+      - scripts/appcast.swift
+      - scripts/sparkle.sh
+      - native/UpdateLogic.swift
 
 permissions:
   contents: read
@@ -53,6 +57,27 @@ jobs:
           test -f "dist/CoreScope-$VERSION-macos-universal.dmg"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
+      - name: Sign the update and write the appcast
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
+        run: |
+          if [ -n "$SPARKLE_ED_PRIVATE_KEY" ]; then
+            ./scripts/appcast.sh
+          elif [ "$REF_TYPE" = tag ]; then
+            echo "::error::SPARKLE_ED_PRIVATE_KEY is not set: the release would have no signed appcast, so no app could update to it (CONTRIBUTING.md › Releases)"
+            exit 1
+          else
+            # Dry run without the secret: a throwaway key exercises signing and the feed, and the
+            # appcast is dropped (its signature matches no shipped app).
+            swiftc -O native/UpdateLogic.swift scripts/appcast.swift -o build/appcast
+            KEY=$(build/appcast keygen)
+            SPARKLE_ED_PRIVATE_KEY=$(echo "$KEY" | sed -n 's/^private: //p') \
+              EXPECTED_PUBLIC_KEY=$(echo "$KEY" | sed -n 's/^public: //p') ./scripts/appcast.sh
+            cat dist/appcast.xml >> "$GITHUB_STEP_SUMMARY"
+            rm dist/appcast.xml
+          fi
+
       - name: Release notes
         env:
           VERSION: ${{ steps.version.outputs.version }}
@@ -90,9 +115,10 @@ jobs:
         run: |
           cd dist
           shasum -a 256 -c SHA256SUMS.txt
+          test -f appcast.xml
           gh release create "$TAG" --verify-tag \
             --title "CoreScope $VERSION" \
             --notes-file RELEASE_NOTES.md \
             "CoreScope-$VERSION-macos-universal.dmg" \
             "CoreScope-$VERSION-macos-universal.zip" \
-            SHA256SUMS.txt
+            SHA256SUMS.txt appcast.xml
