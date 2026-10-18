@@ -43,7 +43,6 @@ struct GitStatus: Decodable, Equatable {
   let conflicts: Int
   let locked: Bool
 }
-private struct GitDiff: Decodable { let diff: String }
 private struct GitCommitOutput: Decodable { let output: String }
 private struct GitIgnored: Decodable { let ignored: [String] }
 private struct GitDone: Decodable {}
@@ -102,8 +101,13 @@ final class ProjectChangesStore: ObservableObject {
   @Published var error: String?
   @Published var commitOutput: String?
   @Published var commitFailed = false
-  @Published private(set) var diff: String?
-  @Published private(set) var diffFor: String?
+  /// The changes on the right: every file (nothing selected) or the selected ones.
+  @Published private(set) var diffFiles: [RenderedFile]?
+  @Published private(set) var diffLoading = false
+  private var diffRequest: (mode: String, paths: [String]) = ("head", [])
+  /// Files shown whole (an unchanged stretch was expanded).
+  private var expanded: Set<String> = []
+  private var diffToken = 0
   @Published private(set) var busy = false
   private let queue = DispatchQueue(label: "app.corescope.project-changes", qos: .userInitiated)
   private var watcher: RepoWatcher?
@@ -153,24 +157,38 @@ final class ProjectChangesStore: ObservableObject {
     }
   }
 
-  func loadDiff(_ row: ChangeRow?) {
-    guard let row else {
-      diff = nil
-      diffFor = nil
-      return
-    }
-    let key = row.id
-    diffFor = key
+  /// `mode`: "head" (HEAD → working tree), "staged" or "worktree"; empty `paths` = all.
+  func loadDiffs(mode: String, paths: [String]) {
+    if diffRequest.mode != mode || diffRequest.paths != paths { expanded = expanded.intersection(paths.isEmpty ? expanded : Set(paths)) }
+    diffRequest = (mode, paths)
+    refreshDiffs()
+  }
+  func expand(_ path: String) {
+    expanded.insert(path)
+    refreshDiffs()
+  }
+  func refreshDiffs() {
+    diffToken += 1
+    let token = diffToken
+    let (mode, paths) = diffRequest
+    let whole = expanded
+    diffLoading = true
     queue.async {
       let cost = CostMeter.begin()
       defer { CostMeter.end("projects-git", cost) }
-      let r = ProjectsTool.call(["op": "diff", "folder": self.folder, "path": row.file.path, "staged": row.group == .staged], as: GitDiff.self)
-      DispatchQueue.main.async {
-        guard self.diffFor == key else { return }
-        switch r {
-        case .success(let d): self.diff = d.diff
-        case .failure(let e): self.diff = e.message
+      let r = ProjectsTool.call(["op": "file_diffs", "folder": self.folder, "mode": mode, "paths": paths, "context": 3], as: FileDiffList.self)
+      var files = (try? r.get().files) ?? []
+      for (i, f) in files.enumerated() where whole.contains(f.path) {
+        if let full = try? ProjectsTool.call(["op": "file_diffs", "folder": self.folder, "mode": mode, "paths": [f.path], "context": 1_000_000], as: FileDiffList.self).get().files.first {
+          files[i] = full
         }
+      }
+      let rendered = files.map(DiffRenderer.render)
+      DispatchQueue.main.async {
+        guard token == self.diffToken else { return }
+        self.diffLoading = false
+        if case .failure(let e) = r { self.error = e.message }
+        self.diffFiles = rendered
       }
     }
   }
@@ -406,7 +424,11 @@ struct ProjectChangesView: View {
         }
         .frame(width: 400)
         Divider()
-        DiffView(text: store.diff, empty: selectedRows.count > 1 ? L("%@ arquivos selecionados", "\(selectedRows.count)") : L("Selecione um arquivo para ver o diff."))
+        ZedDiffView(
+          files: store.diffFiles, empty: L("Nada para mostrar."), loading: store.diffLoading,
+          stagedState: stagedState, toggleStage: { path, on in on ? store.stage([path]) : store.unstage([path]) },
+          expand: { store.expand($0) },
+          open: { path in if let root = store.root { CodeEditor.open(URL(fileURLWithPath: root).appendingPathComponent(path)) } })
           .frame(maxWidth: .infinity, maxHeight: .infinity)
       }
       .frame(maxHeight: .infinity)
@@ -414,11 +436,11 @@ struct ProjectChangesView: View {
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     .onAppear { store.start() }
     .onDisappear { store.stop() }
-    .onChange(of: selection) { _, _ in store.loadDiff(selectedRows.count == 1 ? selectedRows.first : nil) }
+    .onChange(of: selection) { _, _ in requestDiffs() }
     .onChange(of: store.status) { _, _ in
       let ids = Set(rows.map(\.id))
       let kept = selection.intersection(ids)
-      if kept != selection { selection = kept } else if let row = selectedRows.first, selectedRows.count == 1 { store.loadDiff(row) }
+      if kept != selection { selection = kept } else { requestDiffs() }
     }
     .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in store.reload() }
     .confirmationDialog(discardTitle, isPresented: Binding(get: { confirmDiscard != nil }, set: { if !$0 { confirmDiscard = nil } })) {
@@ -489,6 +511,27 @@ struct ProjectChangesView: View {
       }
     }
     .padding(.horizontal, 20).padding(.vertical, 8).background(color.opacity(0.08))
+  }
+
+  /// Nothing selected: every change since the last commit (as Zed's uncommitted changes). With a
+  /// selection: those files, staged or working-tree side as their rows say.
+  private func requestDiffs() {
+    let picked = selectedRows
+    let paths = Array(Set(picked.map(\.file.path))).sorted()
+    if picked.isEmpty {
+      store.loadDiffs(mode: "head", paths: [])
+    } else if picked.allSatisfy({ $0.group == .staged }) {
+      store.loadDiffs(mode: "staged", paths: paths)
+    } else if !picked.contains(where: { $0.group == .staged }) {
+      store.loadDiffs(mode: "worktree", paths: paths)
+    } else {
+      store.loadDiffs(mode: "head", paths: paths)
+    }
+  }
+  private func stagedState(_ path: String) -> Bool? {
+    guard let f = store.status?.files.first(where: { $0.path == path }) else { return false }
+    if f.staged && !f.unstaged { return true }
+    return f.staged ? nil : false
   }
 
   private var rows: [ChangeRow] {
@@ -685,51 +728,5 @@ private struct ChangeRowView: View {
     case "!": .red
     default: .orange
     }
-  }
-}
-
-/// A unified diff with added and removed lines tinted.
-private struct DiffView: View {
-  let text: String?
-  let empty: String
-  var body: some View {
-    if text != nil, Demo.enabled {
-      placeholder(L("O diff fica oculto no modo de demonstração."))
-    } else if let text {
-      let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
-      if lines.allSatisfy({ $0.isEmpty }) {
-        placeholder(L("Sem diferenças de texto (só o modo do arquivo mudou, ou é binário)."))
-      } else {
-        ScrollView([.vertical, .horizontal]) {
-          LazyVStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
-              Text(verbatim: line.isEmpty ? " " : String(line))
-                .font(.system(size: 11.5, design: .monospaced))
-                .foregroundStyle(foreground(line))
-                .padding(.horizontal, 10)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(background(line))
-            }
-          }.textSelection(.enabled).padding(.vertical, 6)
-        }
-        .background(Color(nsColor: .textBackgroundColor))
-      }
-    } else {
-      placeholder(empty)
-    }
-  }
-  private func placeholder(_ text: String) -> some View {
-    Text(text).font(.callout).foregroundStyle(.secondary).frame(maxWidth: .infinity, maxHeight: .infinity)
-  }
-  private func foreground(_ line: Substring) -> Color {
-    if line.hasPrefix("@@") { return .blue }
-    if line.hasPrefix("diff ") || line.hasPrefix("index ") || line.hasPrefix("+++") || line.hasPrefix("---") { return .secondary }
-    return .primary
-  }
-  private func background(_ line: Substring) -> Color {
-    if line.hasPrefix("+++") || line.hasPrefix("---") { return .clear }
-    if line.hasPrefix("+") { return Color.green.opacity(0.13) }
-    if line.hasPrefix("-") { return Color.red.opacity(0.13) }
-    return .clear
   }
 }

@@ -26,7 +26,11 @@ section as the GitHub release notes.
   editor or Finder; *Discard changes…* after a confirmation (tracked files back to HEAD, new files
   to the Trash); commit with ⌘↩, disabled without a message, staged files or with conflicts, hooks
   and signing as configured and a failing hook's output shown. `index.lock` and conflicts are
-  explained, never a crash. FSEvents refreshes the panel only while it is open (`.git` reduced to
+  explained, never a crash. The diff reads like Zed's uncommitted-changes view: all changes
+  stacked by file (or the selected files) under pinned headers with a stage checkbox and *Open*,
+  green/red/yellow gutter bars, line numbers, syntax colors, folded unchanged stretches and
+  ↑/↓ between changes. Each card shows the change counts and ahead/behind without opening it,
+  live while the page is open. FSEvents refreshes the panel only while it is open (`.git` reduced to
   HEAD/index/refs, `.gitignore`d paths dropped, at most two reloads a second), measured as
   *Projects (git)* in CoreScope's own cost. `corescope status`, `corescope://project/NAME`, MCP
   `project_git_status`, `project_git_diff`, `project_git_stage`, `project_git_commit`,

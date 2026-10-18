@@ -1850,6 +1850,19 @@ pub fn projects_tool(v: &serde_json::Value) -> Result<serde_json::Value, String>
         "init" => Ok(json!(git::init(&folder()?)?)),
         "status" => Ok(json!(gitchanges::status(&folder()?)?)),
         "summary" => Ok(json!(gitchanges::summary(&folder()?)?)),
+        "file_diffs" => {
+            let paths: Vec<String> = v["paths"]
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|p| p.as_str().map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let mode = v["mode"].as_str().unwrap_or("head");
+            let context = v["context"].as_u64().unwrap_or(3) as u32;
+            Ok(json!({"files": gitchanges::file_diffs(&folder()?, &paths, mode, context)?}))
+        }
         "branches" => Ok(json!(gitbranches::branches(&folder()?)?)),
         "context" => Ok(json!({"context": agentcontext::for_folder(&folder()?)})),
         "instructions" => Ok(json!(agentcontext::instructions(&folder()?)?)),

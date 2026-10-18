@@ -58,6 +58,15 @@ enum ProjectsTool {
   }
 }
 private struct Ignored: Decodable {}
+struct GitSummary: Decodable, Equatable {
+  let branch: GitBranchState
+  let staged: Int
+  let modified: Int
+  let untracked: Int
+  let removed: Int
+  let conflicts: Int
+  var total: Int { staged + modified + untracked + removed + conflicts }
+}
 
 /// Registered projects and what their folders hold (config summary, git), read when the page
 /// opens and after every change. A project's changes (ProjectChanges.swift) are watched only while shown.
@@ -68,6 +77,11 @@ final class ProjectsStore: ObservableObject {
   @Published var message: String?
   /// The project whose changes are on screen (id).
   @Published var opened: String?
+  /// Branch and change counts per project (id), so the list tells what changed without opening.
+  @Published private(set) var summaries: [String: GitSummary] = [:]
+  /// File watchers while the list is on screen, one per repository.
+  private var watchers: [String: RepoWatcher] = [:]
+  private var listVisible = false
   private let queue = DispatchQueue(label: "app.corescope.projects", qos: .userInitiated)
 
   func load() {
@@ -76,14 +90,49 @@ final class ProjectsStore: ObservableObject {
       defer { CostMeter.end("projects-git", cost) }
       let list = (try? ProjectsTool.call(["op": "list"], as: [ProjectEntry].self).get()) ?? []
       var checks: [String: ProjectCheck] = [:]
+      var summaries: [String: GitSummary] = [:]
       for p in list {
-        if let c = try? ProjectsTool.call(["op": "check", "folder": p.folder], as: ProjectCheck.self).get() { checks[p.id] = c }
+        guard let c = try? ProjectsTool.call(["op": "check", "folder": p.folder], as: ProjectCheck.self).get() else { continue }
+        checks[p.id] = c
+        if c.git.is_repo, let sum = try? ProjectsTool.call(["op": "summary", "folder": p.folder], as: GitSummary.self).get() {
+          summaries[p.id] = sum
+        }
       }
       DispatchQueue.main.async {
         if list != self.projects { self.projects = list }
         if checks != self.checks { self.checks = checks }
+        if summaries != self.summaries { self.summaries = summaries }
+        self.syncWatchers()
       }
     }
+  }
+  /// One project's counts again (its watcher saw a change).
+  private func refreshSummary(_ id: String) {
+    guard let p = projects.first(where: { $0.id == id }) else { return }
+    queue.async {
+      let cost = CostMeter.begin()
+      defer { CostMeter.end("projects-git", cost) }
+      let sum = try? ProjectsTool.call(["op": "summary", "folder": p.folder], as: GitSummary.self).get()
+      DispatchQueue.main.async { if self.summaries[id] != sum { self.summaries[id] = sum } }
+    }
+  }
+  /// The list is on screen (true) or not: watchers exist only while it is.
+  func setListVisible(_ visible: Bool) {
+    listVisible = visible
+    syncWatchers()
+    if visible { load() }
+  }
+  private func syncWatchers() {
+    guard listVisible else {
+      watchers = [:]
+      return
+    }
+    var next: [String: RepoWatcher] = [:]
+    for p in projects {
+      guard let root = checks[p.id]?.git.root else { continue }
+      next[p.id] = watchers[p.id] ?? RepoWatcher(folder: p.folder, root: root) { [weak self] in self?.refreshSummary(p.id) }
+    }
+    watchers = next
   }
   func check(_ folder: String, done: @escaping (Result<ProjectCheck, DBError>) -> Void) {
     queue.async {
@@ -153,10 +202,11 @@ struct ProjectsView: View {
             EmptyNote(text: L("Nenhum projeto ainda. Adicione a pasta de um repositório: o CoreScope lê o .corescope.yml (ou oferece criar um) e o git dela, sem abrir uma IDE."))
           }
         }
-        ForEach(store.projects) { p in ProjectCard(project: p, check: store.checks[p.id]) { store.opened = p.id } }
+        ForEach(store.projects) { p in ProjectCard(project: p, check: store.checks[p.id], summary: store.summaries[p.id]) { store.opened = p.id } }
       }.padding(20)
     }
-    .onAppear { store.load() }
+    .onAppear { store.setListVisible(true) }
+    .onDisappear { store.setListVisible(false) }
     .sheet(item: Binding(get: { adding.map(AddingProject.init) }, set: { adding = $0?.check })) { AddProjectSheet(check: $0.check) }
   }
   private func choose() {
@@ -303,6 +353,7 @@ struct ProjectGitView: View {
 private struct ProjectCard: View {
   let project: ProjectEntry
   let check: ProjectCheck?
+  let summary: GitSummary?
   let openChanges: () -> Void
   @ObservedObject var store = ProjectsStore.shared
   @ViewState private var editing = false
@@ -329,7 +380,12 @@ private struct ProjectCard: View {
           Button(L("Cancelar")) { editing = false }.controlSize(.small)
         } else {
           if check?.git.is_repo == true {
-            Button(action: openChanges) { Label(L("Alterações"), systemImage: "plusminus") }.controlSize(.small)
+            Button(action: openChanges) {
+              HStack(spacing: 5) {
+                Label(L("Alterações"), systemImage: "plusminus")
+                if let n = summary?.total, n > 0 { Text(verbatim: "\(n)").font(.caption.weight(.bold)).monospacedDigit().foregroundStyle(.orange) }
+              }
+            }.controlSize(.small)
           }
           Button {
             NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: project.folder)])
@@ -349,6 +405,7 @@ private struct ProjectCard: View {
       }
       if let check {
         ProjectGitView(git: check.git) { confirmInit = true }
+        if check.git.is_repo, let summary { ChangeCounts(summary: summary, open: openChanges) }
         ProjectConfigView(config: check.config)
         if check.git.is_repo {
           Divider()
@@ -377,5 +434,33 @@ private struct ProjectCard: View {
     let name = draft.trimmingCharacters(in: .whitespaces)
     if !name.isEmpty && name != project.name { store.rename(project, to: name) }
     editing = false
+  }
+}
+
+/// What changed in a project, at a glance: counts by kind and the distance from upstream.
+struct ChangeCounts: View {
+  let summary: GitSummary
+  let open: () -> Void
+  var body: some View {
+    HStack(spacing: 6) {
+      if summary.total == 0 {
+        Label(L("Sem alterações"), systemImage: "checkmark.circle").font(.caption).foregroundStyle(.secondary)
+      } else {
+        Button(action: open) {
+          HStack(spacing: 5) {
+            if summary.conflicts > 0 { Badge(text: L("%@ conflitos", "\(summary.conflicts)"), color: .red, symbol: "exclamationmark.triangle.fill") }
+            if summary.staged > 0 { Badge(text: L("%@ em stage", "\(summary.staged)"), color: .green) }
+            if summary.modified > 0 { Badge(text: L("%@ modificados", "\(summary.modified)"), color: .orange) }
+            if summary.untracked > 0 { Badge(text: L("%@ novos", "\(summary.untracked)"), color: .green) }
+            if summary.removed > 0 { Badge(text: L("%@ removidos", "\(summary.removed)"), color: .red) }
+          }
+        }
+        .buttonStyle(.plain).help(L("Abrir as alterações"))
+      }
+      if summary.branch.upstream != nil, let a = summary.branch.ahead, let b = summary.branch.behind, a + b > 0 {
+        Badge(text: "↑\(a)  ↓\(b)", color: b > 0 ? .orange : .secondary).help(L("Commits à frente / atrás do upstream"))
+      }
+      Spacer()
+    }
   }
 }

@@ -1330,4 +1330,25 @@ private let entries = """
   O Codex ainda não roda estes hooks: abra o Codex, digite /hooks e confie nos do CoreScope. Depois disso eles rodam em toda sessão. ¦ Codex doesn't run these hooks yet: open Codex, type /hooks and trust CoreScope's. After that they run in every session. ¦ Codex aún no ejecuta estos hooks: abre Codex, escribe /hooks y confía en los de CoreScope. Después se ejecutan en cada sesión.
   Não foi possível ler %@ ¦ Couldn't read %@ ¦ No se pudo leer %@
   %@ não é um JSON válido; corrija o arquivo antes. ¦ %@ isn't valid JSON; fix the file first. ¦ %@ no es un JSON válido; corrige el archivo antes.
+  1 arquivo ¦ 1 file ¦ 1 archivo
+  %@ arquivos ¦ %@ files ¦ %@ archivos
+  Alteração anterior ¦ Previous change ¦ Cambio anterior
+  Próxima alteração ¦ Next change ¦ Siguiente cambio
+  novo ¦ new ¦ nuevo
+  removido ¦ deleted ¦ eliminado
+  Arquivo binário: sem diff de texto. ¦ Binary file: no text diff. ¦ Archivo binario: sin diff de texto.
+  Só renomeado, sem mudar o conteúdo. ¦ Only renamed, content unchanged. ¦ Solo renombrado, sin cambiar el contenido.
+  Sem diferenças de texto (só o modo do arquivo mudou). ¦ No text differences (only the file mode changed). ¦ Sin diferencias de texto (solo cambió el modo del archivo).
+  Diff cortado: o arquivo tem alterações demais para mostrar. ¦ Diff cut: the file has too many changes to show. ¦ Diff recortado: el archivo tiene demasiados cambios para mostrar.
+  1 linha sem mudança ¦ 1 unchanged line ¦ 1 línea sin cambios
+  %@ linhas sem mudança ¦ %@ unchanged lines ¦ %@ líneas sin cambios
+  Mostrar o arquivo inteiro ¦ Show the whole file ¦ Mostrar el archivo entero
+  Sem alterações ¦ No changes ¦ Sin cambios
+  %@ conflitos ¦ %@ conflicts ¦ %@ conflictos
+  %@ em stage ¦ %@ staged ¦ %@ preparados
+  %@ modificados ¦ %@ modified ¦ %@ modificados
+  %@ novos ¦ %@ new ¦ %@ nuevos
+  %@ removidos ¦ %@ deleted ¦ %@ eliminados
+  Abrir as alterações ¦ Open the changes ¦ Abrir los cambios
+  Nada para mostrar. ¦ Nothing to show. ¦ Nada que mostrar.
   """

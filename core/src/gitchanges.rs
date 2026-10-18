@@ -416,6 +416,262 @@ pub fn diff(folder: &Path, path: &str, staged: bool) -> Result<String, String> {
     Ok(text)
 }
 
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct DiffLine {
+    /// '+', '-' or ' ' (context).
+    pub kind: char,
+    pub old: Option<u32>,
+    pub new: Option<u32>,
+    pub text: String,
+}
+#[derive(Clone, Debug, Serialize, PartialEq, Default)]
+pub struct Hunk {
+    pub old_start: u32,
+    pub old_len: u32,
+    pub new_start: u32,
+    pub new_len: u32,
+    /// The function or section git names after `@@` (may be empty).
+    pub section: String,
+    pub lines: Vec<DiffLine>,
+}
+#[derive(Clone, Debug, Serialize, PartialEq, Default)]
+pub struct FileDiff {
+    pub path: String,
+    pub orig_path: Option<String>,
+    pub new_file: bool,
+    pub deleted: bool,
+    pub binary: bool,
+    pub added: u32,
+    pub removed: u32,
+    pub hunks: Vec<Hunk>,
+    /// Lines past MAX_FILE_LINES were left out.
+    pub truncated: bool,
+}
+/// Lines kept per file in a structured diff.
+pub const MAX_FILE_LINES: usize = 4000;
+
+fn diff_path(raw: &str) -> Option<String> {
+    let raw = raw.trim_end_matches('\t');
+    if raw == "/dev/null" {
+        return None;
+    }
+    let raw = raw.trim_matches('"');
+    Some(
+        raw.strip_prefix("a/")
+            .or_else(|| raw.strip_prefix("b/"))
+            .unwrap_or(raw)
+            .to_string(),
+    )
+}
+/// "@@ -12,3 +12,4 @@ fn x" → (12, 3, 12, 4, "fn x"); a missing length is 1.
+fn hunk_header(line: &str) -> Option<(u32, u32, u32, u32, String)> {
+    let rest = line.strip_prefix("@@ -")?;
+    let (ranges, section) = rest.split_once(" @@").unwrap_or((rest, ""));
+    let (old, new) = ranges.split_once(" +")?;
+    let range = |r: &str| -> Option<(u32, u32)> {
+        match r.split_once(',') {
+            Some((a, b)) => Some((a.parse().ok()?, b.parse().ok()?)),
+            None => Some((r.parse().ok()?, 1)),
+        }
+    };
+    let (os, ol) = range(old)?;
+    let (ns, nl) = range(new)?;
+    Some((os, ol, ns, nl, section.trim().to_string()))
+}
+
+/// Unified diff text (`git diff`, any number of files) → files, hunks and numbered lines.
+pub fn parse_unified(text: &str) -> Vec<FileDiff> {
+    let mut files: Vec<FileDiff> = vec![];
+    let mut old_no = 0u32;
+    let mut new_no = 0u32;
+    let mut kept = 0usize;
+    for line in text.lines() {
+        if let Some(rest) = line.strip_prefix("diff --git ") {
+            // "a/P b/P": the halves are the same path unless renamed (then ---/+++ say).
+            let half = rest.len().saturating_sub(5) / 2;
+            let guess = rest
+                .get(2..2 + half)
+                .map(str::to_string)
+                .filter(|p| rest == format!("a/{p} b/{p}"));
+            files.push(FileDiff {
+                path: guess.unwrap_or_default(),
+                ..Default::default()
+            });
+            kept = 0;
+            continue;
+        }
+        let Some(file) = files.last_mut() else {
+            continue;
+        };
+        if file.hunks.is_empty() {
+            if line.starts_with("new file mode") {
+                file.new_file = true;
+            } else if line.starts_with("deleted file mode") {
+                file.deleted = true;
+            } else if let Some(p) = line.strip_prefix("rename from ") {
+                file.orig_path = Some(p.to_string());
+            } else if let Some(p) = line.strip_prefix("rename to ") {
+                file.path = p.to_string();
+            } else if line.starts_with("Binary files ") {
+                file.binary = true;
+            } else if let Some(p) = line.strip_prefix("--- ").and_then(diff_path) {
+                if file.path.is_empty() {
+                    file.path = p;
+                }
+            } else if let Some(p) = line.strip_prefix("+++ ").and_then(diff_path) {
+                file.path = p;
+            }
+        }
+        if line.starts_with("@@ ") {
+            if let Some((os, ol, ns, nl, section)) = hunk_header(line) {
+                old_no = os;
+                new_no = ns;
+                file.hunks.push(Hunk {
+                    old_start: os,
+                    old_len: ol,
+                    new_start: ns,
+                    new_len: nl,
+                    section,
+                    lines: vec![],
+                });
+            }
+            continue;
+        }
+        let Some(hunk) = file.hunks.last_mut() else {
+            continue;
+        };
+        let (kind, text) = match line.chars().next() {
+            Some('+') => ('+', &line[1..]),
+            Some('-') => ('-', &line[1..]),
+            Some(' ') => (' ', &line[1..]),
+            Some('\\') => continue, // "\ No newline at end of file"
+            None => (' ', ""),
+            _ => continue,
+        };
+        match kind {
+            '+' => file.added += 1,
+            '-' => file.removed += 1,
+            _ => {}
+        }
+        if kept >= MAX_FILE_LINES {
+            file.truncated = true;
+            continue;
+        }
+        kept += 1;
+        let (old, new) = match kind {
+            '+' => {
+                new_no += 1;
+                (None, Some(new_no - 1))
+            }
+            '-' => {
+                old_no += 1;
+                (Some(old_no - 1), None)
+            }
+            _ => {
+                old_no += 1;
+                new_no += 1;
+                (Some(old_no - 1), Some(new_no - 1))
+            }
+        };
+        hunk.lines.push(DiffLine {
+            kind,
+            old,
+            new,
+            text: text.to_string(),
+        });
+    }
+    files
+}
+
+/// Structured diffs of several files. `mode`: "worktree" (index → working tree), "staged"
+/// (HEAD → index) or "head" (HEAD → working tree, what Zed calls uncommitted changes). New
+/// files are shown whole. `context` lines around each change (a large number shows the whole
+/// file). An empty `paths` means every changed file.
+pub fn file_diffs(
+    folder: &Path,
+    paths: &[String],
+    mode: &str,
+    context: u32,
+) -> Result<Vec<FileDiff>, String> {
+    let root = root_of(folder)?;
+    let valid: Vec<&str> = if paths.is_empty() {
+        vec![]
+    } else {
+        valid_paths(paths)?
+    };
+    let has_head = git::read(&root, &["rev-parse", "-q", "--verify", "HEAD"]).is_some();
+    // An empty tree stands in for HEAD before the first commit.
+    let base = if has_head {
+        "HEAD"
+    } else {
+        "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+    };
+    let unified = format!("-U{}", context.min(1_000_000));
+    let mut args = vec![
+        "-c",
+        "core.quotepath=false",
+        "diff",
+        "--no-color",
+        "--no-ext-diff",
+        "-M",
+        unified.as_str(),
+    ];
+    match mode {
+        "worktree" => {}
+        "staged" => args.extend(["--cached", base]),
+        "head" => args.push(base),
+        _ => return Err("mode must be worktree, staged or head".into()),
+    }
+    args.push("--");
+    args.extend(valid.iter().copied());
+    let out = git::run(&root, &args, true, Duration::from_secs(30))?;
+    if !out.ok() {
+        return Err(out.message());
+    }
+    let mut text = out.stdout;
+    if text.len() > MAX_DIFF * 4 {
+        let cut = (0..=MAX_DIFF * 4)
+            .rev()
+            .find(|i| text.is_char_boundary(*i))
+            .unwrap_or(0);
+        text.truncate(cut);
+    }
+    let mut files = parse_unified(&text);
+    // Untracked files: whole, as additions (not in "staged").
+    if mode != "staged" {
+        let mut untracked_args = vec!["ls-files", "--others", "--exclude-standard", "-z", "--"];
+        untracked_args.extend(valid.iter().copied());
+        let listed = read(&root, &untracked_args).unwrap_or_default();
+        for path in listed.split('\0').filter(|p| !p.is_empty()).take(200) {
+            let out = git::run(
+                &root,
+                &[
+                    "-c",
+                    "core.quotepath=false",
+                    "diff",
+                    "--no-color",
+                    "--no-ext-diff",
+                    "--no-index",
+                    "--",
+                    "/dev/null",
+                    path,
+                ],
+                true,
+                Duration::from_secs(20),
+            )?;
+            if out.code > 1 {
+                continue;
+            }
+            for mut f in parse_unified(&out.stdout) {
+                f.path = path.to_string();
+                f.new_file = true;
+                files.push(f);
+            }
+        }
+    }
+    Ok(files)
+}
+
 pub fn stage(folder: &Path, paths: &[String]) -> Result<(), String> {
     let root = root_of(folder)?;
     let mut args = vec!["add", "-A", "--"];
@@ -528,6 +784,45 @@ mod tests {
     }
 
     #[test]
+    fn unified_diff_becomes_numbered_hunks() {
+        let text = "diff --git a/a b.txt b/a b.txt\nindex 1..2 100644\n--- a/a b.txt\t\n+++ b/a b.txt\t\n@@ -1,3 +1,3 @@ fn top\n a\n-b\n+c\n d\n@@ -10 +10,2 @@\n x\n+y\n\\ No newline at end of file\n\
+                    diff --git a/old.rs b/new.rs\nsimilarity index 90%\nrename from old.rs\nrename to new.rs\n\
+                    diff --git a/bin.dat b/bin.dat\nnew file mode 100644\nBinary files /dev/null and b/bin.dat differ\n\
+                    diff --git a/gone.md b/gone.md\ndeleted file mode 100644\n--- a/gone.md\n+++ /dev/null\n@@ -1 +0,0 @@\n-x\n";
+        let files = parse_unified(text);
+        assert_eq!(files.len(), 4);
+        let a = &files[0];
+        assert_eq!((a.path.as_str(), a.added, a.removed), ("a b.txt", 2, 1));
+        assert_eq!(a.hunks[0].section, "fn top");
+        let lines: Vec<(char, Option<u32>, Option<u32>)> = a.hunks[0]
+            .lines
+            .iter()
+            .map(|l| (l.kind, l.old, l.new))
+            .collect();
+        assert_eq!(
+            lines,
+            [
+                (' ', Some(1), Some(1)),
+                ('-', Some(2), None),
+                ('+', None, Some(2)),
+                (' ', Some(3), Some(3))
+            ]
+        );
+        assert_eq!((a.hunks[1].old_len, a.hunks[1].new_start), (1, 10));
+        assert_eq!(
+            a.hunks[1].lines.len(),
+            2,
+            "the no-newline marker is not a line"
+        );
+        assert_eq!(
+            (files[1].path.as_str(), files[1].orig_path.as_deref()),
+            ("new.rs", Some("old.rs"))
+        );
+        assert!(files[2].binary && files[2].new_file && files[2].path == "bin.dat");
+        assert!(files[3].deleted && files[3].path == "gone.md" && files[3].removed == 1);
+    }
+
+    #[test]
     fn stage_unstage_diff_discard_commit_on_a_real_repository() {
         let repo = crate::git::tests::scratch("changes");
         std::fs::write(repo.join("a.txt"), "a\nb\n").unwrap();
@@ -546,6 +841,14 @@ mod tests {
         );
         assert!(diff(&repo, "a.txt", false).unwrap().contains("+b"));
         assert!(diff(&repo, "new.txt", false).unwrap().contains("+three"));
+        let all = file_diffs(&repo, &[], "head", 3).unwrap();
+        assert_eq!(all.len(), 2, "tracked change and the new file");
+        let new = all.iter().find(|f| f.path == "new.txt").unwrap();
+        assert!(new.new_file && new.added == 3);
+        assert_eq!(new.hunks[0].lines[2].new, Some(3));
+        let one = file_diffs(&repo, &["a.txt".into()], "worktree", 3).unwrap();
+        assert_eq!((one.len(), one[0].added), (1, 1));
+        assert!(file_diffs(&repo, &[], "staged", 3).unwrap().is_empty());
         stage(&repo, &["a.txt".into(), "new.txt".into()]).unwrap();
         let s = status(&repo).unwrap();
         assert_eq!((s.staged, s.modified, s.untracked), (2, 0, 0));
