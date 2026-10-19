@@ -38,6 +38,7 @@ import Foundation
     updateTests()
     failedUnitTests()
     volumeTests()
+    auditTests()
     // VM helper ports split among the containers that published them.
     let split = splitPorts([6379, 3306, 8025, 1025, 5555]) {
       [6379: "redis", 3306: "mysql", 8025: "mail", 1025: "mail"][$0]
@@ -335,7 +336,7 @@ import Foundation
     precondition(looksLikeTime("14:05") && looksLikeTime("2:05 pm") && looksLikeTime("14h05") && looksLikeTime("ontem 9:30"))
     precondition(!looksLikeTime("8000") && !looksLikeTime("redis") && !looksLikeTime("14"))
     print(
-      "31 native assertions passed: descendants, cycle, ordering, off-screen recovery, negative-origin monitor, forest roots, flatten, collapse, totals, ancestors, filter, formatting, container ports, shared ports, demo paths, debounce, sustained thresholds, new arrivals, port parsing, shortcut label, agent stalls, health targets, service states, shared containers, ssh stats, gate hook, machine alerts, failed unit explanations, service history, own cost, links, palette, Claude Desktop usage, limit pace, settings backup, docker volumes; plus settings JSON, Unicode escapes, status line install/chain, Claude limits, Claude /usage text, update versions, release notes, appcast"
+      "31 native assertions passed: descendants, cycle, ordering, off-screen recovery, negative-origin monitor, forest roots, flatten, collapse, totals, ancestors, filter, formatting, container ports, shared ports, demo paths, debounce, sustained thresholds, new arrivals, port parsing, shortcut label, agent stalls, health targets, service states, shared containers, ssh stats, gate hook, machine alerts, failed unit explanations, service history, own cost, links, palette, Claude Desktop usage, limit pace, settings backup, performance audit, docker volumes; plus settings JSON, Unicode escapes, status line install/chain, Claude limits, Claude /usage text, update versions, release notes, appcast"
     )
     print(
       "token usage assertions passed: timestamps, formatting, Claude block dedupe, embedded entries, partial lines, long-line skip, fast/full parity, Codex repeats and forks"
@@ -609,4 +610,53 @@ func volumeTests() {
     ("a", 100, 0, []), ("b", nil, 0, []), ("mysql_data", 5000, 1, ["db"]), ("c", 7, -1, []),
   ])
   precondition(plan.names == ["a", "b"] && plan.bytes == 100 && plan.blocked == 2)
+}
+
+func auditTests() {
+  let gb = 1_073_741_824.0
+  // Under memory pressure, 1 GB of memory outweighs 4 GB of disk; with room, 4 GB of disk wins
+  // over a 1 GB process only when the disk is nearly full.
+  let calm = AuditContext()
+  let tight = AuditContext(pressure: 1, swap: 0, diskFree: 50 * gb, diskTotal: 500 * gb, onBattery: false)
+  precondition(tight.memoryTight && !tight.diskTight && !calm.memoryTight)
+  let memory = AuditImpact(memory: gb)
+  let disk = AuditImpact(disk: 4 * gb)
+  precondition(auditScore(memory, confidence: .high, context: tight) > auditScore(disk, confidence: .high, context: tight))
+  precondition(auditScore(memory, confidence: .high, context: calm) > auditScore(disk, confidence: .high, context: calm))
+  let full = AuditContext(pressure: 0, swap: 0, diskFree: 20 * gb, diskTotal: 500 * gb, onBattery: false)
+  precondition(full.diskTight)
+  precondition(auditScore(disk, confidence: .high, context: full) > auditScore(memory, confidence: .high, context: full))
+  precondition(AuditContext(pressure: 0, swap: 3 * gb, diskFree: nil, diskTotal: nil, onBattery: false).memoryTight, "swap counts")
+  // Confidence scales the figure; battery doubles watts; negative readings count as nothing.
+  precondition(auditScore(memory, confidence: .low, context: calm) < auditScore(memory, confidence: .medium, context: calm))
+  let watts = AuditImpact(watts: 3)
+  let battery = AuditContext(pressure: nil, swap: nil, diskFree: nil, diskTotal: nil, onBattery: true)
+  precondition(auditScore(watts, confidence: .high, context: battery) == 2 * auditScore(watts, confidence: .high, context: calm))
+  precondition(auditScore(AuditImpact(cpu: -5, memory: -1), confidence: .high, context: calm) == 0)
+  precondition(abs(auditScore(AuditImpact(cpu: 100), confidence: .high, context: calm) - 10) < 1e-9, "a full core is 10")
+  // Ranking: highest first, ties keep their order.
+  let ranked = rankAudit([("a", 1.0), ("b", 3.0), ("c", 1.0), ("d", 2.0)]) { $0.1 }
+  precondition(ranked.map(\.0) == ["b", "d", "a", "c"])
+  // Thresholds.
+  precondition(auditHeavyProcess(cpu: 120, memory: 0, highCPUSeconds: 90))
+  precondition(!auditHeavyProcess(cpu: 120, memory: 0, highCPUSeconds: 10), "one busy sample is not a pattern")
+  precondition(auditHeavyProcess(cpu: 0, memory: 2 * gb, highCPUSeconds: 0))
+  precondition(!auditHeavyProcess(cpu: 30, memory: gb, highCPUSeconds: 600))
+  precondition(auditOrphanWorthStopping(cpu: 0, memory: 0, listening: true), "a port is held")
+  precondition(!auditOrphanWorthStopping(cpu: 0.2, memory: 8 * 1_048_576, listening: false))
+  precondition(auditOrphanWorthStopping(cpu: 0, memory: 200 * 1_048_576, listening: false))
+  precondition(auditIdleContainer(cpu: 0.1, memory: 400 * 1_048_576, inActiveProfile: false))
+  precondition(!auditIdleContainer(cpu: 0.1, memory: 400 * 1_048_576, inActiveProfile: true), "a started profile owns it")
+  precondition(!auditIdleContainer(cpu: nil, memory: nil, inActiveProfile: false), "no stats, no claim")
+  precondition(!auditIdleContainer(cpu: 12, memory: 400 * 1_048_576, inActiveProfile: false), "it is working")
+  let now = 1_800_000_000.0
+  precondition(auditDiskConfidence(kind: "docker_build_cache", modified: 0, merged: false, now: now) == .high)
+  precondition(auditDiskConfidence(kind: "worktree", modified: now, merged: true, now: now) == .high)
+  precondition(auditDiskConfidence(kind: "worktree", modified: now - 90 * 86400, merged: false, now: now) == .low)
+  precondition(auditDiskConfidence(kind: "node_modules", modified: now - 40 * 86400, merged: false, now: now) == .high)
+  precondition(auditDiskConfidence(kind: "node_modules", modified: now - 86400, merged: false, now: now) == .medium)
+  precondition(auditDeadService(uptime24h: 0.13) && !auditDeadService(uptime24h: 0.62) && !auditDeadService(uptime24h: nil))
+  precondition(auditStaleAge(scannedAt: nil, now: now) == .infinity, "never scanned is stale")
+  precondition(auditStaleAge(scannedAt: now - 3600, now: now) == nil)
+  precondition(auditStaleAge(scannedAt: now - 7 * 3600, now: now) == 7 * 3600)
 }

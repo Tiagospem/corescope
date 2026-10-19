@@ -11,6 +11,16 @@ section as the GitHub release notes.
 ## [Unreleased]
 
 ### Added
+- **Performance audit**: MCP `performance_audit` sweeps what CoreScope already knows and ranks
+  what the user could stop, remove or turn off — orphans, heavy apps and processes, stuck or
+  power-hungry agent sessions, started profiles, idle and stopped containers, reclaimable space from the
+  cached Cleanup scan and plan, folders Disk growth saw grow, Services checks that are always down,
+  and CoreScope's own costliest switches (collector interval, floating panel, Codex and Claude live
+  limits). Each finding carries what it would give back (CPU, memory, disk, watts), how sure
+  CoreScope is, and the tool and arguments that act on it; the audit never acts, never scans the
+  disk, and lists stale sources with the tool that refreshes them. Ranking weighs whatever is tight
+  right now (memory pressure, a nearly full disk, battery). The top findings also show on the
+  Overview as *To lighten the Mac*, each row opening the page where to act.
 - **Remove unused Docker volumes** from the Containers page: a trash button per volume and
   *Remove unused…* for all of them, each behind a confirmation that names the volumes, their sizes
   and that the data is deleted for good. Only volumes no container references (running or

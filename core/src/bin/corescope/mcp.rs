@@ -437,6 +437,24 @@ fn app_tools() -> Vec<(
             vec![],
         ),
         (
+            "performance_audit",
+            "app.performance_audit",
+            "What the user could stop, remove or turn off to make this Mac faster, ranked: orphans, \
+             heavy apps and processes, stuck or power-hungry agent sessions, started profiles, idle \
+             and stopped containers, reclaimable disk from the cached Cleanup scan and plan, folders \
+             that grew today, Services checks that are always down, and CoreScope's own costliest \
+             switches. Each finding has the figure it would give back (CPU, memory, disk, watts), \
+             how sure CoreScope is, and the tool + arguments that would act on it (stop_process, \
+             stop_profile, container_action, clean_dev_space, run_cleanup_plan, remove_service, \
+             set_setting) or that only the user can. Read-only and cheap: it reuses the latest \
+             snapshot and cached scans, never scans the disk, and lists stale sources with the tool \
+             that refreshes them. Ask the user before acting on any finding.",
+            json!({"limit": {"type": "integer", "minimum": 1, "maximum": 50, "description": "default 20"},
+                   "category": {"type": "string", "enum": ["orphans", "processes", "agents", "profiles",
+                       "containers", "disk", "services", "corescope"]}}),
+            vec![],
+        ),
+        (
             "update_status",
             "app.update_status",
             "Whether a newer CoreScope release is available: installed and latest version, its \

@@ -1457,3 +1457,102 @@ func volumeRemovalPlan(_ volumes: [(name: String, size: Int64?, refCount: Int, u
   let ok = volumes.filter { volumeBlock(refCount: $0.refCount, usedBy: $0.usedBy) == nil }
   return (ok.map(\.name), ok.compactMap(\.size).reduce(0, +), volumes.count - ok.count)
 }
+
+// MARK: - Performance audit (MCP performance_audit, Overview card)
+
+/// How sure CoreScope is that a finding can go without getting in the user's way.
+enum AuditConfidence: Int, Comparable {
+  case low, medium, high
+  var factor: Double { [0.4, 0.7, 1][rawValue] }
+  var name: String { ["low", "medium", "high"][rawValue] }
+  static func < (a: Self, b: Self) -> Bool { a.rawValue < b.rawValue }
+}
+/// What acting on a finding would give back: CPU in % of one core, memory and disk in bytes.
+struct AuditImpact: Equatable {
+  var cpu: Double = 0
+  var memory: Double = 0
+  var disk: Double = 0
+  var watts: Double = 0
+}
+/// The Mac's state, which decides the resource that matters most right now.
+struct AuditContext: Equatable {
+  var memoryTight = false
+  var diskTight = false
+  var onBattery = false
+  /// Memory pressure level (0 normal, 1 warning, 2 critical) or 2 GB of swap; startup disk under
+  /// 10 % free; running on battery.
+  init(pressure: Double?, swap: Double?, diskFree: Double?, diskTotal: Double?, onBattery: Bool) {
+    memoryTight = (pressure ?? 0) >= 1 || (swap ?? 0) >= 2 * 1_073_741_824
+    if let free = diskFree, let total = diskTotal, total > 0 { diskTight = free / total < 0.10 }
+    self.onBattery = onBattery
+  }
+  init() {}
+}
+/// One comparable figure per finding: a core fully busy ≈ 10, 1 GB of memory ≈ 4 (8 under
+/// pressure), 1 GB of disk ≈ 0.5 (2 when the disk is nearly full), 1 W ≈ 1 (2 on battery);
+/// scaled by confidence so a sure small win can beat a doubtful big one.
+func auditScore(_ impact: AuditImpact, confidence: AuditConfidence, context: AuditContext) -> Double {
+  let gb = 1_073_741_824.0
+  let cpu = max(0, impact.cpu) / 10
+  let memory = max(0, impact.memory) / gb * (context.memoryTight ? 8 : 4)
+  let disk = max(0, impact.disk) / gb * (context.diskTight ? 2 : 0.5)
+  let watts = max(0, impact.watts) * (context.onBattery ? 2 : 1)
+  return (cpu + memory + disk + watts) * confidence.factor
+}
+/// Highest score first; equal scores keep their order (stable for the same inputs).
+func rankAudit<T>(_ items: [T], score: (T) -> Double) -> [T] {
+  items.enumerated().sorted { a, b in
+    let (x, y) = (score(a.element), score(b.element))
+    return x != y ? x > y : a.offset < b.offset
+  }.map(\.element)
+}
+/// Thresholds for what is worth listing.
+enum AuditThreshold {
+  static let heavyCPU = 50.0
+  static let heavyMemory = 1.5 * 1_073_741_824
+  static let sustainedSeconds = 60.0
+  static let orphanMemory = 30.0 * 1_048_576
+  static let idleContainerCPU = 1.0
+  static let idleContainerMemory = 200.0 * 1_048_576
+  static let diskItem = 500.0 * 1_048_576
+  static let growth = 1_073_741_824.0
+  static let scanStale = 6 * 3600.0
+  static let deadService = 0.2
+}
+/// A process worth a look: CPU at least `heavyCPU` for a sustained minute (≥ 80 % of a core per
+/// the collector's own counter), or memory over `heavyMemory`.
+func auditHeavyProcess(cpu: Double, memory: Double, highCPUSeconds: Double) -> Bool {
+  (cpu >= AuditThreshold.heavyCPU && highCPUSeconds >= AuditThreshold.sustainedSeconds)
+    || memory >= AuditThreshold.heavyMemory
+}
+/// An orphan that holds something: memory, a busy core or a port.
+func auditOrphanWorthStopping(cpu: Double, memory: Double, listening: Bool) -> Bool {
+  memory >= AuditThreshold.orphanMemory || cpu >= 1 || listening
+}
+/// A running container nothing seems to use: nearly no CPU while holding memory, and no started
+/// profile owns it. Without stats (nil) nothing is claimed.
+func auditIdleContainer(cpu: Double?, memory: Double?, inActiveProfile: Bool) -> Bool {
+  guard let cpu, let memory, !inActiveProfile else { return false }
+  return cpu < AuditThreshold.idleContainerCPU && memory >= AuditThreshold.idleContainerMemory
+}
+/// Confidence that a reclaimable dev-space item can go: Docker data and caches are re-created on
+/// demand; a worktree only when merged; build folders untouched for a month.
+func auditDiskConfidence(kind: String, modified: Double, merged: Bool, now: Double) -> AuditConfidence {
+  switch kind {
+  case "docker_dangling", "docker_build_cache", "derived_data", "simulator_caches", "cache": return .high
+  case "worktree": return merged ? .high : .low
+  default:
+    return modified > 0 && now - modified > 30 * 86400 ? .high : .medium
+  }
+}
+/// A Services check that has been down most of a day still runs every 30 s for nothing.
+func auditDeadService(uptime24h: Double?) -> Bool {
+  guard let uptime24h else { return false }
+  return uptime24h < AuditThreshold.deadService
+}
+/// Seconds since the scan, or nil when it is fresh enough to rank from.
+func auditStaleAge(scannedAt: Double?, now: Double, limit: Double = AuditThreshold.scanStale) -> Double? {
+  guard let scannedAt else { return .infinity }
+  let age = now - scannedAt
+  return age > limit ? age : nil
+}

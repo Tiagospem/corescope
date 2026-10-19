@@ -360,6 +360,7 @@ With *Agents can use the app through MCP* (on by default once the server is regi
 | `get_settings` / `set_setting` | Notification toggles, thresholds, cleanup folders, collector interval, the floating panel and `check_for_updates` (the only one that reaches outside the Mac: the daily release check, see [Privacy](#privacy)) |
 | `update_status` | Installed and latest version, the new release's notes and the last check; makes no request. Installing stays a click in Settings |
 | `corescope_cost` | What CoreScope itself spends (app, helpers, children) and each feature's measured CPU, to tell you what to turn off |
+| `performance_audit` | What you could stop, remove or turn off to speed the Mac up, ranked: orphans, heavy apps, stuck or power-hungry agent sessions, started profiles, idle and stopped containers, reclaimable disk from the cached scans, always-down Services checks and CoreScope's own costliest switches — each with the figure it frees, a confidence and the tool that acts on it. Read-only; reuses the latest snapshot and cached scans and says which are stale (also an Overview card) |
 | `list_stuck_agents` | Busy sessions and whether they look stuck |
 
 Tools that stop, delete or clean are marked destructive, so Claude Code and Codex ask before running them; the app applies the same rules as its own buttons (Trash only, re-verification, shared containers, identity checks).
