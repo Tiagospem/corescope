@@ -58,9 +58,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
           }
           // willClose fires while the window is still visible: re-evaluate on the next turn.
           DispatchQueue.main.async { Preferences.shared.applyActivationPolicy() }
+          if note.name == NSWindow.willCloseNotification {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { MemoryRelief.now() }
+          }
         })
     }
     DispatchQueue.main.async { Preferences.shared.applyActivationPolicy() }
+    MemoryRelief.start()
   }
   func applicationWillTerminate(_ notification: Notification) {
     // Keeps the minute in progress instead of dropping it on quit.
@@ -118,12 +122,69 @@ struct CoreScopeApp: App {
         }
       }
     MenuBarExtra {
-      MenuSummary()
+      OnlyWhileVisible { MenuSummary() }
     } label: {
       MenuBarLabel()
     }.menuBarExtraStyle(.window)
     Settings { PreferencesView().frame(width: 650, height: 730) }
   }
+}
+
+/// Gives freed heap pages back to macOS. A scan or a big page leaves the allocator holding tens
+/// of megabytes it no longer uses, counted in the app's memory until then. Every 5 minutes while
+/// no window is open, and after the main window closes.
+enum MemoryRelief {
+  private static var timer: Timer?
+  static func start() {
+    timer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { _ in
+      let open = NSApp.windows.contains { $0.isVisible && !$0.isMiniaturized && $0.styleMask.contains(.resizable) }
+      if !open { now() }
+    }
+    timer?.tolerance = 60
+  }
+  static func now() {
+    DispatchQueue.global(qos: .utility).async { malloc_zone_pressure_relief(nil, 0) }
+  }
+}
+
+/// What each menu bar value is: its label, its compact form and a sentence for the legend
+/// (Settings, the menu's popover and the status item's tooltip).
+enum MenuBarItems {
+  static let all = ["CPU", "Memória", "Disco", "Rede", "Térmico", "Sensor"]
+  static func name(_ item: String) -> String {
+    switch item {
+    case "Memória": L("Memória")
+    case "Disco": L("Disco")
+    case "Rede": L("Rede")
+    case "Térmico": L("Térmico")
+    case "Sensor": L("Temperatura do SSD")
+    default: "CPU"
+    }
+  }
+  static func explanation(_ item: String) -> String {
+    switch item {
+    case "Memória": L("RAM: memória em uso agora")
+    case "Disco": L("Disco: leitura + escrita por segundo nos discos físicos")
+    case "Rede": L("Rede: entrada + saída por segundo")
+    case "Térmico": L("Térmico: estado do macOS (nominal é normal; moderado, sério e crítico reduzem a velocidade)")
+    case "Sensor": L("SSD: temperatura do disco escolhido em Sensores")
+    default: L("CPU: uso total, média de todos os núcleos")
+    }
+  }
+  /// "CPU 15%" (or with `compact` shorter numbers, never without the label).
+  static func text(_ item: String, _ s: Snapshot, sensor: String, compact: Bool) -> String {
+    let value: (String) -> String = { compact ? compactValue($0) : $0 }
+    switch item {
+    case "CPU": return "CPU \(s.cpu.value.map { "\(Int($0.rounded()))%" } ?? "—")"
+    case "Memória": return "RAM \(value(s.memorySummary))"
+    case "Disco": return L("Disco %@", value(s.diskRate))
+    case "Rede": return L("Rede %@", value(formatRate((s.net_in.value ?? 0) + (s.net_out.value ?? 0))))
+    case "Sensor":
+      return "SSD \(s.disks.first { $0.id == sensor }?.temperature.value.map { String(format: "%.0f°C", $0) } ?? "—")"
+    default: return (compact ? L("Térm. %@", s.thermalLabel.lowercased()) : L("Térmico %@", s.thermalLabel.lowercased()))
+    }
+  }
+  static let limitsExplanation = L("Codex / Claude: parte do limite semanal já usada")
 }
 
 struct MenuBarLabel: View {
@@ -132,6 +193,7 @@ struct MenuBarLabel: View {
   @ObservedObject var agents = AgentStore.shared
   @Environment(\.openWindow) private var openWindow
   var body: some View {
+    let title = self.title
     HStack(spacing: 4) {
       if prefs.menuIcon || title.isEmpty {
         Image(systemName: monitor.stale ? "pause.circle" : "waveform.path.ecg")
@@ -140,29 +202,26 @@ struct MenuBarLabel: View {
     }
     .id(prefs.language)
     .onAppear { WindowOpener.shared.open = { openWindow(id: "main") } }
+    .onChange(of: legend) { _, text in PortLookup.setToolTip(text) }
+    .onAppear { PortLookup.setToolTip(legend) }
+  }
+  /// The status item's tooltip: what each value shown is.
+  private var legend: String {
+    var lines = ["CoreScope"] + prefs.menuItems.map(MenuBarItems.explanation)
+    if prefs.limitsInMenuBar && (agents.codex.weekly != nil || agents.claude.weekly != nil) {
+      lines.append(MenuBarItems.limitsExplanation)
+    }
+    return lines.joined(separator: "\n")
   }
   private var title: String {
     guard let s = monitor.snapshot, !monitor.stale else { return "" }
     var limit: [String] = []
     if prefs.limitsInMenuBar {
-      if let w = agents.codex.weekly { limit.append("Cx \(Int(w.usedPercent))%") }
-      if let w = agents.claude.weekly { limit.append("Cl \(Int(w.usedPercent))%") }
+      if let w = agents.codex.weekly { limit.append("Codex \(Int(w.usedPercent))%") }
+      if let w = agents.claude.weekly { limit.append("Claude \(Int(w.usedPercent))%") }
     }
-    return (prefs.menuItems.map { item -> String in
-      switch item {
-      case "CPU":
-        return prefs.compact
-          ? "\(s.cpu.value.map { String(Int($0)) + "%" } ?? "—")" : "CPU \(s.cpu.percent)"
-      case "Memória": return prefs.compact ? s.memorySummary : "RAM \(s.memorySummary)"
-      case "Disco": return prefs.compact ? s.diskRate : L("Disco %@", s.diskRate)
-      case "Rede":
-        return formatRate((s.net_in.value ?? 0) + (s.net_out.value ?? 0))
-      case "Sensor":
-        return
-          "SSD \(s.disks.first{$0.id==prefs.selectedSensor}?.temperature.value.map{String(format:"%.0f°C",$0)} ?? "—")"
-      default: return s.thermalLabel
-      }
-    } + limit).joined(separator: prefs.compact ? "  " : "  ·  ")
+    return (prefs.menuItems.map { MenuBarItems.text($0, s, sensor: prefs.selectedSensor, compact: prefs.compact) } + limit)
+      .joined(separator: prefs.compact ? "  " : "  ·  ")
   }
 }
 
@@ -210,6 +269,41 @@ struct KillAllButton: View {
         .disabled(items.allSatisfy { !$0.eligible })
     }
   }
+}
+
+/// Renders its content only while its window is on screen. The menu bar window lives on after
+/// it closes, and its views kept updating on every snapshot (CPU and memory for nothing).
+struct OnlyWhileVisible<Content: View>: View {
+  @ViewBuilder var content: () -> Content
+  @StateObject private var tracker = WindowVisibility()
+  var body: some View {
+    Group {
+      if tracker.visible { content() } else { Color.clear.frame(width: 372, height: tracker.lastHeight) }
+    }
+    .background(WindowReader { tracker.attach($0) })
+  }
+}
+final class WindowVisibility: ObservableObject {
+  @Published private(set) var visible = true
+  private(set) var lastHeight: CGFloat = 300
+  private weak var window: NSWindow?
+  private var observer: NSObjectProtocol?
+  func attach(_ window: NSWindow?) {
+    guard let window, window !== self.window else { return }
+    self.window = window
+    if let observer { NotificationCenter.default.removeObserver(observer) }
+    observer = NotificationCenter.default.addObserver(
+      forName: NSWindow.didChangeOcclusionStateNotification, object: window, queue: .main
+    ) { [weak self] _ in self?.update() }
+    update()
+  }
+  private func update() {
+    guard let window else { return }
+    let now = window.isVisible && window.occlusionState.contains(.visible)
+    if !now { lastHeight = max(100, window.frame.height) }
+    if now != visible { visible = now }
+  }
+  deinit { if let observer { NotificationCenter.default.removeObserver(observer) } }
 }
 
 struct MenuSummary: View {

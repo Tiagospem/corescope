@@ -11,10 +11,33 @@ struct ProjectConfig: Codable, Equatable {
   struct Profile: Codable, Equatable {
     var commands: [Command]?
     var containers: [String]?
+    /// "controller": the commands do the whole operation; containers are only observed.
+    var lifecycle: String?
+    var app: String?
   }
   struct Service: Codable, Equatable {
     var name: String?
     var target: String
+    /// Profiles of the file that need it (expected while one is on).
+    var profiles: [String]?
+    /// A component of the status output.
+    var component: String?
+  }
+  struct Status: Codable, Equatable {
+    var run: String
+    var timeout_seconds: Double?
+  }
+  struct Action: Codable, Equatable {
+    var run: String
+    var description: String?
+    var timeout_minutes: Double?
+    var confirm: Bool?
+    var preview: String?
+    var heavy: Bool?
+    /// Where the app lists it; guessed from the name when absent.
+    var group: String?
+    /// setup, run, diagnostics, data, stop or other; guessed from the name when absent.
+    var kind: String?
   }
   struct Capacity: Codable, Equatable {
     var cpu_below: Double
@@ -29,6 +52,8 @@ struct ProjectConfig: Codable, Equatable {
   var profiles: [String: Profile]?
   var ports: [String: Int]?
   var services: [Service]?
+  var status: Status?
+  var actions: [String: Action]?
   var logs: [String]?
   var agents: Agents?
 }
@@ -117,6 +142,8 @@ final class ProjectFileStore: ObservableObject {
           self.files = found
           ProfileStore.shared.reloadFileProfiles()
           HealthStore.shared.reloadFileChecks()
+          EnvironmentStore.shared.reload()
+          ActionStore.shared.reload()
         }
         done?()
         if self.rerun {

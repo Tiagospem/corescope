@@ -11,6 +11,12 @@ struct HealthCheck: Codable, Identifiable, Equatable {
   var source: String? = nil
   /// The project named in that file.
   var project: String? = nil
+  /// Profiles of that file (names in the file) that need it: `services[].profiles`.
+  var profiles: [String]? = nil
+  /// A component of the project's status: `services[].component`.
+  var component: String? = nil
+  /// Bound checks follow their profiles or component instead of the project-wide rule.
+  var bound: Bool { !(profiles ?? []).isEmpty || component != nil }
   /// The name without the project prefix, for rows inside the project's group.
   var shortName: String {
     guard let project, name.hasPrefix(project + " · ") else { return name }
@@ -55,7 +61,7 @@ final class HealthStore: ObservableObject {
         out.append(
           HealthCheck(
             id: stableID("\(file.file)#service#\(s.target)"), name: "\(file.project) · \(label)", target: s.target,
-            source: file.file, project: file.project))
+            source: file.file, project: file.project, profiles: s.profiles, component: s.component))
       }
     }
     guard out != fileChecks else { return }
@@ -112,7 +118,7 @@ final class HealthStore: ObservableObject {
     allChecks.compactMap { c -> HealthLevel? in
       switch state(c) {
       case .up: .up
-      case .warn: .warn
+      case .warn, .unknown: .warn
       case .down: .down
       default: nil
       }
@@ -159,10 +165,39 @@ final class HealthStore: ObservableObject {
       run(check)
     }
   }
-  /// The project's profiles (file checks only).
+  /// The project's profiles (file checks only); for a bound check, the ones it names.
   func profiles(_ check: HealthCheck) -> [EnvProfile] {
     guard let source = check.source else { return [] }
-    return ProfileStore.shared.allProfiles.filter { $0.source == source }
+    let all = ProfileStore.shared.allProfiles.filter { $0.source == source }
+    guard let names = check.profiles, !names.isEmpty else { return all }
+    return all.filter { names.contains($0.key ?? "") }
+  }
+  /// Whether a bound check should be up now (profiles on, or the controller expects its component).
+  func expectation(_ check: HealthCheck) -> ServiceExpectation {
+    let input = EnvironmentStore.shared.input(check.source)
+    let component: Bool?? = check.component.map { name -> Bool? in
+      if case .fresh(let s) = input { return s.components.first { $0.name == name }?.expected }
+      return nil
+    }
+    var reason = "not reported by the status"
+    if case .unavailable(let why) = input { reason = "status unavailable: \(why)" }
+    let bound = (check.profiles ?? []).isEmpty ? [] : profiles(check)
+    return serviceExpectation(profilesOn: bound.map { ProfileStore.shared.isOn($0) }, component: component, unknownReason: reason)
+  }
+  /// A bound check while its profile's operation runs, its component is reported starting, or
+  /// within 2 min of a start before it first answered. A busy controller alone does not mute
+  /// unrelated components: it reports the ones it works on as starting.
+  func starting(_ check: HealthCheck) -> Bool {
+    let store = ProfileStore.shared
+    if let name = check.component, case .fresh(let s) = EnvironmentStore.shared.input(check.source),
+      s.components.first(where: { $0.name == name })?.state == "starting"
+    {
+      return true
+    }
+    let bound = (check.profiles ?? []).isEmpty ? [] : profiles(check)
+    return bound.contains { p in
+      store.busy.contains(p.id) || store.inFlight(p) || (store.startedAt[p.id].map { -$0.timeIntervalSinceNow < 120 } ?? false)
+    }
   }
   /// One of the project's profiles is started, or a command of one is still running.
   func profileRunning(_ check: HealthCheck) -> Bool {
@@ -180,13 +215,19 @@ final class HealthStore: ObservableObject {
   }
   func state(_ check: HealthCheck) -> ServiceState { state(check, results[check.id]) }
   private func state(_ check: HealthCheck, _ result: HealthResult?) -> ServiceState {
-    serviceState(
+    if check.bound {
+      return boundServiceState(level: result?.level, paused: isPaused(check), expectation: expectation(check), starting: starting(check))
+    }
+    return serviceState(
       level: result?.level, paused: isPaused(check), fromProject: check.source != nil,
       hasProfile: !profiles(check).isEmpty, profileRunning: profileRunning(check), listening: listening(check, result))
   }
   /// Paused checks and project apps that are off (profile stopped, port free) are not probed.
   func monitored(_ check: HealthCheck) -> Bool {
-    shouldProbe(
+    if check.bound {
+      return shouldProbeBound(paused: isPaused(check), expectation: expectation(check), listening: listening(check, results[check.id]))
+    }
+    return shouldProbe(
       paused: isPaused(check), fromProject: check.source != nil, hasProfile: !profiles(check).isEmpty,
       profileRunning: profileRunning(check), listening: listening(check, results[check.id]))
   }
@@ -350,6 +391,9 @@ extension ServiceState {
     case .warn: .orange
     case .down: .red
     case .notRunning, .paused, .pending: .secondary
+    case .starting: .blue
+    case .external: Tint.netIn
+    case .unknown: .orange
     }
   }
   var label: String {
@@ -360,6 +404,9 @@ extension ServiceState {
     case .notRunning: L("Não está rodando")
     case .paused: L("Pausado")
     case .pending: L("Verificando…")
+    case .starting: L("Iniciando")
+    case .external: L("Fora do CoreScope")
+    case .unknown: L("Desconhecido")
     }
   }
   /// "2 fora do ar", for group summaries.
@@ -371,6 +418,9 @@ extension ServiceState {
     case .notRunning: L("%@ não rodando", "\(n)")
     case .paused: L("%@ pausados", "\(n)")
     case .pending: L("%@ verificando", "\(n)")
+    case .starting: L("%@ iniciando", "\(n)")
+    case .external: L("%@ fora do CoreScope", "\(n)")
+    case .unknown: L("%@ desconhecidos", "\(n)")
     }
   }
 }
@@ -398,7 +448,21 @@ extension HealthStore {
     case .paused: return L("Pausado: não é verificado, não conta na disponibilidade e não gera alertas.")
     case .pending: return L("Verificando…")
     case .up: return L("No ar: %@.", detail)
+    case .starting: return L("Iniciando: o perfil acabou de subir ou o controlador informa o componente iniciando. Falhas agora não contam nem alertam.")
+    case .external:
+      return L("Responde (%@), mas nenhum perfil ou componente ligado o exige: está rodando fora do CoreScope. Não é adotado, não conta na disponibilidade nem gera alerta.", detail)
+    case .unknown:
+      if case .unknown(let why) = expectation(check) {
+        return L("Não dá para saber se deveria estar no ar (%@). Não conta como no ar nem como desligado.", why)
+      }
+      return L("Desconhecido.")
     case .warn: return L("Respondeu com erro (%@): o servidor está de pé, mas talvez o caminho esteja errado.", detail)
+    case .notRunning where check.bound:
+      let names = (check.profiles ?? []).joined(separator: ", ")
+      if let component = check.component {
+        return L("O controlador não exige %@ agora: desligado de propósito, sem alerta e fora da disponibilidade.", component)
+      }
+      return L("Nenhum dos perfis %@ está ligado: desligado de propósito, sem alerta e fora da disponibilidade. Uma porta aberta (como o proxy do Herd na 443) não conta.", names)
     case .notRunning:
       let name = check.project ?? check.name
       return profiles(check).isEmpty
@@ -406,6 +470,7 @@ extension HealthStore {
         : L("Nenhum perfil de %@ está rodando e nada escuta na porta %@: o app está desligado, então não é verificado nem gera alerta. A verificação volta quando o perfil iniciar ou a porta abrir.", name, port)
     case .down:
       if check.source == nil { return L("Fora do ar (%@). Verificações adicionadas no app devem estar sempre no ar.", detail) }
+      if check.bound { return L("Fora do ar com um perfil ou componente que o exige ligado (%@).", detail) }
       if profileRunning(check) { return L("Fora do ar com o perfil do projeto rodando (%@).", detail) }
       if listening(check, result) == true {
         return L("Algo escuta na porta %@, mas a verificação falhou (%@).", port, detail)

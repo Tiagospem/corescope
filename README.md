@@ -107,6 +107,8 @@ agents:
 
 The format is plain YAML (maps, lists, quoted or plain values, comments); anything fancier is rejected with the line number.
 
+Projects whose environment is run by their own controller (a `bin/eco` that knows the Compose files, which apps are on and dev/build modes) can say so: `lifecycle: controller` profiles only run their commands and watch their containers, `services[].profiles` / `component` tie a check to what needs it, a `status` command reports the real state, and `actions` hold setup, backups and restores apart from profiles. See [Environment controllers](docs/ENVIRONMENT-CONTROLLER.md).
+
 ### 📜 Logs
 
 Every log of every project in one place, for any stack: log files found in the usual folders (`storage/logs`, `log`, `logs`, `var/log`, `*.log` at the root) plus the `logs:` globs in `.corescope.yml`, the output of profile commands, and container logs. Tail one live, search a project, or see its recent errors — detected by the level each line declares, or by generic markers (`Exception`, `Traceback`, `panic`, `FATAL`…) — with their stack traces and repeats folded into a count. Agents get the same over MCP (`recent_errors` for a profile or project, `tail_log`, `search_logs`, `list_log_sources`), so they can debug without you pasting logs; and `corescope logs --errors` works in a terminal.
@@ -349,6 +351,7 @@ With *Agents can use the app through MCP* (on by default once the server is regi
 | --- | --- |
 | `list_profiles` / `create_profile` / `start_profile` / `stop_profile` / `delete_profile` / `profile_logs` | Environment profiles — an agent can read the project and propose, say, a lighter QA profile that builds instead of running watchers |
 | `list_services` / `add_service` / `remove_service` / `check_services` / `pause_service` | Services health checks, grouped by project, with `not_running` apart from `down` |
+| `environment_status` / `list_actions` / `run_action` / `cancel_action` | A project's environment controller: its status (apps, components, modes, what is kept and why) and one-off actions such as setup, backup or restore (restores show a preview first; see [docs/ENVIRONMENT-CONTROLLER.md](docs/ENVIRONMENT-CONTROLLER.md)) |
 | `list_machines` / `add_machine` / `remove_machine` / `refresh_machines` | SSH machines |
 | `cleanup_status` / `scan_dev_space` / `clean_dev_space` | Cleanup: cached result, a new scan, and moving items from the latest scan to the Trash |
 | `list_projects` | Projects registered on the Projects page: folder, branch, worktree, `.corescope.yml` summary or error (read-only) |

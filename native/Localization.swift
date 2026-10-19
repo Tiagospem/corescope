@@ -6,13 +6,25 @@ enum Localization {
   static let supported = ["pt", "en", "es"]
   private(set) static var current = resolve()
   static func resolve() -> String {
-    let choice = UserDefaults.standard.string(forKey: "language") ?? "system"
+    let choice = (UserDefaults.standard.string(forKey: "language") ?? "system").lowercased()
     if supported.contains(choice) { return choice }
-    for language in Locale.preferredLanguages {
-      let code = String(language.prefix(2))
+    return systemLanguage(systemLanguages())
+  }
+  /// The first supported language in the user's macOS list (English when none is).
+  static func systemLanguage(_ preferred: [String]) -> String {
+    for language in preferred {
+      let code = String(language.prefix(2)).lowercased()
       if supported.contains(code) { return code }
     }
     return "en"
+  }
+  /// macOS's own list, read from the global domain each time: `Locale.preferredLanguages` is
+  /// cached for the life of the process and includes this app's AppleLanguages override, so
+  /// after choosing a language and going back to "System" it kept answering the old one.
+  static func systemLanguages() -> [String] {
+    let global = CFPreferencesCopyValue(
+      "AppleLanguages" as CFString, kCFPreferencesAnyApplication, kCFPreferencesCurrentUser, kCFPreferencesAnyHost)
+    return global as? [String] ?? Locale.preferredLanguages
   }
   static func refresh() {
     current = resolve()
@@ -1536,4 +1548,124 @@ private let entries = """
   Algo escuta na porta %@, mas a verificação falhou (%@). ¦ Something listens on port %@, but the check failed (%@). ¦ Algo escucha en el puerto %@, pero la comprobación falló (%@).
   Fora do ar (%@). ¦ Down (%@). ¦ Caído (%@).
   Cinza: as verificações de um projeto acompanham o app dele. Com o perfil parado e nada escutando na porta, o app está desligado: não é verificado, não conta na disponibilidade nem gera alerta. Vermelho fica para o que deveria estar no ar. ¦ Gray: a project's checks follow its app. With the profile stopped and nothing listening on the port, the app is switched off: it is not checked, doesn't count against uptime and sends no alerts. Red is kept for what should be up. ¦ Gris: las comprobaciones de un proyecto siguen a su app. Con el perfil detenido y nada escuchando en el puerto, la app está apagada: no se comprueba, no cuenta en la disponibilidad ni genera alertas. El rojo queda para lo que debería estar en línea.
+  %@ concluída. ¦ %@ finished. ¦ %@ terminada.
+  %@ desconhecidos ¦ %@ unknown ¦ %@ desconocidos
+  %@ fora do CoreScope ¦ %@ outside CoreScope ¦ %@ fuera de CoreScope
+  %@ iniciada. ¦ %@ started. ¦ %@ iniciada.
+  %@ iniciando ¦ %@ starting ¦ %@ iniciando
+  %@ já está rodando. ¦ %@ is already running. ¦ %@ ya está en marcha.
+  %@ não está rodando. ¦ %@ is not running. ¦ %@ no está en marcha.
+  A prévia não respondeu em 20 s. ¦ The preview did not answer within 20 s. ¦ La vista previa no respondió en 20 s.
+  A prévia passou de 8 KB. ¦ The preview went over 8 KB. ¦ La vista previa superó 8 KB.
+  A prévia saiu com %@: %@ ¦ The preview exited with %@: %@ ¦ La vista previa salió con %@: %@
+  A prévia vem do comando do projeto e é mostrada como está. Confira o arquivo, a origem, a data e o destino antes de continuar. ¦ The preview comes from the project's command and is shown as is. Check the file, origin, date and target before you go on. ¦ La vista previa viene del comando del proyecto y se muestra tal cual. Revisa el archivo, el origen, la fecha y el destino antes de seguir.
+  A seleção foi alterada fora do CoreScope (terminal ou outra ferramenta); o estado acima vem do status do ambiente. ¦ The selection was changed outside CoreScope (a terminal or another tool); the state above comes from the environment's status. ¦ La selección se cambió fuera de CoreScope (terminal u otra herramienta); el estado de arriba viene del status del entorno.
+  Ambiente de %@ ¦ %@ environment ¦ Entorno de %@
+  Ações ¦ Actions ¦ Acciones
+  Controlador ocupado: %@ ¦ Controller busy: %@ ¦ Controlador ocupado: %@
+  Degradado ¦ Degraded ¦ Degradado
+  Degradado: %@. ¦ Degraded: %@. ¦ Degradado: %@.
+  Desconhecido ¦ Unknown ¦ Desconocido
+  Desconhecido. ¦ Unknown. ¦ Desconocido.
+  Desconhecido: %@. Não conta como no ar nem como desligado. ¦ Unknown: %@. Counts neither as up nor as switched off. ¦ Desconocido: %@. No cuenta como en línea ni como apagado.
+  Desligado: nada deste perfil está selecionado. ¦ Off: nothing of this profile is selected. ¦ Apagado: nada de este perfil está seleccionado.
+  Envia SIGTERM a uma operação deste perfil ainda em andamento. ¦ Sends SIGTERM to an operation of this profile still running. ¦ Envía SIGTERM a una operación de este perfil aún en curso.
+  Esta ação pede confirmação antes de rodar. ¦ This action asks for confirmation before it runs. ¦ Esta acción pide confirmación antes de ejecutarse.
+  Executa: %@ ¦ Runs: %@ ¦ Ejecuta: %@
+  Executar %@? ¦ Run %@? ¦ ¿Ejecutar %@?
+  Falhou ¦ Failed ¦ Falló
+  Falhou: %@. Veja o log do comando. ¦ Failed: %@. See the command's log. ¦ Falló: %@. Mira el log del comando.
+  Fora do CoreScope ¦ Outside CoreScope ¦ Fuera de CoreScope
+  Fora do ar com um perfil ou componente que o exige ligado (%@). ¦ Down while a profile or component that needs it is on (%@). ¦ Caído con un perfil o componente que lo exige encendido (%@).
+  Fora do controlador: o CoreScope não para nem adota. ¦ Outside the controller: CoreScope neither stops nor adopts it. ¦ Fuera del controlador: CoreScope no lo detiene ni lo adopta.
+  Iniciando: a operação ou os componentes ainda não terminaram (%@). ¦ Starting: the operation or the components have not finished yet (%@). ¦ Iniciando: la operación o los componentes aún no terminaron (%@).
+  Iniciando: o perfil acabou de subir ou o controlador informa o componente iniciando. Falhas agora não contam nem alertam. ¦ Starting: the profile just came up or the controller reports the component starting. Failures now neither count nor alert. ¦ Iniciando: el perfil acaba de subir o el controlador informa el componente iniciando. Los fallos ahora no cuentan ni alertan.
+  Lendo a prévia… ¦ Reading the preview… ¦ Leyendo la vista previa…
+  Lendo o status… ¦ Reading the status… ¦ Leyendo el status…
+  Ler o status agora ¦ Read the status now ¦ Leer el status ahora
+  Mantido: %@ ¦ Kept: %@ ¦ Mantenido: %@
+  Mostrar %@ no Finder ¦ Show %@ in Finder ¦ Mostrar %@ en el Finder
+  Nenhum comando ao parar configurado. ¦ No stop command configured. ¦ Ningún comando al detener configurado.
+  Nenhum dos perfis %@ está ligado: desligado de propósito, sem alerta e fora da disponibilidade. Uma porta aberta (como o proxy do Herd na 443) não conta. ¦ None of the profiles %@ is on: switched off on purpose, no alert and left out of uptime. An open port (such as Herd's proxy on 443) does not count. ¦ Ninguno de los perfiles %@ está encendido: apagado a propósito, sin alerta y fuera de la disponibilidad. Un puerto abierto (como el proxy de Herd en el 443) no cuenta.
+  No ar: o controlador confirmou os componentes esperados. ¦ Up: the controller confirmed the expected components. ¦ En línea: el controlador confirmó los componentes esperados.
+  Não dá para saber se deveria estar no ar (%@). Não conta como no ar nem como desligado. ¦ Whether it should be up cannot be told (%@). Counts neither as up nor as switched off. ¦ No se puede saber si debería estar en línea (%@). No cuenta como en línea ni como apagado.
+  Não foi possível iniciar o comando ¦ Could not start the command ¦ No se pudo iniciar el comando
+  O CoreScope não para contêineres deste perfil: o controlador decide o que continua para outros apps. ¦ CoreScope does not stop this profile's containers: the controller decides what stays up for other apps. ¦ CoreScope no detiene los contenedores de este perfil: el controlador decide qué sigue para otras apps.
+  O controlador não exige %@ agora: desligado de propósito, sem alerta e fora da disponibilidade. ¦ The controller does not need %@ now: switched off on purpose, no alert and left out of uptime. ¦ El controlador no exige %@ ahora: apagado a propósito, sin alerta y fuera de la disponibilidad.
+  O processo já terminou. ¦ The process already ended. ¦ El proceso ya terminó.
+  Os comandos fazem a operação inteira; o CoreScope não inicia nem para os contêineres deste perfil, só os observa. ¦ The commands do the whole operation; CoreScope neither starts nor stops this profile's containers, it only watches them. ¦ Los comandos hacen toda la operación; CoreScope no inicia ni detiene los contenedores de este perfil, solo los observa.
+  Outra operação deste ambiente está em andamento: %@ ¦ Another operation of this environment is running: %@ ¦ Otra operación de este entorno está en curso: %@
+  Responde (%@), mas nenhum perfil ou componente ligado o exige: está rodando fora do CoreScope. Não é adotado, não conta na disponibilidade nem gera alerta. ¦ It answers (%@), but no profile or component that is on needs it: it runs outside CoreScope. Not adopted, not counted in uptime and no alerts. ¦ Responde (%@), pero ningún perfil o componente encendido lo exige: corre fuera de CoreScope. No se adopta, no cuenta en la disponibilidad ni genera alertas.
+  Sem prévia configurada. ¦ No preview configured. ¦ Sin vista previa configurada.
+  Status coletado %@ ¦ Status collected %@ ¦ Status recogido %@
+  Status de ambientes ¦ Environment status ¦ Status de entornos
+  Status desconhecido ¦ Status unknown ¦ Status desconocido
+  Status indisponível: %@ ¦ Status unavailable: %@ ¦ Status no disponible: %@
+  cancelada ¦ cancelled ¦ cancelada
+  cancelado pelo usuário ¦ cancelled by the user ¦ cancelado por el usuario
+  concluída ¦ finished ¦ terminada
+  controlador ¦ controller ¦ controlador
+  externo ¦ external ¦ externo
+  falhou ¦ failed ¦ falló
+  interrompida ¦ interrupted ¦ interrumpida
+  mantido: %@ ¦ kept: %@ ¦ mantenido: %@
+  mudou fora do CoreScope ¦ changed outside CoreScope ¦ cambió fuera de CoreScope
+  não pronto ¦ not ready ¦ no listo
+  não selecionado ¦ not selected ¦ no seleccionado
+  não selecionado, rodando ¦ not selected, running ¦ no seleccionado, en marcha
+  observado ¦ watched ¦ observado
+  passou de %@ min: encerrado pelo CoreScope ¦ over %@ min: ended by CoreScope ¦ pasó de %@ min: terminado por CoreScope
+  passou do tempo limite ¦ timed out ¦ superó el tiempo límite
+  pronto ¦ ready ¦ listo
+  roda o comando status de cada ambiente a cada 30 s, um por vez, com limite de tempo ¦ runs each environment's status command every 30 s, one at a time, with a time limit ¦ ejecuta el comando status de cada entorno cada 30 s, uno a la vez, con límite de tiempo
+  rodando ¦ running ¦ en marcha
+  saiu com %@ ¦ exited with %@ ¦ salió con %@
+  saída inválida ¦ invalid output ¦ salida no válida
+  saída inválida: %@ ¦ invalid output: %@ ¦ salida no válida: %@
+  saída maior que 256 KB ¦ output over 256 KB ¦ salida mayor que 256 KB
+  sem resposta em %@ s ¦ no answer within %@ s ¦ sin respuesta en %@ s
+  Último status válido de %@ (desatualizado): nada abaixo conta como no ar. ¦ Last valid status from %@ (stale): nothing below counts as up. ¦ Último status válido de %@ (desactualizado): nada de abajo cuenta como en línea.
+  %@ ações ¦ %@ actions ¦ %@ acciones
+  %@ comandos ¦ %@ commands ¦ %@ comandos
+  %@ contêineres ¦ %@ containers ¦ %@ contenedores
+  %@ de %@ apps selecionados ¦ %@ of %@ apps selected ¦ %@ de %@ apps seleccionadas
+  %@ de %@ componentes esperados prontos ¦ %@ of %@ expected components ready ¦ %@ de %@ componentes esperados listos
+  %@ não selecionado: não consome recursos nem gera alertas ¦ %@ not selected: uses no resources and raises no alerts ¦ %@ no seleccionada: no consume recursos ni genera alertas
+  %@ perfis ¦ %@ profiles ¦ %@ perfiles
+  %@ selecionado: %@ componentes ¦ %@ selected: %@ components ¦ %@ seleccionada: %@ componentes
+  CPU: uso total, média de todos os núcleos ¦ CPU: total use, averaged over all cores ¦ CPU: uso total, media de todos los núcleos
+  Cancelar %@ ¦ Cancel %@ ¦ Cancelar %@
+  Codex / Claude: parte do limite semanal já usada ¦ Codex / Claude: share of the weekly limit already used ¦ Codex / Claude: parte del límite semanal ya usada
+  Compartilhados ¦ Shared ¦ Compartidos
+  Componentes ¦ Components ¦ Componentes
+  Criados no app ¦ Made in the app ¦ Creados en la app
+  Dados ¦ Data ¦ Datos
+  Diagnóstico ¦ Diagnostics ¦ Diagnóstico
+  Disco: leitura + escrita por segundo nos discos físicos ¦ Disk: read + write per second on the physical disks ¦ Disco: lectura + escritura por segundo en los discos físicos
+  Executar %@ ¦ Run %@ ¦ Ejecutar %@
+  Executar %@: %@ ¦ Run %@: %@ ¦ Ejecutar %@: %@
+  Infraestrutura sem app (bancos, cache, memória dos agentes): fica no ar enquanto um app a usa. ¦ Infrastructure without an app (databases, cache, agents' memory): stays up while an app uses it. ¦ Infraestructura sin app (bases de datos, caché, memoria de los agentes): sigue en línea mientras una app la usa.
+  Mostrar comandos e contêineres ¦ Show commands and containers ¦ Mostrar comandos y contenedores
+  Não selecionados ¦ Not selected ¦ No seleccionadas
+  Números mais curtos (RAM 11,6G em vez de RAM 11,65 GB), sem os pontos entre os itens; os rótulos continuam. ¦ Shorter numbers (RAM 11.6G instead of RAM 11.65 GB), no dots between items; the labels stay. ¦ Números más cortos (RAM 11,6G en lugar de RAM 11,65 GB), sin puntos entre los elementos; las etiquetas se mantienen.
+  Ocultar comandos e contêineres ¦ Hide commands and containers ¦ Ocultar comandos y contenedores
+  Os itens ligados aparecem na barra nesta ordem, da esquerda para a direita. Os limites do Codex e do Claude (parte do limite semanal usada) entram no fim quando ligados em Agentes. Passe o mouse sobre o ícone da barra para ver esta legenda. ¦ Items that are on appear in the menu bar in this order, left to right. Codex and Claude limits (share of the weekly limit used) come last when turned on in Agents. Hover over the menu bar item to see this legend. ¦ Los elementos activados aparecen en la barra en este orden, de izquierda a derecha. Los límites de Codex y Claude (parte del límite semanal usada) van al final cuando se activan en Agentes. Pasa el ratón sobre el elemento de la barra para ver esta leyenda.
+  Preparar ¦ Set up ¦ Preparar
+  RAM: memória em uso agora ¦ RAM: memory in use now ¦ RAM: memoria en uso ahora
+  Rede %@ ¦ Net %@ ¦ Red %@
+  Rede: entrada + saída por segundo ¦ Net: in + out per second ¦ Red: entrada + salida por segundo
+  SSD: temperatura do disco escolhido em Sensores ¦ SSD: temperature of the disk chosen in Sensors ¦ SSD: temperatura del disco elegido en Sensores
+  Subir e modos ¦ Start and modes ¦ Subir y modos
+  Temperatura do SSD ¦ SSD temperature ¦ Temperatura del SSD
+  Térm. %@ ¦ Therm. %@ ¦ Térm. %@
+  Térmico %@ ¦ Thermal %@ ¦ Térmico %@
+  Térmico: estado do macOS (nominal é normal; moderado, sério e crítico reduzem a velocidade) ¦ Thermal: macOS's state (nominal is normal; fair, serious and critical slow the Mac down) ¦ Térmico: estado de macOS (nominal es normal; moderado, serio y crítico reducen la velocidad)
+  aberto ¦ open ¦ abierto
+  compartilhados %@ ¦ shared %@ ¦ compartidos %@
+  fechado ¦ closed ¦ cerrado
+  selecionado ¦ selected ¦ seleccionada
+  %@ componentes esperados sem estado: %@ ¦ %@ expected components without a state: %@ ¦ %@ componentes esperados sin estado: %@
+  Perfis parados ¦ Stopped profiles ¦ Perfiles detenidos
+  1 comando ¦ 1 command ¦ 1 comando
+  1 contêiner ¦ 1 container ¦ 1 contenedor
   """

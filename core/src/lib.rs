@@ -1390,6 +1390,15 @@ pub unsafe extern "C" fn cs_signal(
         Ok("{\"ok\":true}".into())
     })
 }
+/// Re-reads mounted volumes on the next sample instead of after the 30 s cache (after an eject).
+#[unsafe(no_mangle)]
+pub extern "C" fn cs_refresh_volumes() {
+    let _ = catch_unwind(|| {
+        if let Ok(mut c) = collector().lock() {
+            c.last_volumes = None
+        }
+    });
+}
 /// Clears delta baselines after sleep without passing a panic across FFI.
 #[unsafe(no_mangle)]
 pub extern "C" fn cs_reset() {

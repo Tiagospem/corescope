@@ -44,7 +44,14 @@ final class FloatingController: NSObject, NSWindowDelegate {
   func apply() {
     let p = Preferences.shared
     guard p.panelVisible else {
-      panel?.orderOut(nil)
+      // Released, not just hidden: a hidden panel kept re-rendering its views on every
+      // snapshot. Its position is saved per screen and restored when it comes back.
+      if let panel {
+        panel.delegate = nil
+        panel.orderOut(nil)
+        panel.contentView = nil
+        self.panel = nil
+      }
       return
     }
     if panel == nil {

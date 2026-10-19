@@ -12,6 +12,14 @@ struct EnvProfile: Codable, Identifiable, Equatable {
   /// The `.corescope.yml` defining it; nil for profiles made in the app. File profiles are
   /// read-only here: the file is the source of truth (and what the team shares).
   var source: String? = nil
+  /// "controller" (`lifecycle: controller`): the commands do the whole operation and the
+  /// containers are only observed. nil: CoreScope starts and stops the containers (native).
+  var lifecycle: String? = nil
+  /// The app this profile selects in the project's status (default: its name in the file).
+  var app: String? = nil
+  /// Its name in the file (`dev`), for `services[].profiles`.
+  var key: String? = nil
+  var isController: Bool { lifecycle == "controller" }
 }
 struct ProfileCommand: Codable, Identifiable, Equatable {
   var id = UUID()
@@ -72,6 +80,10 @@ final class ProfileStore: ObservableObject {
   @Published private(set) var startedContainers: Set<String> {
     didSet { persist(startedContainers, "envStartedContainers") }
   }
+  /// Last start, stop or command exit per profile (this run of the app): a status read before it
+  /// says nothing about the result, and checks get a grace period after a start.
+  @Published private(set) var lastOperation: [UUID: Date] = [:]
+  private(set) var startedAt: [UUID: Date] = [:]
   private let queue = DispatchQueue(label: "app.corescope.profiles", qos: .userInitiated)
   static let logs = FileManager.default.homeDirectoryForCurrentUser
     .appendingPathComponent("Library/Application Support/CoreScope/logs")
@@ -96,16 +108,20 @@ final class ProfileStore: ObservableObject {
           let label = c.name ?? "cmd\(i + 1)"
           return ProfileCommand(id: stableID("\(key)#\(label)"), name: label, command: c.run, stopCommand: c.stop)
         }
+        let controller = spec.lifecycle == "controller"
         out.append(
           EnvProfile(
             id: stableID(key), name: "\(file.project)/\(name)", folder: file.folder, commands: commands,
-            containers: spec.containers ?? [], source: file.file))
+            containers: spec.containers ?? [], source: file.file, lifecycle: controller ? "controller" : nil,
+            app: controller ? spec.app ?? name : nil, key: name))
       }
     }
     if out != fileProfiles { fileProfiles = out }
   }
-  /// What Stop would do to this profile's containers right now.
+  /// What Stop would do to this profile's containers right now. Controller profiles never touch
+  /// their containers: the controller decides what stays up for other apps.
   func stopPlan(_ profile: EnvProfile, containers: [ContainerItem]) -> ContainerStopPlan {
+    guard !profile.isController else { return ContainerStopPlan() }
     let others = allProfiles.filter { $0.id != profile.id && active.contains($0.id) }.map {
       (name: $0.name, containers: $0.containers)
     }
@@ -154,6 +170,57 @@ final class ProfileStore: ObservableObject {
     }.count
       + profile.containers.filter { name in containers.contains { $0.name == name && $0.running } }.count
   }
+  /// A controller profile's operation is running (its commands are expected to exit).
+  func inFlight(_ profile: EnvProfile) -> Bool {
+    profile.isController && profile.commands.contains { running($0) != nil }
+  }
+  /// The first command that failed since the profile started (cancelled ones included).
+  func failedExit(_ profile: EnvProfile) -> Int32? {
+    for c in profile.commands { if case .failed(let status, _) = state(c, in: profile) { return status } }
+    return nil
+  }
+  /// Observed containers that are stopped, missing or unhealthy (English: it is part of the
+  /// health reason MCP reports); empty when it cannot be known.
+  func missingContainers(_ profile: EnvProfile, containers: [ContainerItem]?) -> [String] {
+    guard let containers else { return [] }
+    return profile.containers.compactMap { name in
+      guard let c = containers.first(where: { $0.name == name }) else { return "\(name) (not found)" }
+      if !c.running { return name }
+      return c.health == "unhealthy" ? "\(name) (unhealthy)" : nil
+    }
+  }
+  /// A controller profile as one state, from the project's status, its observed containers and
+  /// its commands' exits.
+  func health(_ profile: EnvProfile, containers: [ContainerItem]?) -> (health: EnvHealth, reason: String, outside: Bool) {
+    controllerHealth(
+      active: active.contains(profile.id), inFlight: inFlight(profile), failedExit: failedExit(profile),
+      status: EnvironmentStore.shared.input(profile.source), app: profile.app ?? profile.key ?? profile.name,
+      missingContainers: missingContainers(profile, containers: containers))
+  }
+  /// On (true), off (false) or unknown (nil), for the Services checks bound to it. A controller
+  /// profile follows its project's status when it can be read (selection changed in a terminal
+  /// counts), else what CoreScope started.
+  func isOn(_ profile: EnvProfile) -> Bool? {
+    let mine = active.contains(profile.id) || profile.commands.contains { running($0) != nil }
+    guard profile.isController else { return mine }
+    switch EnvironmentStore.shared.input(profile.source) {
+    case .none: return mine
+    case .unavailable: return mine ? true : nil
+    case .fresh(let s): return s.selected(profile.app ?? profile.key ?? profile.name) ?? mine
+    }
+  }
+  /// A fresh status says a started controller profile's app is no longer selected (switched off
+  /// in a terminal): forget the start, without running anything. Only with a status asked for
+  /// after the profile's last operation, never while one runs, and not after a failed start
+  /// (the failure stays on the card until the user retries or stops).
+  func reconcile(source: String, askedAt: Date) {
+    guard case .fresh(let status) = EnvironmentStore.shared.input(source) else { return }
+    for p in fileProfiles where p.source == source && p.isController && active.contains(p.id) {
+      guard !busy.contains(p.id), !inFlight(p), failedExit(p) == nil, askedAt > (lastOperation[p.id] ?? .distantPast)
+      else { continue }
+      if status.selected(p.app ?? p.key ?? p.name) == false { active.remove(p.id) }
+    }
+  }
   func logURL(_ profile: EnvProfile, _ command: ProfileCommand) -> URL {
     Self.logs.appendingPathComponent("\(profile.id.uuidString.prefix(8))-\(Self.slug(command.name)).log")
   }
@@ -167,7 +234,15 @@ final class ProfileStore: ObservableObject {
       done?([L("O perfil já está iniciando ou parando")])
       return
     }
+    if profile.isController, let other = environmentOperation(profile.source, except: profile.id) {
+      let message = L("Outra operação deste ambiente está em andamento: %@", other)
+      Monitor.shared.feedback = ActionFeedback(message: message, failed: true)
+      done?([message])
+      return
+    }
     busy.insert(profile.id)
+    startedAt[profile.id] = Date()
+    lastOperation[profile.id] = Date()
     let monitor = Monitor.shared
     monitor.feedback = ActionFeedback(message: L("Iniciando %@…", profile.name), pending: true)
     // Running ones and setup commands that already completed for this start are left alone.
@@ -188,7 +263,9 @@ final class ProfileStore: ObservableObject {
         case .failure(let e): errors.append("\(command.name): \(e.description)")
         }
       }
-      let (containerErrors, startedNow, alreadyUp) = Self.containers(profile.containers, action: "start")
+      // Controller profiles: the commands do the whole operation, nothing else touches Docker.
+      let (containerErrors, startedNow, alreadyUp) =
+        profile.isController ? ([], [], []) : Self.containers(profile.containers, action: "start")
       errors += containerErrors
       DispatchQueue.main.async {
         self.launched.merge(started) { _, new in new }
@@ -199,6 +276,7 @@ final class ProfileStore: ObservableObject {
         self.startedContainers.formUnion(startedNow)
         self.busy.remove(profile.id)
         ContainerStore.shared.refreshSoon()
+        if let source = profile.source { EnvironmentStore.shared.refresh(source) }
         monitor.refresh()
         monitor.feedback = ActionFeedback(
           message: errors.first.map { L("%@: %@", profile.name, $0) } ?? L("%@ iniciado.", profile.name),
@@ -214,8 +292,16 @@ final class ProfileStore: ObservableObject {
   func stop(_ profile: EnvProfile, everything: Bool = false, done: ((ContainerStopPlan, [String]) -> Void)? = nil) {
     let current = ContainerStore.shared.report?.containers ?? []
     let plan = stopPlan(profile, containers: current)
-    let names = everything ? profile.containers : plan.stop
+    let names = profile.isController ? [] : everything ? profile.containers : plan.stop
+    if profile.isController, let other = environmentOperation(profile.source, except: profile.id) {
+      let message = L("Outra operação deste ambiente está em andamento: %@", other)
+      Monitor.shared.feedback = ActionFeedback(message: message, failed: true)
+      done?(plan, [message])
+      return
+    }
     active.remove(profile.id)
+    lastOperation[profile.id] = Date()
+    startedAt[profile.id] = nil
     let monitor = Monitor.shared
     // Every process left in the commands' sessions, detached ones included; leaders last.
     let targets = profile.commands.flatMap { members($0) }.sorted { $0.start > $1.start }
@@ -226,6 +312,7 @@ final class ProfileStore: ObservableObject {
     }
     let teardown = profile.commands.filter { !($0.stopCommand ?? "").trimmingCharacters(in: .whitespaces).isEmpty }
     guard !names.isEmpty || !teardown.isEmpty else {
+      if let source = profile.source { EnvironmentStore.shared.refresh(source) }
       done?(plan, [])
       return
     }
@@ -237,7 +324,9 @@ final class ProfileStore: ObservableObject {
       DispatchQueue.main.async {
         self.startedContainers.subtract(stopped)
         self.busy.remove(profile.id)
+        self.lastOperation[profile.id] = Date()
         ContainerStore.shared.refreshSoon()
+        if let source = profile.source { EnvironmentStore.shared.refresh(source) }
         if let first = errors.first { monitor.feedback = ActionFeedback(message: first, failed: true) }
         done?(plan, errors)
       }
@@ -315,7 +404,13 @@ final class ProfileStore: ObservableObject {
       while waitpid(pid, &status, 0) < 0 && errno == EINTR {}
       let code = (status & 0x7f) == 0 ? (status >> 8) & 0xff : 128 + (status & 0x7f)
       let exit = CommandExit(status: code, at: Date())
-      DispatchQueue.main.async { self?.exits[command.id] = exit }
+      DispatchQueue.main.async {
+        self?.exits[command.id] = exit
+        guard profile.isController else { return }
+        // The controller verified (or not) before exiting: read its state now.
+        self?.lastOperation[profile.id] = exit.at
+        if let source = profile.source { EnvironmentStore.shared.refresh(source) { HealthStore.shared.runAll() } }
+      }
     }
     var info = proc_bsdinfo()
     let size = Int32(MemoryLayout<proc_bsdinfo>.size)
@@ -362,9 +457,30 @@ final class ProfileStore: ObservableObject {
 
 struct ProfilesView: View {
   @ObservedObject var store = ProfileStore.shared
+  @ObservedObject var files = ProjectFileStore.shared
   @ObservedObject var containers = ContainerStore.shared
-  @ObservedObject var monitor = Monitor.shared
+  @ObservedObject var folds = FoldState.shared
   @ViewState private var editing: EnvProfile?
+  /// One section per project file (its environment, then its profiles); profiles made in the
+  /// app last.
+  private var sections: [(key: String, name: String, file: ProjectFile?, profiles: [EnvProfile])] {
+    var out: [(key: String, name: String, file: ProjectFile?, profiles: [EnvProfile])] = []
+    for file in files.files {
+      let mine = store.fileProfiles.filter { $0.source == file.file }
+      let environment = file.config?.status != nil || !(file.config?.actions ?? [:]).isEmpty
+      if environment || !mine.isEmpty { out.append((file.file, file.project, environment ? file : nil, mine)) }
+    }
+    out.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    if !store.profiles.isEmpty { out.append(("", L("Criados no app"), nil, store.profiles)) }
+    return out
+  }
+  /// Started, running a command, or (controller) not off according to the status.
+  private func inUse(_ p: EnvProfile) -> Bool {
+    if store.active.contains(p.id) || store.busy.contains(p.id) || p.commands.contains(where: { store.running($0) != nil }) {
+      return true
+    }
+    return p.isController && store.health(p, containers: nil).health != .off
+  }
   var body: some View {
     ScrollView {
       VStack(alignment: .leading, spacing: 16) {
@@ -381,8 +497,43 @@ struct ProfilesView: View {
         if store.allProfiles.isEmpty {
           Card { EmptyNote(text: L("Nenhum perfil ainda. Crie um com os comandos que você roda todo dia (npm run dev, php artisan serve…) e os contêineres do projeto.")) }
         }
-        ForEach(store.allProfiles) { profile in
-          ProfileCard(profile: profile, containers: (containers.report?.containers ?? [])) { editing = profile }
+        ForEach(sections, id: \.key) { section in
+          VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+              Image(systemName: section.key.isEmpty ? "hand.point.up.left" : "folder").foregroundStyle(.secondary)
+              Text(section.name).font(.headline)
+              if !section.profiles.isEmpty {
+                Text(L("%@ perfis", "\(section.profiles.count)")).font(.caption).foregroundStyle(.secondary)
+              }
+              Spacer()
+              if !section.key.isEmpty {
+                Text(abbreviateHome((section.key as NSString).deletingLastPathComponent)).font(.caption)
+                  .foregroundStyle(.tertiary).lineLimit(1).truncationMode(.middle)
+                Button {
+                  NSWorkspace.shared.open(URL(fileURLWithPath: section.key))
+                } label: {
+                  Badge(text: ".corescope.yml", color: Tint.netIn, symbol: "doc.text")
+                }.buttonStyle(.plain).help(L("Definido no arquivo do projeto: edite o arquivo para mudar o perfil."))
+              }
+            }
+            if let file = section.file { EnvironmentCard(file: file) }
+            // Profiles in use first; with many, the stopped ones fold into one line.
+            let busy = section.profiles.filter { inUse($0) }
+            let idle = section.profiles.filter { !inUse($0) }
+            let foldIdle = idle.count > 3
+            ForEach(foldIdle ? busy : section.profiles) { profile in
+              ProfileCard(profile: profile, containers: (containers.report?.containers ?? [])) { editing = profile }
+            }
+            if foldIdle {
+              let key = "\(section.key)#idleProfiles"
+              FoldHeader(title: L("Perfis parados"), detail: "\(idle.count)", key: key).padding(.leading, 4)
+              if folds.isOpen(key) {
+                ForEach(idle) { profile in
+                  ProfileCard(profile: profile, containers: (containers.report?.containers ?? [])) { editing = profile }
+                }
+              }
+            }
+          }
         }
         Text(
           L("Os comandos rodam no seu shell de login, na pasta do perfil, com a saída em ~/Library/Application Support/CoreScope/logs. Parar encerra só os processos que o CoreScope iniciou (com a mesma verificação de identidade do resto do app) e para os contêineres do perfil.")
@@ -413,40 +564,79 @@ private struct ProfileCard: View {
   @ObservedObject var monitor = Monitor.shared
   @ViewState private var confirmStop = false
   @ViewState private var confirmDelete = false
+  @ObservedObject var environment = EnvironmentStore.shared
+  @ObservedObject var folds = FoldState.shared
   var body: some View {
     let total = profile.commands.count + profile.containers.count
     let up = store.runningCount(profile, containers: containers)
+    // Without a container list yet, observed containers say nothing (not "missing").
+    let controller =
+      profile.isController ? store.health(profile, containers: ContainerStore.shared.report == nil ? nil : containers) : nil
+    // Rows open by default only while something of the profile runs or needs attention.
+    let attention = up > 0 || store.busy.contains(profile.id) || (controller.map { $0.health != .off } ?? false)
+    let foldKey = "profile#\(profile.id.uuidString)"
+    let open = folds.isOpen(foldKey, default: attention)
     Card {
       HStack(spacing: 10) {
+        Button {
+          withAnimation(.easeOut(duration: 0.15)) { folds.toggle(foldKey, default: attention) }
+        } label: {
+          Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).rotationEffect(.degrees(open ? 90 : 0))
+            .foregroundStyle(.secondary).frame(width: 12, height: 28).contentShape(Rectangle())
+        }.buttonStyle(.plain).help(open ? L("Ocultar comandos e contêineres") : L("Mostrar comandos e contêineres"))
+          .accessibilityLabel(open ? L("Ocultar comandos e contêineres") : L("Mostrar comandos e contêineres"))
         Image(systemName: "play.square.stack").font(.system(size: 15, weight: .semibold))
           .foregroundStyle(up > 0 ? Tint.brand : .secondary)
           .frame(width: 28, height: 28)
           .background((up > 0 ? Tint.brand : Color.secondary).opacity(0.14), in: RoundedRectangle(cornerRadius: 7))
+        // Name and a plain second line; the state sits in a fixed column on the right, so every
+        // card reads the same whatever the length of its name. File profiles are listed under
+        // their project, which already names the file and the folder.
         VStack(alignment: .leading, spacing: 3) {
-          HStack(spacing: 6) {
-            Text(profile.name).font(.system(size: 14, weight: .semibold)).lineLimit(1)
-            if profile.source != nil {
-              Badge(text: ".corescope.yml", color: Tint.netIn, symbol: "doc.text")
-                .help(L("Definido no arquivo do projeto: edite o arquivo para mudar o perfil."))
+          Text(profile.source == nil ? profile.name : profile.key ?? profile.name)
+            .font(.system(size: 14, weight: .semibold)).lineLimit(1).truncationMode(.middle)
+            .help(profile.name)
+          Text(subtitle(controller: controller != nil)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            .truncationMode(.middle)
+            .help(
+              controller != nil
+                ? L("Os comandos fazem a operação inteira; o CoreScope não inicia nem para os contêineres deste perfil, só os observa.")
+                : abbreviateHome(profile.folder))
+        }
+        Spacer(minLength: 8)
+        HStack(spacing: 6) {
+          if store.busy.contains(profile.id) { ProgressView().controlSize(.small) }
+          if let controller {
+            if controller.outside {
+              Image(systemName: "terminal").font(.caption).foregroundStyle(.secondary)
+                .help(L("A seleção foi alterada fora do CoreScope (terminal ou outra ferramenta); o estado acima vem do status do ambiente."))
+                .accessibilityLabel(L("mudou fora do CoreScope"))
             }
+            Badge(text: controller.health.label, color: controller.health.color).help(healthHelp(controller))
+          } else {
             Badge(
               text: up == 0 ? L("Parado") : up == total ? L("Rodando") : L("%@ de %@ rodando", "\(up)", "\(total)"),
               color: up == 0 ? .secondary : up == total ? Tint.brand : .orange)
           }
-          Text(abbreviateHome(profile.folder)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-            .truncationMode(.middle)
-        }
-        Spacer(minLength: 8)
-        if store.busy.contains(profile.id) { ProgressView().controlSize(.small) }
+        }.frame(width: 150, alignment: .trailing)
+        HStack(spacing: 6) {
         // Also offered when everything is already up: starting claims the shared containers.
-        if up < total || !store.active.contains(profile.id) {
+        if let controller {
+          if !store.inFlight(profile) && (!store.active.contains(profile.id) || controller.health == .failed) {
+            Button {
+              store.start(profile)
+            } label: {
+              Label(L("Iniciar"), systemImage: "play.fill")
+            }.disabled(store.busy.contains(profile.id))
+          }
+        } else if up < total || !store.active.contains(profile.id) {
           Button {
             store.start(profile)
           } label: {
             Label(L("Iniciar"), systemImage: "play.fill")
           }.disabled(store.busy.contains(profile.id))
         }
-        if up > 0 {
+        if controller.map({ store.active.contains(profile.id) || store.inFlight(profile) || $0.health != .off }) ?? (up > 0) {
           Button {
             confirmStop = true
           } label: {
@@ -470,15 +660,31 @@ private struct ProfileCard: View {
         } label: {
           Image(systemName: "ellipsis.circle")
         }.menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+        }.frame(width: 190, alignment: .trailing)
       }
       .buttonStyle(.bordered).controlSize(.small)
-      ForEach(profile.commands) { command in commandRow(command) }
-      ForEach(profile.containers, id: \.self) { name in containerRow(name) }
+      if open { ForEach(profile.commands) { command in commandRow(command) } }
+      if open { ForEach(profile.containers, id: \.self) { name in containerRow(name) } }
+      if open, profile.isController, case .fresh(let status) = environment.input(profile.source) {
+        let app = profile.app ?? profile.key ?? profile.name
+        let parts = status.components.filter { $0.app == app }
+        if !parts.isEmpty {
+          HStack(spacing: 6) {
+            Image(systemName: "square.stack.3d.up").foregroundStyle(.secondary).frame(width: 16)
+            ForEach(parts, id: \.name) { c in
+              Badge(
+                text: c.mode.map { "\(c.name) · \($0)" } ?? c.name,
+                color: !c.expected ? .secondary : c.state == "running" && c.ready != false ? Tint.brand : c.state == "starting" ? .blue : .orange
+              ).help([c.state, c.reason.map { L("mantido: %@", $0) }].compactMap { $0 }.joined(separator: " · "))
+            }
+          }
+        }
+      }
     }
     .confirmationDialog(L("Parar %@?", profile.name), isPresented: $confirmStop, titleVisibility: .visible) {
       let plan = store.stopPlan(profile, containers: containers)
       Button(L("Parar"), role: .destructive) { store.stop(profile) }
-      if !plan.shared.isEmpty || !plan.external.isEmpty {
+      if !profile.isController && (!plan.shared.isEmpty || !plan.external.isEmpty) {
         Button(L("Parar tudo, inclusive compartilhados"), role: .destructive) { store.stop(profile, everything: true) }
       }
       Button(L("Cancelar"), role: .cancel) {}
@@ -492,7 +698,35 @@ private struct ProfileCard: View {
       Text(L("Só a configuração é apagada; nada que esteja rodando é encerrado."))
     }
   }
+  /// "controller · 1 command · 2 containers" (the folder too for profiles made in the app).
+  private func subtitle(controller: Bool) -> String {
+    [
+      controller ? L("controlador") : nil,
+      profile.commands.isEmpty
+        ? nil : profile.commands.count == 1 ? L("1 comando") : L("%@ comandos", "\(profile.commands.count)"),
+      profile.containers.isEmpty
+        ? nil : profile.containers.count == 1 ? L("1 contêiner") : L("%@ contêineres", "\(profile.containers.count)"),
+      profile.source == nil ? abbreviateHome(profile.folder) : nil,
+    ].compactMap { $0 }.joined(separator: " · ")
+  }
+  private func healthHelp(_ h: (health: EnvHealth, reason: String, outside: Bool)) -> String {
+    switch h.health {
+    case .off: return L("Desligado: nada deste perfil está selecionado.")
+    case .starting: return L("Iniciando: a operação ou os componentes ainda não terminaram (%@).", h.reason)
+    case .up: return L("No ar: o controlador confirmou os componentes esperados.")
+    case .degraded: return L("Degradado: %@.", h.reason)
+    case .failed: return L("Falhou: %@. Veja o log do comando.", h.reason)
+    case .unknown: return L("Desconhecido: %@. Não conta como no ar nem como desligado.", h.reason)
+    }
+  }
   private func stopMessage(_ plan: ContainerStopPlan) -> String {
+    if profile.isController {
+      let stops = profile.commands.compactMap(\.stopCommand).filter { !$0.isEmpty }
+      var lines = [L("Envia SIGTERM a uma operação deste perfil ainda em andamento.")]
+      lines.append(stops.isEmpty ? L("Nenhum comando ao parar configurado.") : L("Executa: %@", stops.joined(separator: "; ")))
+      lines.append(L("O CoreScope não para contêineres deste perfil: o controlador decide o que continua para outros apps."))
+      return lines.joined(separator: "\n")
+    }
     var lines = [L("Envia SIGTERM aos processos que o CoreScope iniciou para este perfil (e aos filhos deles).")]
     if !plan.stop.isEmpty { lines.append(L("Para: %@", plan.stop.joined(separator: ", "))) }
     for (name, other) in plan.shared.sorted(by: { $0.key < $1.key }) {
@@ -557,6 +791,7 @@ private struct ProfileCard: View {
       Image(systemName: "shippingbox").foregroundStyle(.secondary).frame(width: 16)
       Text(name).font(.callout.weight(.medium)).lineLimit(1)
       Text(container?.stateLabel ?? L("não encontrado")).font(.caption).foregroundStyle(.secondary)
+      if profile.isController { Text(L("observado")).font(.caption2).foregroundStyle(.tertiary) }
       Spacer(minLength: 6)
       ForEach((container?.tcpPorts ?? []).prefix(3), id: \.host) { port in
         Badge(text: ":\(port.host)", color: port.exposed ? .orange : Tint.netIn)

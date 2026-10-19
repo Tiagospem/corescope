@@ -103,6 +103,16 @@ pub fn render(found: &Found) -> String {
             services.join(", ")
         ));
     }
+    if config.status.is_some() {
+        out.push("- An environment controller reports its real state: read it with MCP environment_status (apps selected, components, modes) before assuming something is up or down.".into());
+    }
+    if !config.actions.is_empty() {
+        let names: Vec<String> = config.actions.keys().map(|n| format!("`{n}`")).collect();
+        out.push(format!(
+            "- One-off actions: {}. Run them with MCP run_action (list_actions for results and logs), not by hand; ask the user first.",
+            names.join(", ")
+        ));
+    }
     if !config.logs.is_empty() {
         out.push(format!(
             "- Its logs ({}) are followed by CoreScope: to debug, use MCP recent_errors / search_logs instead of asking the user for logs.",

@@ -473,6 +473,13 @@ struct VolumeHolder: Decodable, Identifiable, Equatable {
 }
 
 enum VolumeEject {
+  /// Mounts ejected moments ago, hidden from lists until the inventory stops showing them
+  /// (or 2 minutes pass, if the volume came back).
+  static var ejected: [String: Date] = [:]
+  static func visible(_ volumes: [Volume]) -> [Volume] {
+    ejected = ejected.filter { mount, at in -at.timeIntervalSinceNow < 120 && volumes.contains { $0.mount == mount } }
+    return volumes.filter { ejected[$0.mount] == nil }
+  }
   static func holders(_ mount: String) -> [VolumeHolder] {
     guard let pointer = mount.withCString({ cs_volume_holders($0) }) else { return [] }
     defer { cs_free(pointer) }
@@ -578,6 +585,10 @@ struct EjectSheet: View {
           load()
         } else {
           ejected = true
+          // Off the list now, and the inventory re-read on the next sample (not 30 s later).
+          VolumeEject.ejected[mount] = Date()
+          cs_refresh_volumes()
+          Monitor.shared.refresh()
         }
       }
     }

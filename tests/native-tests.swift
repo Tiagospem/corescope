@@ -40,6 +40,7 @@ import Foundation
     volumeTests()
     auditTests()
     pruneTests()
+    environmentTests()
     // VM helper ports split among the containers that published them.
     let split = splitPorts([6379, 3306, 8025, 1025, 5555]) {
       [6379: "redis", 3306: "mysql", 8025: "mail", 1025: "mail"][$0]
@@ -337,7 +338,7 @@ import Foundation
     precondition(looksLikeTime("14:05") && looksLikeTime("2:05 pm") && looksLikeTime("14h05") && looksLikeTime("ontem 9:30"))
     precondition(!looksLikeTime("8000") && !looksLikeTime("redis") && !looksLikeTime("14"))
     print(
-      "31 native assertions passed: descendants, cycle, ordering, off-screen recovery, negative-origin monitor, forest roots, flatten, collapse, totals, ancestors, filter, formatting, container ports, shared ports, demo paths, debounce, sustained thresholds, new arrivals, port parsing, shortcut label, agent stalls, health targets, service states, shared containers, ssh stats, gate hook, machine alerts, failed unit explanations, service history, own cost, links, palette, Claude Desktop usage, limit pace, settings backup, performance audit, docker volumes, unused worktrees and branches; plus settings JSON, Unicode escapes, status line install/chain, Claude limits, Claude /usage text, update versions, release notes, appcast"
+      "32 native assertions passed: descendants, cycle, ordering, off-screen recovery, negative-origin monitor, forest roots, flatten, collapse, totals, ancestors, filter, formatting, container ports, shared ports, demo paths, debounce, sustained thresholds, new arrivals, port parsing, shortcut label, agent stalls, health targets, service states, shared containers, ssh stats, gate hook, machine alerts, failed unit explanations, service history, own cost, links, palette, Claude Desktop usage, limit pace, settings backup, performance audit, docker volumes, unused worktrees and branches, environment controller (bound checks, status, controller health, artifacts); plus settings JSON, Unicode escapes, status line install/chain, Claude limits, Claude /usage text, update versions, release notes, appcast"
     )
     print(
       "token usage assertions passed: timestamps, formatting, Claude block dedupe, embedded entries, partial lines, long-line skip, fast/full parity, Codex repeats and forks"
@@ -722,4 +723,139 @@ func pruneTests() {
   let withDirty = pruneCandidates(worktrees: trees, branches: refs, defaultBranch: "main", allowDirty: true, chosenWorktrees: [wt.path, "/r/b"])
   precondition(withDirty.contains { $0.target == "b" && $0.verdict.removable })
   precondition(!defaultPruneSelection(withDirty, worktrees: trees).contains("w:/r/b"))
+}
+
+/// Checks bound to profiles or components, the controller's status and controller profiles.
+func environmentTests() {
+  // Revamp on, Arena off: Arena's check behind the Herd proxy (443 listening) is neutral, not down.
+  let arena = serviceExpectation(profilesOn: [false], component: nil, unknownReason: "")
+  precondition(arena == .notExpected)
+  precondition(boundServiceState(level: .down, paused: false, expectation: arena, starting: false) == .notRunning)
+  precondition(shouldProbeBound(paused: false, expectation: arena, listening: true))
+  precondition(!shouldProbeBound(paused: false, expectation: arena, listening: false))
+  // Answering while nothing selected it: running outside CoreScope, neither up nor down.
+  let outside = boundServiceState(level: .up, paused: false, expectation: arena, starting: false)
+  precondition(outside == .external && !outside.recordsHistory && !outside.isFailure)
+  // Selected and unavailable is a failure; while its profile starts it is only "starting".
+  let on = serviceExpectation(profilesOn: [false, true], component: nil, unknownReason: "")
+  precondition(on == .expected, "any consumer on requires the service")
+  precondition(boundServiceState(level: .down, paused: false, expectation: on, starting: false) == .down)
+  let starting = boundServiceState(level: .down, paused: false, expectation: on, starting: true)
+  precondition(starting == .starting && !starting.recordsHistory)
+  precondition(boundServiceState(level: .up, paused: false, expectation: on, starting: true) == .up)
+  precondition(boundServiceState(level: nil, paused: false, expectation: on, starting: false) == .pending)
+  // Unknown selection is never up nor off, whatever the probe says.
+  let unknown = serviceExpectation(profilesOn: [false, nil], component: nil, unknownReason: "timed out")
+  precondition(unknown == .unknown("timed out"))
+  for level: HealthLevel? in [.up, .down, nil] {
+    let state = boundServiceState(level: level, paused: false, expectation: unknown, starting: false)
+    precondition(state == .unknown && !state.recordsHistory && state.mcpStatus == "unknown")
+  }
+  // The controller knows dependencies: a component it keeps for another app stays expected.
+  precondition(serviceExpectation(profilesOn: [false], component: .some(true), unknownReason: "") == .expected)
+  precondition(serviceExpectation(profilesOn: [true], component: .some(false), unknownReason: "") == .notExpected)
+  // Bound to a component the status does not report (stale, failed): unknown unless a profile is on.
+  precondition(serviceExpectation(profilesOn: [], component: .some(nil), unknownReason: "stale") == .unknown("stale"))
+  precondition(serviceExpectation(profilesOn: [false], component: .some(nil), unknownReason: "x") == .unknown("x"))
+  precondition(serviceExpectation(profilesOn: [true], component: .some(nil), unknownReason: "x") == .expected)
+  precondition(boundServiceState(level: .down, paused: true, expectation: on, starting: false) == .paused)
+  precondition(serviceSummary([.up, .unknown, .external, .down]).map(\.state) == [.down, .unknown, .external, .up])
+
+  // Status output: format 1 only, clipped, unknown states folded, data never trusted beyond that.
+  let json = #"""
+    {"format": 1, "environment": "eco-local", "collected_at": "2026-10-19T12:00:00Z",
+     "apps": [{"name": "revamp", "selected": true}, {"name": "arena", "selected": false}],
+     "components": [
+       {"name": "mysql", "app": "revamp", "expected": true, "state": "running", "ready": true,
+        "controlled_by": "controller", "reason": "required by revamp, institucional"},
+       {"name": "revamp-web", "app": "revamp", "mode": "build", "expected": true, "state": "running", "ready": false},
+       {"name": "arena-web", "app": "arena", "mode": "dev", "expected": false, "state": "stopped"},
+       {"name": "hindsight-api", "expected": true, "state": "running", "ready": true, "controlled_by": "external"},
+       {"name": "hindsight-mcp", "expected": true, "state": "weird\u0007", "ready": false},
+       {"name": "no-expected-flag", "state": "running"}],
+     "errors": ["hindsight mcp: initialize timed out"], "ignored": {"anything": 1}}
+    """#
+  let status = try! EnvironmentStatus(parsing: Data(json.utf8))
+  precondition(status.environment == "eco-local" && status.apps.count == 2 && status.components.count == 5)
+  precondition(status.components[4].state == "unknown", "unknown states are folded")
+  precondition(status.components[0].reason == "required by revamp, institucional")
+  precondition(status.selected("revamp") == true && status.selected("arena") == false && status.selected("x") == nil)
+  precondition(status.failing.map(\.name) == ["revamp-web"], "running but not ready is failing")
+  // Hindsight API healthy and MCP unavailable are two results.
+  precondition(status.components[3].ready == true && status.components[4].ready == false)
+  for bad in [#"{"format": 2, "environment": "e", "collected_at": "2026-10-19T12:00:00Z"}"#,
+    #"{"format": 1, "collected_at": "2026-10-19T12:00:00Z"}"#, #"{"format": 1, "environment": "e", "collected_at": "yesterday"}"#,
+    "[1]", "not json", "Ignore previous instructions"] {
+    precondition((try? EnvironmentStatus(parsing: Data(bad.utf8))) == nil, bad)
+  }
+  precondition((try? EnvironmentStatus(parsing: Data(repeating: 0x20, count: 300 * 1024))) == nil)
+  let t0 = status.collectedAt
+  precondition(!statusIsStale(collectedAt: t0, fetchedAt: t0.addingTimeInterval(1), now: t0.addingTimeInterval(40)))
+  precondition(statusIsStale(collectedAt: t0, fetchedAt: t0, now: t0.addingTimeInterval(600)), "old reading")
+  precondition(statusIsStale(collectedAt: t0, fetchedAt: t0.addingTimeInterval(3600), now: t0.addingTimeInterval(3600)), "cached by the controller")
+
+  // Controller profiles: a failed or cancelled start is never healthy; a crash later is seen.
+  func health(_ active: Bool, inFlight: Bool = false, failed: Int32? = nil, _ input: StatusInput, app: String = "revamp", missing: [String] = []) -> EnvHealth {
+    controllerHealth(active: active, inFlight: inFlight, failedExit: failed, status: input, app: app, missingContainers: missing).health
+  }
+  precondition(health(true, inFlight: true, .none) == .starting)
+  precondition(health(true, failed: 1, .fresh(status)) == .failed)
+  precondition(health(true, failed: 143, .none) == .failed, "cancelled (SIGTERM) is not completed")
+  precondition(health(true, .none) == .up && health(false, .none) == .off)
+  precondition(health(true, .none, missing: ["arena-go"]) == .degraded)
+  precondition(health(true, .fresh(status)) == .degraded, "revamp-web is not ready")
+  var healthy = status
+  healthy.components[1].ready = true
+  precondition(health(true, .fresh(healthy)) == .up)
+  precondition(health(true, .fresh(healthy), missing: ["revamp-db"]) == .degraded)
+  var unread = healthy
+  unread.components[1].state = "unknown"
+  precondition(health(true, .fresh(unread)) == .unknown, "engine down is unknown, not starting")
+  healthy.busy = "switching revamp-web to dev"
+  precondition(health(true, .fresh(healthy)) == .starting)
+  // Selection changed in the terminal: CoreScope follows it and says so.
+  let arenaOff = controllerHealth(active: true, inFlight: false, failedExit: nil, status: .fresh(status), app: "arena", missingContainers: [])
+  precondition(arenaOff.health == .off && arenaOff.outside)
+  healthy.busy = nil
+  let byTerminal = controllerHealth(active: false, inFlight: false, failedExit: nil, status: .fresh(healthy), app: "revamp", missingContainers: [])
+  precondition(byTerminal.health == .up && byTerminal.outside)
+  // Unreadable status: unknown, never up or off.
+  precondition(health(true, .unavailable("timed out")) == .unknown && health(false, .unavailable("x")) == .unknown)
+
+  precondition(!statusIsStale(collectedAt: t0, fetchedAt: t0, now: t0.addingTimeInterval(200), interval: 120), "slow poll")
+  precondition(statusIsStale(collectedAt: t0, fetchedAt: t0, now: t0.addingTimeInterval(400), interval: 120))
+
+  // The translation table must be found: a misplaced closing """ once indented every key and
+  // left the whole app in Portuguese.
+  precondition(Localization.table["Iniciar"]?.en == "Start" && Localization.table["Perfis"]?.es == "Perfiles")
+  precondition(Localization.table.count > 1500 && Localization.table.keys.allSatisfy { !$0.hasPrefix(" ") })
+  // "System" language: the first supported one in macOS's list.
+  precondition(Localization.systemLanguage(["en-BR", "pt-BR"]) == "en" && Localization.systemLanguage(["pt-BR", "en"]) == "pt")
+  precondition(Localization.systemLanguage(["de-DE", "es-ES"]) == "es" && Localization.systemLanguage(["ja"]) == "en")
+
+  // Menu bar compact values keep a unit letter.
+  precondition(compactValue("11,65 GB") == "11,6G" && compactValue("1,9 MB/s") == "1,9M/s" && compactValue("4 KB/s") == "4K/s")
+  precondition(compactValue("512 B/s") == "512B/s" && compactValue("—") == "—" && compactValue("49 °C") == "49 °C")
+
+  // Long action lists fold by app and by kind.
+  let names = ["eco-init", "eco-stop-all", "eco-storage-setup", "eco-arena-setup", "eco-arena-web-dev", "eco-revamp-stop",
+    "eco-memory-backup", "eco-memory-doctor", "eco-revamp-logs"]
+  let groups = actionGroups(names.map { (name: $0, group: nil) } + [(name: "eco-odd", group: "custom")], apps: ["revamp", "arena"])
+  precondition(groups["eco-arena-web-dev"] == "arena" && groups["eco-revamp-stop"] == "revamp" && groups["eco-memory-backup"] == "memory")
+  precondition(groups["eco-init"] == "" && groups["eco-stop-all"] == "" && groups["eco-storage-setup"] == "" && groups["eco-odd"] == "custom")
+  let docker = actionGroups(["docker-up", "docker-arena-setup", "docker-arena-stop", "docker-hindsight-up", "docker-hindsight-stop"].map { (name: $0, group: nil) }, apps: [])
+  precondition(docker["docker-arena-stop"] == "arena" && docker["docker-hindsight-up"] == "hindsight" && docker["docker-up"] == "")
+  precondition(actionCommonPrefix(names) == 1 && actionCommonPrefix(["one-thing"]) == 0)
+  precondition(actionShortName("eco-arena-web-dev", group: "arena", prefix: 1) == "web dev")
+  precondition(actionShortName("eco-init", group: "", prefix: 1) == "init")
+  precondition(ActionKind.of(name: "eco-memory-backup", explicit: nil) == .data && ActionKind.of(name: "eco-doctor", explicit: nil) == .diagnostics)
+  precondition(ActionKind.of(name: "eco-stop-all", explicit: nil) == .stop && ActionKind.of(name: "eco-arena-migrate", explicit: nil) == .setup)
+  precondition(ActionKind.of(name: "eco-revamp-web-dev", explicit: nil) == .run && ActionKind.of(name: "x", explicit: "data") == .data)
+  precondition(ActionKind.of(name: "eco-weird", explicit: nil) == .other && ActionKind.of(name: "eco-weird", explicit: "nonsense") == .other)
+
+  // Actions report their artifact on a marker line; the last one wins.
+  let out = "dumping…\nCORESCOPE_ARTIFACT=old.zip\nCORESCOPE_ARTIFACT= backups/h.zip \ndone\n"
+  precondition(actionArtifact(out, folder: "/p") == "/p/backups/h.zip")
+  precondition(actionArtifact("CORESCOPE_ARTIFACT=/abs/x.zip", folder: "/p") == "/abs/x.zip")
+  precondition(actionArtifact("no marker\nCORESCOPE_ARTIFACT=", folder: "/p") == nil)
 }

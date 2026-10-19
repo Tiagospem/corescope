@@ -63,34 +63,45 @@ struct PreferencesView: View {
       }
       Section(L("Barra de menus")) {
         Toggle(L("Mostrar ícone"), isOn: $p.menuIcon)
-        Toggle(L("Formato compacto"), isOn: $p.compact)
-        ForEach(["CPU", "Memória", "Disco", "Rede", "Térmico", "Sensor"], id: \.self) { item in
-          Toggle(
-            L(item),
-            isOn: Binding(
-              get: { p.menuItems.contains(item) },
-              set: { value in
-                if value { p.menuItems.append(item) } else { p.menuItems.removeAll { $0 == item } }
-              }))
+        Toggle(isOn: $p.compact) {
+          Text(L("Formato compacto"))
+          Text(L("Números mais curtos (RAM 11,6G em vez de RAM 11,65 GB), sem os pontos entre os itens; os rótulos continuam."))
         }
-        ForEach(Array(p.menuItems.enumerated()), id: \.element) { index, item in
+        // One row per item: on/off, what it shows, and its place (left to right) when on.
+        let ordered = p.menuItems + MenuBarItems.all.filter { !p.menuItems.contains($0) }
+        ForEach(ordered, id: \.self) { item in
+          let index = p.menuItems.firstIndex(of: item)
           HStack {
-            Text("\(index+1). \(L(item))")
-            Spacer()
-            Button {
-              p.menuItems.swapAt(index, index - 1)
-            } label: {
-              Image(systemName: "arrow.up")
-            }.disabled(index == 0).help(L("Mover %@ para a esquerda", "\(item)"))
-              .accessibilityLabel(L("Mover %@ para a esquerda", "\(item)"))
-            Button {
-              p.menuItems.swapAt(index, index + 1)
-            } label: {
-              Image(systemName: "arrow.down")
-            }.disabled(index == p.menuItems.count - 1).help(L("Mover %@ para a direita", "\(item)"))
-              .accessibilityLabel(L("Mover %@ para a direita", "\(item)"))
+            Toggle(
+              isOn: Binding(
+                get: { p.menuItems.contains(item) },
+                set: { value in
+                  if value { p.menuItems.append(item) } else { p.menuItems.removeAll { $0 == item } }
+                })
+            ) {
+              Text(index.map { "\($0 + 1). \(MenuBarItems.name(item))" } ?? MenuBarItems.name(item))
+              Text(MenuBarItems.explanation(item))
+            }
+            if let index {
+              Button {
+                p.menuItems.swapAt(index, index - 1)
+              } label: {
+                Image(systemName: "arrow.left")
+              }.buttonStyle(.borderless).disabled(index == 0).help(L("Mover %@ para a esquerda", MenuBarItems.name(item)))
+                .accessibilityLabel(L("Mover %@ para a esquerda", MenuBarItems.name(item)))
+              Button {
+                p.menuItems.swapAt(index, index + 1)
+              } label: {
+                Image(systemName: "arrow.right")
+              }.buttonStyle(.borderless).disabled(index == p.menuItems.count - 1)
+                .help(L("Mover %@ para a direita", MenuBarItems.name(item)))
+                .accessibilityLabel(L("Mover %@ para a direita", MenuBarItems.name(item)))
+            }
           }
         }
+        Text(
+          L("Os itens ligados aparecem na barra nesta ordem, da esquerda para a direita. Os limites do Codex e do Claude (parte do limite semanal usada) entram no fim quando ligados em Agentes. Passe o mouse sobre o ícone da barra para ver esta legenda.")
+        ).font(.caption).foregroundStyle(.secondary)
       }
       Section(L("Notificações")) {
         Toggle(L("Novo possível órfão"), isOn: notify($p.notifyOrphans))
