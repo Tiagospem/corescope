@@ -819,6 +819,15 @@ func environmentTests() {
   healthy.busy = nil
   let byTerminal = controllerHealth(active: false, inFlight: false, failedExit: nil, status: .fresh(healthy), app: "revamp", missingContainers: [])
   precondition(byTerminal.health == .up && byTerminal.outside)
+  // Docker switched off: every expected component unread → everything off, nothing to alert.
+  precondition(unread.nothingRead == false, "one unread component is not the engine being off")
+  var engineDown = status
+  engineDown.components = engineDown.components.map { var c = $0; c.state = "unknown"; return c }
+  precondition(engineDown.nothingRead)
+  let off = engineDown.engineOff
+  precondition(off.apps.allSatisfy { !$0.selected } && off.components.allSatisfy { !$0.expected && $0.state == "stopped" })
+  precondition(off.errors.isEmpty && controllerHealth(active: true, inFlight: false, failedExit: nil, status: .fresh(off), app: "revamp", missingContainers: []).health == .off)
+  precondition(serviceExpectation(profilesOn: [], component: .some(off.components[0].expected), unknownReason: "") == .notExpected)
   // Unreadable status: unknown, never up or off.
   precondition(health(true, .unavailable("timed out")) == .unknown && health(false, .unavailable("x")) == .unknown)
 
@@ -837,17 +846,7 @@ func environmentTests() {
   precondition(compactValue("11,65 GB") == "11,6G" && compactValue("1,9 MB/s") == "1,9M/s" && compactValue("4 KB/s") == "4K/s")
   precondition(compactValue("512 B/s") == "512B/s" && compactValue("—") == "—" && compactValue("49 °C") == "49 °C")
 
-  // Long action lists fold by app and by kind.
-  let names = ["eco-init", "eco-stop-all", "eco-storage-setup", "eco-arena-setup", "eco-arena-web-dev", "eco-revamp-stop",
-    "eco-memory-backup", "eco-memory-doctor", "eco-revamp-logs"]
-  let groups = actionGroups(names.map { (name: $0, group: nil) } + [(name: "eco-odd", group: "custom")], apps: ["revamp", "arena"])
-  precondition(groups["eco-arena-web-dev"] == "arena" && groups["eco-revamp-stop"] == "revamp" && groups["eco-memory-backup"] == "memory")
-  precondition(groups["eco-init"] == "" && groups["eco-stop-all"] == "" && groups["eco-storage-setup"] == "" && groups["eco-odd"] == "custom")
-  let docker = actionGroups(["docker-up", "docker-arena-setup", "docker-arena-stop", "docker-hindsight-up", "docker-hindsight-stop"].map { (name: $0, group: nil) }, apps: [])
-  precondition(docker["docker-arena-stop"] == "arena" && docker["docker-hindsight-up"] == "hindsight" && docker["docker-up"] == "")
-  precondition(actionCommonPrefix(names) == 1 && actionCommonPrefix(["one-thing"]) == 0)
-  precondition(actionShortName("eco-arena-web-dev", group: "arena", prefix: 1) == "web dev")
-  precondition(actionShortName("eco-init", group: "", prefix: 1) == "init")
+  // Action kinds come from the file or from the words of the name.
   precondition(ActionKind.of(name: "eco-memory-backup", explicit: nil) == .data && ActionKind.of(name: "eco-doctor", explicit: nil) == .diagnostics)
   precondition(ActionKind.of(name: "eco-stop-all", explicit: nil) == .stop && ActionKind.of(name: "eco-arena-migrate", explicit: nil) == .setup)
   precondition(ActionKind.of(name: "eco-revamp-web-dev", explicit: nil) == .run && ActionKind.of(name: "x", explicit: "data") == .data)

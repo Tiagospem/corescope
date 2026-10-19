@@ -25,12 +25,11 @@ pub struct ProjectConfig {
     pub ports: BTreeMap<String, u16>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub services: Vec<ServiceSpec>,
-    /// A command that reports the environment's real state as JSON (see docs/ENVIRONMENT-CONTROLLER.md).
+    /// An environment run by the project's own controller: its status command, its apps (each
+    /// with the modes it can be brought up in, its stop command and its actions) and
+    /// environment-wide actions. See docs/ENVIRONMENT-CONTROLLER.md.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub status: Option<StatusSpec>,
-    /// One-off project actions (setup, rebuild, diagnostics, backup, restore), apart from profiles.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub actions: BTreeMap<String, ActionSpec>,
+    pub environment: Option<EnvironmentSpec>,
     /// Log files or globs relative to the project (`storage/logs/*.log`), added to Logs.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub logs: Vec<String>,
@@ -44,25 +43,6 @@ pub struct ProfileSpec {
     pub commands: Vec<CommandSpec>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub containers: Vec<String>,
-    /// Who owns the containers: `native` (default: CoreScope starts and stops them) or
-    /// `controller` (the commands do the whole operation; containers are only observed).
-    #[serde(default, skip_serializing_if = "Lifecycle::is_native")]
-    pub lifecycle: Lifecycle,
-    /// The app this profile selects in the status output (default: the profile's name).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub app: Option<String>,
-}
-#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum Lifecycle {
-    #[default]
-    Native,
-    Controller,
-}
-impl Lifecycle {
-    pub fn is_native(&self) -> bool {
-        *self == Lifecycle::Native
-    }
 }
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -89,6 +69,43 @@ pub struct ServiceSpec {
     /// A component of the status output: expected when the status says so.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub component: Option<String>,
+    /// An app of `environment.apps`: expected while it is up (selected, or one of its modes on).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app: Option<String>,
+}
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct EnvironmentSpec {
+    /// Prints the status JSON (format 1) and exits; read-only and quick.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<StatusSpec>,
+    /// Apps of the environment by the name the status uses (`revamp`), or groups of actions
+    /// (`memory`), each folded on the Profiles page.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub apps: BTreeMap<String, AppSpec>,
+    /// Actions for the whole environment (init, doctor, stop everything).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub actions: BTreeMap<String, ActionSpec>,
+}
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct AppSpec {
+    /// Display name (default: the key).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    /// Ways to bring the app up, one at a time (`dev: bin/eco up revamp --web dev`). Each command
+    /// does the whole operation and exits once it verified; CoreScope never starts or stops the
+    /// app's containers itself.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub modes: BTreeMap<String, String>,
+    /// Takes this app down (only what no other selected app needs). Required with `modes`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub down: Option<String>,
+    /// Containers to watch while the app is up (never started or stopped by CoreScope).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub containers: Vec<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub actions: BTreeMap<String, ActionSpec>,
 }
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -117,10 +134,6 @@ pub struct ActionSpec {
     /// Waits for the Mac to have room first (the file's `agents.wait_for_capacity`, or defaults).
     #[serde(default, skip_serializing_if = "is_false")]
     pub heavy: bool,
-    /// Where the app lists it (an app such as `arena`, or `memory`); guessed from the name when
-    /// absent.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub group: Option<String>,
     /// setup, run, diagnostics, data, stop or other; guessed from the name when absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kind: Option<String>,
@@ -181,6 +194,79 @@ impl Default for CapacitySpec {
     }
 }
 
+impl EnvironmentSpec {
+    fn problems(&self, out: &mut Vec<String>) {
+        if let Some(st) = &self.status {
+            if st.run.trim().is_empty() {
+                out.push("environment.status: empty `run`".into());
+            }
+            if st
+                .timeout_seconds
+                .is_some_and(|t| !(1.0..=30.0).contains(&t))
+            {
+                out.push("environment.status.timeout_seconds: between 1 and 30".into());
+            }
+        }
+        let mut actions: Vec<(String, &ActionSpec)> = self
+            .actions
+            .iter()
+            .map(|(n, a)| (format!("environment.actions.{n}"), a))
+            .collect();
+        for (key, app) in &self.apps {
+            for (mode, run) in &app.modes {
+                if run.trim().is_empty() {
+                    out.push(format!(
+                        "environment.apps.{key}.modes.{mode}: empty command"
+                    ));
+                }
+            }
+            let down = app.down.as_deref().map(str::trim).unwrap_or("");
+            if !app.modes.is_empty() && down.is_empty() {
+                out.push(format!(
+                    "environment.apps.{key}: `down` is required with `modes` (Stop runs it)"
+                ));
+            }
+            if app.modes.is_empty() && app.down.is_some() {
+                out.push(format!("environment.apps.{key}: `down` without `modes`"));
+            }
+            if app.modes.is_empty() && app.actions.is_empty() {
+                out.push(format!(
+                    "environment.apps.{key}: needs `modes` or `actions`"
+                ));
+            }
+            actions.extend(
+                app.actions
+                    .iter()
+                    .map(|(n, a)| (format!("environment.apps.{key}.actions.{n}"), a)),
+            );
+        }
+        for (name, a) in actions {
+            if a.run.trim().is_empty() {
+                out.push(format!("{name}: empty `run`"));
+            }
+            if a.timeout_minutes
+                .is_some_and(|t| !(1.0..=1440.0).contains(&t))
+            {
+                out.push(format!("{name}: timeout_minutes between 1 and 1440"));
+            }
+            if a.preview.is_some() && !a.confirm {
+                out.push(format!(
+                    "{name}: `preview` is shown in the confirmation; add `confirm: true`"
+                ));
+            }
+            if a.preview.as_deref().is_some_and(|p| p.trim().is_empty()) {
+                out.push(format!("{name}: empty `preview`"));
+            }
+            if let Some(k) = a.kind.as_deref().filter(|k| !ACTION_KINDS.contains(k)) {
+                out.push(format!(
+                    "{name}: kind `{k}` is not one of {}",
+                    ACTION_KINDS.join(", ")
+                ));
+            }
+        }
+    }
+}
+
 impl ProjectConfig {
     /// Structural checks serde cannot express. Returns the problems, empty when valid.
     pub fn problems(&self) -> Vec<String> {
@@ -194,73 +280,33 @@ impl ProjectConfig {
                     out.push(format!("profile {name}: a command has an empty `run`"));
                 }
             }
-            if p.lifecycle == Lifecycle::Controller && p.commands.is_empty() {
-                out.push(format!(
-                    "profile {name}: lifecycle controller needs the commands that do the operation"
-                ));
-            }
-            if p.app.is_some() && p.lifecycle != Lifecycle::Controller {
-                out.push(format!(
-                    "profile {name}: `app` is only for lifecycle controller"
-                ));
-            }
         }
         for s in &self.services {
+            let label = s.name.as_deref().unwrap_or(&s.target);
             if s.target.trim().is_empty() {
                 out.push("services: a check has an empty `target`".into());
             }
             for p in &s.profiles {
                 if !self.profiles.contains_key(p) {
-                    out.push(format!(
-                        "services: {}: no profile `{p}` in this file",
-                        s.name.as_deref().unwrap_or(&s.target)
-                    ));
+                    out.push(format!("services: {label}: no profile `{p}` in this file"));
                 }
             }
-            if s.component.is_some() && self.status.is_none() {
+            let env = self.environment.as_ref();
+            if s.component.is_some() && env.and_then(|e| e.status.as_ref()).is_none() {
                 out.push(format!(
-                    "services: {}: `component` needs a top-level `status` command",
-                    s.name.as_deref().unwrap_or(&s.target)
+                    "services: {label}: `component` needs `environment.status`"
+                ));
+            }
+            if let Some(app) = &s.app
+                && !env.is_some_and(|e| e.apps.contains_key(app))
+            {
+                out.push(format!(
+                    "services: {label}: no app `{app}` in `environment.apps`"
                 ));
             }
         }
-        if let Some(st) = &self.status {
-            if st.run.trim().is_empty() {
-                out.push("status: empty `run`".into());
-            }
-            if st
-                .timeout_seconds
-                .is_some_and(|t| !(1.0..=30.0).contains(&t))
-            {
-                out.push("status.timeout_seconds: between 1 and 30".into());
-            }
-        }
-        for (name, a) in &self.actions {
-            if a.run.trim().is_empty() {
-                out.push(format!("action {name}: empty `run`"));
-            }
-            if a.timeout_minutes
-                .is_some_and(|t| !(1.0..=1440.0).contains(&t))
-            {
-                out.push(format!("action {name}: timeout_minutes between 1 and 1440"));
-            }
-            if a.preview.is_some() && !a.confirm {
-                out.push(format!(
-                    "action {name}: `preview` is shown in the confirmation; add `confirm: true`"
-                ));
-            }
-            if a.preview.as_deref().is_some_and(|p| p.trim().is_empty()) {
-                out.push(format!("action {name}: empty `preview`"));
-            }
-            if a.group.as_deref().is_some_and(|g| g.trim().is_empty()) {
-                out.push(format!("action {name}: empty `group`"));
-            }
-            if let Some(k) = a.kind.as_deref().filter(|k| !ACTION_KINDS.contains(k)) {
-                out.push(format!(
-                    "action {name}: kind `{k}` is not one of {}",
-                    ACTION_KINDS.join(", ")
-                ));
-            }
+        if let Some(env) = &self.environment {
+            env.problems(&mut out);
         }
         if let Some(c) = self
             .agents
@@ -660,7 +706,13 @@ pub fn to_yaml(config: &ProjectConfig) -> String {
     // Top-level sections in reading order (serde_json maps are alphabetical).
     let value = serde_json::to_value(config).unwrap_or_default();
     for key in [
-        "name", "profiles", "ports", "services", "status", "actions", "logs", "agents",
+        "name",
+        "profiles",
+        "ports",
+        "services",
+        "environment",
+        "logs",
+        "agents",
     ] {
         if let Some(v) = value.get(key) {
             let mut one = Map::new();
@@ -866,7 +918,6 @@ agents:
                         stop: Some("true".into()),
                     }],
                     containers: vec![],
-                    ..Default::default()
                 },
             )]),
             ..Default::default()
@@ -877,123 +928,133 @@ agents:
     const ECOSYSTEM: &str = r#"
 name: Ecosystem
 profiles:
-  core:
-    lifecycle: controller
-    commands:
-      - name: up
-        run: bin/eco up core
-        stop: bin/eco down core
-  arena-front:
-    lifecycle: controller
-    app: arena
-    commands:
-      - run: bin/eco up arena --dev web
-        stop: bin/eco down arena
-    containers: [arena-go]
   legacy:
     commands:
       - run: npm run dev
 services:
   - name: Arena
     target: https://arena.test/up
-    profiles: [arena-front]
+    app: arena
   - name: Memory MCP
     target: 8888
     component: hindsight-mcp
   - target: 3306
-status:
-  run: bin/eco status --json
-  timeout_seconds: 4
-actions:
-  backup:
-    run: bin/eco hindsight backup
-    timeout_minutes: 30
-    heavy: true
-  restore:
-    run: bin/eco hindsight restore
-    preview: bin/eco hindsight restore --plan
-    confirm: true
-    group: memory
-    kind: data
+    profiles: [legacy]
+environment:
+  status:
+    run: bin/eco status --json
+    timeout_seconds: 4
+  apps:
+    arena:
+      title: Arena
+      modes:
+        build: bin/eco up arena --web build
+        dev: bin/eco up arena --web dev
+      down: bin/eco down arena
+      containers: [arena-go]
+      actions:
+        migrate:
+          run: bin/eco migrate arena
+          heavy: true
+    memory:
+      title: Agents' memory
+      actions:
+        backup:
+          run: bin/eco memory backup
+          timeout_minutes: 30
+          kind: data
+        restore:
+          run: bin/eco memory restore
+          preview: bin/eco memory restore --plan
+          confirm: true
+  actions:
+    init:
+      run: bin/eco init
 "#;
 
     #[test]
-    fn reads_bindings_lifecycle_status_and_actions() {
+    fn reads_the_environment() {
         let c = parse(ECOSYSTEM).unwrap();
-        assert_eq!(c.profiles["core"].lifecycle, Lifecycle::Controller);
-        assert_eq!(c.profiles["arena-front"].app.as_deref(), Some("arena"));
-        assert_eq!(c.profiles["legacy"].lifecycle, Lifecycle::Native);
-        assert_eq!(c.services[0].profiles, ["arena-front"]);
-        assert_eq!(c.services[1].component.as_deref(), Some("hindsight-mcp"));
-        assert!(c.services[2].profiles.is_empty() && c.services[2].component.is_none());
-        let st = c.status.as_ref().unwrap();
+        let env = c.environment.as_ref().unwrap();
+        let st = env.status.as_ref().unwrap();
         assert_eq!(
             (st.run.as_str(), st.timeout_seconds),
             ("bin/eco status --json", Some(4.))
         );
-        assert_eq!(c.actions["backup"].timeout_minutes, Some(30.));
-        assert!(c.actions["backup"].heavy && !c.actions["backup"].confirm);
-        assert!(c.actions["restore"].confirm);
-        assert_eq!(c.actions["restore"].group.as_deref(), Some("memory"));
-        assert_eq!(c.actions["restore"].kind.as_deref(), Some("data"));
+        let arena = &env.apps["arena"];
+        assert_eq!(arena.title.as_deref(), Some("Arena"));
+        assert_eq!(arena.modes["dev"], "bin/eco up arena --web dev");
+        assert_eq!(arena.down.as_deref(), Some("bin/eco down arena"));
+        assert_eq!(arena.containers, ["arena-go"]);
+        assert!(arena.actions["migrate"].heavy);
+        let memory = &env.apps["memory"];
+        assert!(memory.modes.is_empty() && memory.actions["restore"].confirm);
+        assert_eq!(memory.actions["backup"].kind.as_deref(), Some("data"));
+        assert_eq!(env.actions["init"].run, "bin/eco init");
+        assert_eq!(c.services[0].app.as_deref(), Some("arena"));
+        assert_eq!(c.services[1].component.as_deref(), Some("hindsight-mcp"));
+        assert_eq!(c.services[2].profiles, ["legacy"]);
         assert_eq!(parse(&to_yaml(&c)).unwrap(), c, "{}", to_yaml(&c));
-        // Old files read the same and are written without the new keys.
+        // Files without it read and write as before.
         let old = parse(SAMPLE).unwrap();
-        assert!(old.status.is_none() && old.actions.is_empty());
-        assert!(
-            old.profiles
-                .values()
-                .all(|p| p.lifecycle == Lifecycle::Native)
-        );
+        assert!(old.environment.is_none());
         let text = to_yaml(&old);
-        for key in ["lifecycle", "status", "actions", "component", "app:"] {
+        for key in ["environment", "component", "app:", "modes"] {
             assert!(!text.contains(key), "{key} in {text}");
         }
     }
 
     #[test]
-    fn rejects_inconsistent_bindings_and_actions() {
-        let bad = |extra: &str| {
-            parse(&format!(
-                "profiles:\n  dev:\n    commands:\n      - run: x\n{extra}"
-            ))
-        };
+    fn rejects_inconsistent_environments() {
+        let env = |body: &str| parse(&format!("environment:\n{body}"));
         assert!(
-            bad("services:\n  - target: 80\n    profiles: [nope]\n")
+            env("  apps:\n    a:\n      modes:\n        dev: x\n")
                 .unwrap_err()
-                .contains("no profile `nope`")
+                .contains("`down` is required")
         );
         assert!(
-            bad("services:\n  - target: 80\n    component: db\n")
+            env("  apps:\n    a:\n      title: A\n")
                 .unwrap_err()
-                .contains("needs a top-level `status`")
+                .contains("needs `modes` or `actions`")
         );
         assert!(
-            parse("profiles:\n  x:\n    lifecycle: controller\n    containers: [a]\n")
+            env("  apps:\n    a:\n      down: x\n      actions:\n        b:\n          run: y\n")
                 .unwrap_err()
-                .contains("needs the commands")
+                .contains("`down` without `modes`")
         );
         assert!(
-            parse("profiles:\n  x:\n    lifecycle: other\n    commands:\n      - run: a\n")
-                .is_err()
-        );
-        assert!(
-            bad("    app: a\n")
-                .unwrap_err()
-                .contains("only for lifecycle controller")
-        );
-        assert!(
-            bad("actions:\n  r:\n    run: x\n    preview: y\n")
+            env("  actions:\n    r:\n      run: x\n      preview: y\n")
                 .unwrap_err()
                 .contains("confirm: true")
         );
-        assert!(bad("actions:\n  r:\n    run: x\n    timeout_minutes: 0\n").is_err());
-        assert!(bad("status:\n  run: s\n  timeout_seconds: 60\n").is_err());
-        assert!(bad("actions:\n  r:\n    run: x\n    unknown: 1\n").is_err());
         assert!(
-            bad("actions:\n  r:\n    run: x\n    kind: party\n")
+            env("  actions:\n    r:\n      run: x\n      kind: party\n")
                 .unwrap_err()
-                .contains("kind `party`")
+                .contains("environment.actions.r: kind `party`")
+        );
+        assert!(env("  actions:\n    r:\n      run: x\n      timeout_minutes: 0\n").is_err());
+        assert!(env("  status:\n    run: s\n    timeout_seconds: 60\n").is_err());
+        assert!(env("  actions:\n    r:\n      run: x\n      group: g\n").is_err());
+        assert!(
+            parse("services:\n  - target: 80\n    component: db\n")
+                .unwrap_err()
+                .contains("needs `environment.status`")
+        );
+        assert!(
+            parse("services:\n  - target: 80\n    app: nope\n")
+                .unwrap_err()
+                .contains("no app `nope`")
+        );
+        assert!(
+            parse("services:\n  - target: 80\n    profiles: [nope]\n")
+                .unwrap_err()
+                .contains("no profile `nope`")
+        );
+        // The branch's earlier shapes are gone.
+        assert!(parse("status:\n  run: x\n").is_err());
+        assert!(
+            parse("profiles:\n  x:\n    lifecycle: controller\n    commands:\n      - run: a\n")
+                .is_err()
         );
     }
 

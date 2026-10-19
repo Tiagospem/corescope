@@ -186,6 +186,8 @@ final class EnvironmentStore: ObservableObject {
     var lastFetchedAt: Date?
     /// Why the latest attempt failed (nil when it worked).
     var error: String?
+    /// The container engine was off at the last reading (everything shown as off).
+    var engineOff = false
     var attemptedAt: Date?
   }
   @Published private(set) var readings: [String: Reading] = [:]
@@ -203,7 +205,7 @@ final class EnvironmentStore: ObservableObject {
   func reload() {
     var next: [String: (spec: ProjectConfig.Status, folder: String, project: String)] = [:]
     for file in ProjectFileStore.shared.files {
-      if let status = file.config?.status { next[file.file] = (status, file.folder, file.project) }
+      if let status = file.config?.environment?.status { next[file.file] = (status, file.folder, file.project) }
     }
     let changed = Set(next.keys) != Set(specs.keys) || next.contains { specs[$0.key]?.spec != $0.value.spec }
     specs = next
@@ -254,6 +256,7 @@ final class EnvironmentStore: ObservableObject {
         light: true)
       var status: EnvironmentStatus?
       var problem: String?
+      var engineOff = false
       if out.timedOut {
         problem = L("sem resposta em %@ s", "\(Int(timeout))")
       } else if out.truncated {
@@ -261,7 +264,14 @@ final class EnvironmentStore: ObservableObject {
       } else if out.status != 0 {
         problem = L("saiu com %@", "\(out.status ?? -1)")
       } else {
-        do { status = try EnvironmentStatus(parsing: out.output) } catch let e as StatusError {
+        do {
+          status = try EnvironmentStatus(parsing: out.output)
+          // Nothing could be read: if no container engine answers either, it is off.
+          if let s = status, s.nothingRead, Self.noEngine() {
+            status = s.engineOff
+            engineOff = true
+          }
+        } catch let e as StatusError {
           problem = L("saída inválida: %@", e.reason)
         } catch { problem = L("saída inválida") }
       }
@@ -274,6 +284,7 @@ final class EnvironmentStore: ObservableObject {
         if let status {
           r.last = status
           r.lastFetchedAt = asked
+          r.engineOff = engineOff
         }
         self.readings[source] = r
         if status != nil { ProfileStore.shared.reconcile(source: source, askedAt: asked) }
@@ -296,17 +307,29 @@ final class EnvironmentStore: ObservableObject {
     return .fresh(last)
   }
   func isReading(_ source: String) -> Bool { running.contains(source) }
+  /// No container engine answers (Docker, OrbStack… switched off). Off the main thread.
+  static func noEngine() -> Bool {
+    guard let pointer = cs_containers(0) else { return false }
+    defer { cs_free(pointer) }
+    let data = Data(bytes: pointer, count: strlen(pointer))
+    guard let report = try? JSONDecoder().decode(ContainerReport.self, from: data) else { return false }
+    return !report.engines.contains { $0.state == "ok" }
+  }
 }
 
 /// A one-off action from a project file (setup, rebuild, diagnostics, backup, restore).
 struct ProjectAction: Identifiable, Equatable {
   let id: UUID
   let name: String
+  /// The app of `environment.apps` it belongs to; "" for environment-wide actions.
+  let group: String
   let project: String
   let source: String
   let folder: String
   let spec: ProjectConfig.Action
-  var fullName: String { "\(project)/\(name)" }
+  /// `project/app/action`, or `project/action` for environment-wide ones.
+  var fullName: String { group.isEmpty ? "\(project)/\(name)" : "\(project)/\(group)/\(name)" }
+  var kind: ActionKind { ActionKind.of(name: name, explicit: spec.kind) }
   var timeout: Double { min(max(spec.timeout_minutes ?? 10, 1), 1440) * 60 }
   var confirm: Bool { spec.confirm == true }
 }
@@ -357,11 +380,15 @@ final class ActionStore: ObservableObject {
   func reload() {
     var out: [ProjectAction] = []
     for file in ProjectFileStore.shared.files {
-      for (name, spec) in (file.config?.actions ?? [:]).sorted(by: { $0.key < $1.key }) {
-        out.append(
-          ProjectAction(
-            id: stableID("\(file.file)#action#\(name)"), name: name, project: file.project, source: file.file,
-            folder: file.folder, spec: spec))
+      guard let env = file.config?.environment else { continue }
+      let groups = [("", env.actions ?? [:])] + (env.apps ?? [:]).map { ($0.key, $0.value.actions ?? [:]) }
+      for (group, list) in groups.sorted(by: { $0.0 < $1.0 }) {
+        for (name, spec) in list.sorted(by: { $0.key < $1.key }) {
+          out.append(
+            ProjectAction(
+              id: stableID("\(file.file)#action#\(group)#\(name)"), name: name, group: group, project: file.project,
+              source: file.file, folder: file.folder, spec: spec))
+        }
       }
     }
     if out != actions { actions = out }
@@ -372,7 +399,8 @@ final class ActionStore: ObservableObject {
   }
   func isRunning(_ action: ProjectAction) -> Bool { runs[action.id]?.outcome == .running }
   static func logURL(_ action: ProjectAction) -> URL {
-    ProfileStore.logs.appendingPathComponent("action-\(action.id.uuidString.prefix(8))-\(action.name.prefix(40)).log")
+    ProfileStore.logs.appendingPathComponent(
+      "action-\(action.id.uuidString.prefix(8))-\((action.group.isEmpty ? action.name : "\(action.group)-\(action.name)").prefix(40)).log")
   }
 
   /// The confirmation text: the preview command's output (read-only, 20 s, 8 KB) and its hash,
@@ -620,23 +648,28 @@ extension ActionKind {
   }
 }
 
-/// A project's environment on the Profiles page: a summary first (apps, problems, what runs
-/// now); components by app and actions by group and kind stay folded until opened.
+/// A project's environment on the Profiles page: a summary, then one folded row per app (its
+/// state, its modes to start, its components and actions), shared infrastructure and the
+/// environment-wide actions. Everything but the summary and the rows starts folded.
 struct EnvironmentCard: View {
   let file: ProjectFile
   @ObservedObject var environment = EnvironmentStore.shared
   @ObservedObject var actions = ActionStore.shared
   @ObservedObject var folds = FoldState.shared
+  @ObservedObject var profiles = ProfileStore.shared
+  @ObservedObject var containers = ContainerStore.shared
   @ViewState private var confirming: ProjectAction?
   @ViewState private var preview: Result<(text: String, hash: String), CleanupError>?
+  @ViewState private var stopping: EnvProfile?
   var body: some View {
     let reading = environment.readings[file.file]
     let input = environment.input(file.file)
     let fresh: Bool = if case .fresh = input { true } else { false }
+    let config = file.config?.environment
     let mine = actions.actions.filter { $0.source == file.file }
     Card {
       CardHeader(title: L("Ambiente de %@", file.project), symbol: "square.stack.3d.up", tint: tint(input)) {
-        if file.config?.status != nil {
+        if config?.status != nil {
           statusBadge(input, reading)
           if environment.isReading(file.file) {
             ProgressView().controlSize(.small)
@@ -650,37 +683,29 @@ struct EnvironmentCard: View {
         }
       }
       if let last = reading?.last {
-        if !fresh {
-          Text(L("Último status válido de %@ (desatualizado): nada abaixo conta como no ar.", last.collectedAt.formatted(date: .omitted, time: .standard)))
-            .font(.caption).foregroundStyle(.orange)
-        }
-        apps(last, fresh: fresh)
-        if let busy = last.busy { Label(L("Controlador ocupado: %@", busy), systemImage: "hourglass").font(.caption) }
-        // Problems are never folded away; components whose state the controller could not read
-        // (its engine is down) are one line, with the controller's error below.
-        let problems = last.components.filter {
-          $0.expected && $0.state != "unknown" && !(($0.state == "running" && $0.ready != false) || $0.state == "starting")
-        }
-        ForEach(problems, id: \.name) { c in componentRow(c, stale: !fresh) }
-        let unread = last.components.filter { $0.expected && $0.state == "unknown" }
-        if !unread.isEmpty {
-          Label(
-            L("%@ componentes esperados sem estado: %@", "\(unread.count)", unread.map(\.name).joined(separator: ", ")),
-            systemImage: "questionmark.circle"
-          ).font(.caption).foregroundStyle(.orange).lineLimit(2)
-        }
-        if let first = last.errors.first {
-          Label(first, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange).lineLimit(2)
-            .help(last.errors.joined(separator: "\n\n"))
-        }
-        components(last, fresh: fresh)
-      } else if file.config?.status != nil {
+        summary(last, fresh: fresh)
+      } else if config?.status != nil {
         Text(reading?.error.map { L("Status indisponível: %@", $0) } ?? L("Lendo o status…")).font(.caption)
           .foregroundStyle(.secondary)
       }
-      if !mine.isEmpty {
-        if file.config?.status != nil { Divider() }
-        actionsSection(mine, apps: reading?.last?.apps ?? [])
+      // Running and recently failed actions stay in sight whatever is folded.
+      let recent = mine.filter { a in
+        guard let run = actions.runs[a.id] else { return false }
+        return run.outcome == .running || (run.outcome != .succeeded && -(run.endedAt ?? run.startedAt).timeIntervalSinceNow < 3600)
+      }
+      ForEach(recent) { a in actionRow(a, title: a.group.isEmpty ? a.name : "\(a.group) · \(a.name)") }
+      Divider()
+      ForEach(appKeys(config, reading?.last), id: \.self) { key in
+        appSection(key, config?.apps?[key], status: reading?.last, fresh: fresh)
+        Divider().opacity(0.5)
+      }
+      if let shared = reading?.last?.components.filter({ $0.app == nil }), !shared.isEmpty {
+        sharedSection(shared, fresh: fresh)
+      }
+      let general = mine.filter { $0.group.isEmpty }
+      if !general.isEmpty {
+        Divider().opacity(0.5)
+        groupActions(title: L("Ambiente inteiro"), key: "\(file.file)#general", list: general)
       }
     }
     .sheet(item: $confirming) { action in
@@ -693,69 +718,215 @@ struct EnvironmentCard: View {
         confirming = nil
       }
     }
-  }
-
-  // MARK: summary and components
-
-  /// "revamp ● · arena ○ …": which apps are selected, each with its components' state.
-  private func apps(_ s: EnvironmentStatus, fresh: Bool) -> some View {
-    let expected = s.components.filter(\.expected)
-    let ready = expected.filter { $0.state == "running" && $0.ready != false }
-    let selected = s.apps.filter(\.selected)
-    return VStack(alignment: .leading, spacing: 6) {
+    .confirmationDialog(
+      L("Parar %@?", stopping.map { $0.app ?? $0.name } ?? ""),
+      isPresented: Binding(get: { stopping != nil }, set: { if !$0 { stopping = nil } }), titleVisibility: .visible
+    ) {
+      Button(L("Parar"), role: .destructive) {
+        if let p = stopping { profiles.stop(p) }
+        stopping = nil
+      }
+      Button(L("Cancelar"), role: .cancel) { stopping = nil }
+    } message: {
       Text(
         [
-          L("%@ de %@ apps selecionados", "\(selected.count)", "\(s.apps.count)"),
-          L("%@ de %@ componentes esperados prontos", "\(ready.count)", "\(expected.count)"),
-        ].joined(separator: " · ")
-      ).font(.caption).foregroundStyle(.secondary)
-      HStack(spacing: 6) {
-        ForEach(s.apps, id: \.name) { app in
-          let parts = s.components.filter { $0.app == app.name }
-          let bad = parts.contains { $0.expected && !($0.state == "running" && $0.ready != false) }
-          Badge(
-            text: app.name, color: !fresh || !app.selected ? .secondary : bad ? .orange : Tint.brand,
-            symbol: app.selected ? "circle.fill" : "circle"
-          ).help(
-            app.selected
-              ? L("%@ selecionado: %@ componentes", app.name, "\(parts.count)")
-              : L("%@ não selecionado: não consome recursos nem gera alertas", app.name))
-        }
-        let shared = s.components.filter { $0.app == nil }
-        if !shared.isEmpty {
-          Badge(text: L("compartilhados %@", "\(shared.count)"), color: fresh ? Tint.netIn : .secondary, symbol: "square.stack")
-            .help(L("Infraestrutura sem app (bancos, cache, memória dos agentes): fica no ar enquanto um app a usa."))
-        }
+          L("Envia SIGTERM a uma operação deste perfil ainda em andamento."),
+          L("Executa: %@", stopping?.commands.first?.stopCommand ?? "—"),
+          L("O CoreScope não para contêineres deste perfil: o controlador decide o que continua para outros apps."),
+        ].joined(separator: "\n"))
+    }
+  }
+
+  // MARK: summary
+
+  private func summary(_ s: EnvironmentStatus, fresh: Bool) -> some View {
+    let expected = s.components.filter(\.expected)
+    let ready = expected.filter { $0.state == "running" && $0.ready != false }
+    let unread = expected.filter { $0.state == "unknown" }
+    let engineOff = environment.readings[file.file]?.engineOff == true
+    return VStack(alignment: .leading, spacing: 4) {
+      if !fresh {
+        Text(L("Último status válido de %@ (desatualizado): nada abaixo conta como no ar.", s.collectedAt.formatted(date: .omitted, time: .standard)))
+          .font(.caption).foregroundStyle(.orange)
+      }
+      if !engineOff {
+        Text(
+          [
+            L("%@ de %@ apps selecionados", "\(s.apps.filter(\.selected).count)", "\(s.apps.count)"),
+            L("%@ de %@ componentes esperados prontos", "\(ready.count)", "\(expected.count)"),
+          ].joined(separator: " · ")
+        ).font(.caption).foregroundStyle(.secondary)
+      }
+      if let busy = s.busy { Label(L("Controlador ocupado: %@", busy), systemImage: "hourglass").font(.caption) }
+      if environment.readings[file.file]?.engineOff == true {
+        Label(L("Docker desligado: nada deste ambiente está rodando."), systemImage: "power")
+          .font(.caption).foregroundStyle(.secondary)
+      }
+      if !unread.isEmpty {
+        Label(
+          L("%@ componentes esperados sem estado: %@", "\(unread.count)", unread.map(\.name).joined(separator: ", ")),
+          systemImage: "questionmark.circle"
+        ).font(.caption).foregroundStyle(.orange).lineLimit(2)
+      }
+      if let first = s.errors.first {
+        Label(first, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange).lineLimit(2)
+          .help(s.errors.joined(separator: "\n\n"))
       }
     }
   }
-  /// Components by app: selected apps and shared ones open on demand; apps not selected stay a
-  /// single line.
-  @ViewBuilder private func components(_ s: EnvironmentStatus, fresh: Bool) -> some View {
-    let key = "\(file.file)#components"
-    FoldHeader(title: L("Componentes"), detail: "\(s.components.count)", key: key)
-    if folds.isOpen(key) {
-      let selected = s.apps.filter(\.selected).map(\.name)
-      let groups = selected.map { name in (name, s.components.filter { $0.app == name }) }
-        + [(L("Compartilhados"), s.components.filter { $0.app == nil })]
-      ForEach(groups.filter { !$0.1.isEmpty }, id: \.0) { name, parts in
-        VStack(alignment: .leading, spacing: 4) {
-          Text(name).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-          ForEach(parts, id: \.name) { c in componentRow(c, stale: !fresh) }
-        }.padding(.leading, 16)
-      }
-      let off = s.apps.filter { !$0.selected }.map { app in (app.name, s.components.filter { $0.app == app.name }) }
-        .filter { !$0.1.isEmpty }
-      if !off.isEmpty {
-        let offKey = "\(file.file)#components#off"
-        FoldHeader(
-          title: L("Não selecionados"), detail: off.map { "\($0.0) (\($0.1.count))" }.joined(separator: " · "), key: offKey
-        ).padding(.leading, 16)
-        if folds.isOpen(offKey) {
-          ForEach(off.flatMap(\.1), id: \.name) { c in componentRow(c, stale: !fresh) }.padding(.leading, 32)
+
+  // MARK: apps
+
+  /// The file's apps and the status's, the ones in use first.
+  private func appKeys(_ config: ProjectConfig.Environment?, _ s: EnvironmentStatus?) -> [String] {
+    var keys = (config?.apps ?? [:]).keys.sorted()
+    for app in s?.apps ?? [] where !keys.contains(app.name) { keys.append(app.name) }
+    func inUse(_ key: String) -> Bool {
+      s?.selected(key) == true
+        || profiles.modes(source: file.file, app: key).contains { profiles.active.contains($0.id) || profiles.inFlight($0) }
+    }
+    return keys.filter(inUse) + keys.filter { !inUse($0) }
+  }
+  @ViewBuilder private func appSection(_ key: String, _ app: ProjectConfig.App?, status: EnvironmentStatus?, fresh: Bool) -> some View {
+    let modes = profiles.modes(source: file.file, app: key)
+    let current = profiles.currentMode(source: file.file, app: key)
+    let health = profiles.appHealth(source: file.file, app: key, containers: containers.report?.containers)
+    let parts = status?.components.filter { $0.app == key } ?? []
+    let acts = actions.actions.filter { $0.source == file.file && $0.group == key }
+    let foldKey = "\(file.file)#app#\(key)"
+    let open = folds.isOpen(foldKey)
+    let selected = status?.selected(key)
+    let detail = [
+      modes.isEmpty ? nil : (modes.count == 1 ? L("1 modo") : L("%@ modos", "\(modes.count)")),
+      parts.isEmpty ? nil : L("%@ componentes", "\(parts.count)"),
+      acts.isEmpty ? nil : L("%@ ações", "\(acts.count)"),
+    ].compactMap { $0 }.joined(separator: " · ")
+    VStack(alignment: .leading, spacing: 6) {
+      HStack(spacing: 8) {
+        foldButton(foldKey, open: open)
+        Circle().fill(dotColor(health?.health, selected: selected, fresh: fresh)).frame(width: 8, height: 8)
+        VStack(alignment: .leading, spacing: 1) {
+          Text(app?.title ?? key).font(.callout.weight(.semibold)).lineLimit(1)
+          Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(1)
         }
+        Spacer(minLength: 8)
+        HStack(spacing: 6) {
+          if let health {
+            if health.outside {
+              Image(systemName: "terminal").font(.caption).foregroundStyle(.secondary)
+                .help(L("A seleção foi alterada fora do CoreScope (terminal ou outra ferramenta); o estado acima vem do status do ambiente."))
+            }
+            Badge(text: health.health.label, color: health.health.color).help(health.reason)
+          } else if let selected, fresh {
+            Badge(text: selected ? L("selecionado") : L("Desligado"), color: selected ? Tint.brand : .secondary)
+          }
+        }.frame(width: 130, alignment: .trailing)
+        HStack(spacing: 6) {
+          if let current, profiles.busy.contains(current.id) || profiles.inFlight(current) { ProgressView().controlSize(.small) }
+          if !modes.isEmpty {
+            Menu {
+              ForEach(modes) { m in
+                Button(m.mode ?? m.name) { profiles.start(m) }.help(m.commands.first?.command ?? "")
+              }
+            } label: {
+              Label(L("Iniciar"), systemImage: "play.fill")
+            }.menuStyle(.borderlessButton).fixedSize()
+              .disabled(modes.contains { profiles.busy.contains($0.id) || profiles.inFlight($0) })
+              .help(L("Escolha o modo; iniciar outro modo troca o atual"))
+            if let current, profiles.active.contains(current.id) || profiles.inFlight(current) || (health.map { $0.health != .off } ?? false) {
+              Button {
+                stopping = current
+              } label: {
+                Label(L("Parar"), systemImage: "stop.fill")
+              }.buttonStyle(.bordered).controlSize(.small)
+            }
+          }
+        }.frame(width: 190, alignment: .trailing)
+      }
+      if open {
+        VStack(alignment: .leading, spacing: 4) {
+          if !modes.isEmpty {
+            HStack(spacing: 6) {
+              Text(L("Modos")).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+              ForEach(modes) { m in
+                Badge(
+                  text: m.mode ?? m.name,
+                  color: profiles.active.contains(m.id) ? Tint.brand : .secondary,
+                  symbol: profiles.active.contains(m.id) ? "checkmark" : nil
+                ).help(m.commands.first?.command ?? "")
+              }
+            }
+          }
+          ForEach(parts, id: \.name) { c in componentRow(c, stale: !fresh) }
+          if let current, !current.containers.isEmpty {
+            let missing = profiles.missingContainers(current, containers: containers.report?.containers)
+            Text(
+              L("Contêineres observados: %@", current.containers.joined(separator: ", "))
+                + (missing.isEmpty ? "" : " · " + L("parados: %@", missing.joined(separator: ", ")))
+            ).font(.caption).foregroundStyle(missing.isEmpty ? Color.secondary : .orange).lineLimit(2)
+          }
+          kindRows(acts)
+        }.padding(.leading, 26)
       }
     }
+  }
+  private func sharedSection(_ shared: [EnvironmentStatus.Component], fresh: Bool) -> some View {
+    let key = "\(file.file)#shared"
+    let open = folds.isOpen(key)
+    let bad = shared.filter { $0.expected && $0.state != "unknown" && !($0.state == "running" && $0.ready != false) }
+    return VStack(alignment: .leading, spacing: 6) {
+      HStack(spacing: 8) {
+        foldButton(key, open: open)
+        Image(systemName: "square.stack").font(.caption).foregroundStyle(.secondary).frame(width: 8)
+        VStack(alignment: .leading, spacing: 1) {
+          Text(L("Compartilhados")).font(.callout.weight(.semibold))
+          Text(L("%@ componentes", "\(shared.count)") + (bad.isEmpty ? "" : " · " + L("%@ com problema", "\(bad.count)")))
+            .font(.caption).foregroundStyle(bad.isEmpty ? Color.secondary : .orange)
+        }
+        Spacer()
+      }.help(L("Infraestrutura sem app (bancos, cache, memória dos agentes): fica no ar enquanto um app a usa."))
+      if open { ForEach(shared, id: \.name) { c in componentRow(c, stale: !fresh) }.padding(.leading, 26) }
+    }
+  }
+  private func groupActions(title: String, key: String, list: [ProjectAction]) -> some View {
+    let open = folds.isOpen(key)
+    return VStack(alignment: .leading, spacing: 6) {
+      HStack(spacing: 8) {
+        foldButton(key, open: open)
+        Image(systemName: "bolt").font(.caption).foregroundStyle(.secondary).frame(width: 8)
+        VStack(alignment: .leading, spacing: 1) {
+          Text(title).font(.callout.weight(.semibold))
+          Text(L("%@ ações", "\(list.count)")).font(.caption).foregroundStyle(.secondary)
+        }
+        Spacer()
+      }
+      if open { kindRows(list).padding(.leading, 26) }
+    }
+  }
+  /// Actions in kind order (set up, start and modes, diagnostics, data, stop), each kind captioned.
+  @ViewBuilder private func kindRows(_ list: [ProjectAction]) -> some View {
+    let sorted = list.sorted {
+      (ActionKind.allCases.firstIndex(of: $0.kind) ?? 0, $0.name) < (ActionKind.allCases.firstIndex(of: $1.kind) ?? 0, $1.name)
+    }
+    ForEach(Array(sorted.enumerated()), id: \.element.id) { i, a in
+      if i == 0 || sorted[i - 1].kind != a.kind {
+        Text(a.kind.label).font(.caption2.weight(.semibold)).foregroundStyle(.tertiary).padding(.top, 2)
+      }
+      actionRow(a, title: a.name)
+    }
+  }
+  private func foldButton(_ key: String, open: Bool) -> some View {
+    Button {
+      withAnimation(.easeOut(duration: 0.15)) { folds.toggle(key) }
+    } label: {
+      Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold)).rotationEffect(.degrees(open ? 90 : 0))
+        .foregroundStyle(.secondary).frame(width: 12, height: 22).contentShape(Rectangle())
+    }.buttonStyle(.plain).accessibilityLabel(open ? L("fechar") : L("abrir"))
+  }
+  private func dotColor(_ health: EnvHealth?, selected: Bool?, fresh: Bool) -> Color {
+    if let health { return health == .off ? Color.secondary.opacity(0.5) : health.color }
+    guard fresh, let selected else { return Color.secondary.opacity(0.5) }
+    return selected ? Tint.brand : Color.secondary.opacity(0.5)
   }
   private func tint(_ input: StatusInput) -> Color {
     switch input {
@@ -782,7 +953,7 @@ struct EnvironmentCard: View {
       : c.state == "starting" ? .blue : c.state == "unknown" ? .orange : .red
     return HStack(spacing: 8) {
       Circle().fill(color).frame(width: 7, height: 7)
-      Text(c.name).font(.callout.weight(.medium)).lineLimit(1)
+      Text(c.name).font(.callout).lineLimit(1)
       if let mode = c.mode { Badge(text: mode, color: mode == "dev" ? .purple : Tint.netIn) }
       if c.controlledBy == "external" { Badge(text: L("externo"), color: .secondary).help(L("Fora do controlador: o CoreScope não para nem adota.")) }
       Spacer(minLength: 6)
@@ -799,52 +970,6 @@ struct EnvironmentCard: View {
 
   // MARK: actions
 
-  /// Running and recently failed actions on top; the rest folded by group (an app, `memory`…)
-  /// and listed by kind inside it.
-  @ViewBuilder private func actionsSection(_ mine: [ProjectAction], apps: [EnvironmentStatus.App]) -> some View {
-    let profileApps = ProfileStore.shared.fileProfiles.filter { $0.source == file.file }.compactMap { $0.app ?? $0.key }
-    let groups = actionGroups(mine.map { (name: $0.name, group: $0.spec.group) }, apps: apps.map(\.name) + profileApps)
-    let prefix = actionCommonPrefix(mine.map(\.name))
-    let recent = mine.filter { a in
-      guard let run = actions.runs[a.id] else { return false }
-      return run.outcome == .running
-        || (run.outcome != .succeeded && -(run.endedAt ?? run.startedAt).timeIntervalSinceNow < 3600)
-    }
-    let key = "\(file.file)#actions"
-    FoldHeader(title: L("Ações"), detail: "\(mine.count)", key: key) {
-      if recent.contains(where: { actions.runs[$0.id]?.outcome == .running }) {
-        Badge(text: L("rodando"), color: .blue, symbol: "hourglass")
-      }
-    }
-    ForEach(recent) { a in actionRow(a, title: a.name).padding(.leading, 16) }
-    if folds.isOpen(key) {
-      let selected = Set(apps.filter(\.selected).map(\.name))
-      let names = Array(Set(groups.values)).sorted { a, b in
-        // Selected apps first, then other groups by name, general last.
-        func rank(_ g: String) -> Int { g.isEmpty ? 2 : selected.contains(g) ? 0 : 1 }
-        return rank(a) != rank(b) ? rank(a) < rank(b) : a < b
-      }
-      ForEach(names, id: \.self) { group in
-        let members = mine.filter { groups[$0.name] == group }
-          .sorted { (ActionKind.allCases.firstIndex(of: kind($0)) ?? 0, $0.name) < (ActionKind.allCases.firstIndex(of: kind($1)) ?? 0, $1.name) }
-        let groupKey = "\(key)#\(group)"
-        VStack(alignment: .leading, spacing: 4) {
-          FoldHeader(
-            title: group.isEmpty ? L("Geral") : group,
-            detail: L("%@ ações", "\(members.count)") + (selected.contains(group) ? " · " + L("selecionado") : ""), key: groupKey)
-          if folds.isOpen(groupKey) {
-            ForEach(Array(members.enumerated()), id: \.element.id) { i, a in
-              if i == 0 || kind(members[i - 1]) != kind(a) {
-                Text(kind(a).label).font(.caption2.weight(.semibold)).foregroundStyle(.tertiary).padding(.leading, 16).padding(.top, 2)
-              }
-              actionRow(a, title: actionShortName(a.name, group: group, prefix: prefix)).padding(.leading, 16)
-            }
-          }
-        }.padding(.leading, 16)
-      }
-    }
-  }
-  private func kind(_ a: ProjectAction) -> ActionKind { ActionKind.of(name: a.name, explicit: a.spec.kind) }
   private func actionRow(_ a: ProjectAction, title: String) -> some View {
     let run = actions.runs[a.id]
     return HStack(spacing: 8) {

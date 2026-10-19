@@ -171,20 +171,34 @@ enum MenuBarItems {
     default: L("CPU: uso total, média de todos os núcleos")
     }
   }
-  /// "CPU 15%" (or with `compact` shorter numbers, never without the label).
-  static func text(_ item: String, _ s: Snapshot, sensor: String, compact: Bool) -> String {
-    let value: (String) -> String = { compact ? compactValue($0) : $0 }
+  /// One SF Symbol per value, recognizable without a legend; shown before the value in the menu
+  /// bar and next to each switch in Settings.
+  static func symbol(_ item: String) -> String {
     switch item {
-    case "CPU": return "CPU \(s.cpu.value.map { "\(Int($0.rounded()))%" } ?? "—")"
-    case "Memória": return "RAM \(value(s.memorySummary))"
-    case "Disco": return L("Disco %@", value(s.diskRate))
-    case "Rede": return L("Rede %@", value(formatRate((s.net_in.value ?? 0) + (s.net_out.value ?? 0))))
-    case "Sensor":
-      return "SSD \(s.disks.first { $0.id == sensor }?.temperature.value.map { String(format: "%.0f°C", $0) } ?? "—")"
-    default: return (compact ? L("Térm. %@", s.thermalLabel.lowercased()) : L("Térmico %@", s.thermalLabel.lowercased()))
+    case "Memória": "memorychip"
+    case "Disco": "arrow.up.arrow.down"
+    case "Rede": "network"
+    case "Térmico": "thermometer.medium"
+    case "Sensor": "internaldrive"
+    default: "cpu"
     }
   }
-  static let limitsExplanation = L("Codex / Claude: parte do limite semanal já usada")
+  static let codexSymbol = "terminal"
+  static let claudeSymbol = "sparkle"
+  /// The value alone ("15%", "11,65 GB"; shorter with `compact`); its icon says what it is.
+  static func value(_ item: String, _ s: Snapshot, sensor: String, compact: Bool) -> String {
+    let value: (String) -> String = { compact ? compactValue($0) : $0 }
+    switch item {
+    case "CPU": return s.cpu.value.map { "\(Int($0.rounded()))%" } ?? "—"
+    case "Memória": return value(s.memorySummary)
+    case "Disco": return value(s.diskRate)
+    case "Rede": return value(formatRate((s.net_in.value ?? 0) + (s.net_out.value ?? 0)))
+    case "Sensor":
+      return s.disks.first { $0.id == sensor }?.temperature.value.map { String(format: "%.0f°C", $0) } ?? "—"
+    default: return s.thermalLabel.lowercased()
+    }
+  }
+  static let limitsExplanation = L("Terminal: Codex · brilho: Claude — parte do limite semanal já usada")
 }
 
 struct MenuBarLabel: View {
@@ -194,16 +208,26 @@ struct MenuBarLabel: View {
   @Environment(\.openWindow) private var openWindow
   var body: some View {
     let title = self.title
-    HStack(spacing: 4) {
-      if prefs.menuIcon || title.isEmpty {
+    // The status item shows a plain Image or Text, and drops images inside a Text: the icons and
+    // values are drawn into one template image, which the menu bar tints for light and dark.
+    Group {
+      if let line = title {
+        Image(nsImage: Self.render(prefs.menuIcon ? Text(Image(systemName: "waveform.path.ecg")) + Text(" ") + line : line))
+      } else {
         Image(systemName: monitor.stale ? "pause.circle" : "waveform.path.ecg")
       }
-      if !title.isEmpty { Text(title).monospacedDigit() }
     }
     .id(prefs.language)
     .onAppear { WindowOpener.shared.open = { openWindow(id: "main") } }
     .onChange(of: legend) { _, text in PortLookup.setToolTip(text) }
     .onAppear { PortLookup.setToolTip(legend) }
+  }
+  @MainActor private static func render(_ line: Text) -> NSImage {
+    let renderer = ImageRenderer(content: line.font(.system(size: NSFont.systemFontSize)).monospacedDigit().foregroundStyle(.black))
+    renderer.scale = NSScreen.main?.backingScaleFactor ?? 2
+    let image = renderer.nsImage ?? NSImage()
+    image.isTemplate = true
+    return image
   }
   /// The status item's tooltip: what each value shown is.
   private var legend: String {
@@ -213,15 +237,21 @@ struct MenuBarLabel: View {
     }
     return lines.joined(separator: "\n")
   }
-  private var title: String {
-    guard let s = monitor.snapshot, !monitor.stale else { return "" }
-    var limit: [String] = []
-    if prefs.limitsInMenuBar {
-      if let w = agents.codex.weekly { limit.append("Codex \(Int(w.usedPercent))%") }
-      if let w = agents.claude.weekly { limit.append("Claude \(Int(w.usedPercent))%") }
+  /// One Text (the status item shows Text and Image only): an icon, then its value, per item.
+  private var title: Text? {
+    guard let s = monitor.snapshot, !monitor.stale else { return nil }
+    var parts: [(symbol: String, value: String)] = prefs.menuItems.map {
+      (MenuBarItems.symbol($0), MenuBarItems.value($0, s, sensor: prefs.selectedSensor, compact: prefs.compact))
     }
-    return (prefs.menuItems.map { MenuBarItems.text($0, s, sensor: prefs.selectedSensor, compact: prefs.compact) } + limit)
-      .joined(separator: prefs.compact ? "  " : "  ·  ")
+    if prefs.limitsInMenuBar {
+      if let w = agents.codex.weekly { parts.append((MenuBarItems.codexSymbol, "\(Int(w.usedPercent))%")) }
+      if let w = agents.claude.weekly { parts.append((MenuBarItems.claudeSymbol, "\(Int(w.usedPercent))%")) }
+    }
+    guard !parts.isEmpty else { return nil }
+    let gap = prefs.compact ? "  " : "   "
+    return parts.enumerated().reduce(Text("")) { line, entry in
+      line + Text(entry.offset == 0 ? "" : gap) + Text(Image(systemName: entry.element.symbol)) + Text(" " + entry.element.value)
+    }
   }
 }
 

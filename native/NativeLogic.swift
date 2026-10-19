@@ -872,6 +872,31 @@ struct EnvironmentStatus: Equatable {
     components.filter { $0.expected && ($0.state == "failed" || $0.state == "stopped" || ($0.state == "running" && $0.ready == false)) }
   }
 }
+extension EnvironmentStatus {
+  /// The controller could not read any component (every expected one is `unknown`): with no
+  /// container engine answering either, that is the engine switched off, not a failure.
+  var nothingRead: Bool {
+    let expected = components.filter(\.expected)
+    return !expected.isEmpty && expected.allSatisfy { $0.state == "unknown" }
+  }
+  /// The same reading with the container engine off: nothing selected, nothing expected,
+  /// everything stopped. Apps show off and checks stay neutral; the engine being off is the
+  /// user's choice, not an error.
+  var engineOff: EnvironmentStatus {
+    var s = self
+    s.apps = apps.map { App(name: $0.name, selected: false) }
+    s.components = components.map {
+      var c = $0
+      c.expected = false
+      c.state = "stopped"
+      c.ready = nil
+      return c
+    }
+    s.errors = []
+    s.busy = nil
+    return s
+  }
+}
 struct StatusError: Error, Equatable {
   let reason: String
   init(_ reason: String) { self.reason = reason }
@@ -964,46 +989,6 @@ enum ActionKind: String, CaseIterable {
     return table.first { !$0.1.isDisjoint(with: words) }?.0 ?? .other
   }
 }
-/// The group of each action (name → group, "" for general ones): `group:` from the file, else
-/// an app of the project named in it (`eco-arena-setup` → arena), else a word shared by several
-/// actions after their common prefix (`eco-memory-backup`, `eco-memory-doctor` → memory).
-func actionGroups(_ actions: [(name: String, group: String?)], apps: [String]) -> [String: String] {
-  let tokens = actions.map { $0.name.lowercased().split(separator: "-").map(String.init) }
-  let common = actionCommonPrefix(actions.map(\.name))
-  let rest = tokens.map { Array($0.dropFirst(common)) }
-  let appSet = Set(apps.map { $0.lowercased() })
-  var heads: [String: Int] = [:]
-  for r in rest where r.count > 1 { heads[r[0], default: 0] += 1 }
-  var out: [String: String] = [:]
-  for (i, a) in actions.enumerated() {
-    if let g = a.group?.trimmingCharacters(in: .whitespaces), !g.isEmpty {
-      out[a.name] = g
-    } else if let app = rest[i].first(where: { appSet.contains($0) }) {
-      out[a.name] = app
-    } else if rest[i].count > 1, (heads[rest[i][0]] ?? 0) > 1 {
-      out[a.name] = rest[i][0]
-    } else {
-      out[a.name] = ""
-    }
-  }
-  return out
-}
-/// How many leading words (`eco`, `docker`) every action name shares; 0 for a single action.
-func actionCommonPrefix(_ names: [String]) -> Int {
-  let tokens = names.map { $0.lowercased().split(separator: "-").map(String.init) }
-  guard tokens.count > 1, let first = tokens.first else { return 0 }
-  var common = 0
-  while common < first.count - 1, tokens.allSatisfy({ $0.count > common + 1 && $0[common] == first[common] }) { common += 1 }
-  return common
-}
-/// The name without the shared prefix and the group's word (`eco-arena-web-dev` in group arena
-/// → `web dev`), for rows inside the group.
-func actionShortName(_ name: String, group: String, prefix: Int) -> String {
-  let rest = name.split(separator: "-").map(String.init).dropFirst(prefix)
-    .filter { group.isEmpty || $0.lowercased() != group.lowercased() }
-  return rest.isEmpty ? name : rest.joined(separator: " ")
-}
-
 /// The last `CORESCOPE_ARTIFACT=<path>` line an action printed (relative paths resolve against
 /// the project folder). The caller shows it only after exit 0 and if the file exists.
 func actionArtifact(_ output: String, folder: String) -> String? {

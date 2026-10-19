@@ -103,15 +103,33 @@ pub fn render(found: &Found) -> String {
             services.join(", ")
         ));
     }
-    if config.status.is_some() {
-        out.push("- An environment controller reports its real state: read it with MCP environment_status (apps selected, components, modes) before assuming something is up or down.".into());
-    }
-    if !config.actions.is_empty() {
-        let names: Vec<String> = config.actions.keys().map(|n| format!("`{n}`")).collect();
-        out.push(format!(
-            "- One-off actions: {}. Run them with MCP run_action (list_actions for results and logs), not by hand; ask the user first.",
-            names.join(", ")
-        ));
+    if let Some(env) = &config.environment {
+        if env.status.is_some() {
+            out.push("- An environment controller reports its real state: read it with MCP environment_status (apps selected, components, modes) before assuming something is up or down.".into());
+        }
+        let apps: Vec<String> = env
+            .apps
+            .iter()
+            .filter(|(_, a)| !a.modes.is_empty())
+            .map(|(k, a)| {
+                format!(
+                    "`{k}` ({})",
+                    a.modes.keys().cloned().collect::<Vec<_>>().join(", ")
+                )
+            })
+            .collect();
+        if !apps.is_empty() {
+            out.push(format!(
+                "- Apps and their modes: {}. Bring one up or down with MCP start_profile / stop_profile (list_profiles names each app mode) instead of running the controller by hand.",
+                apps.join("; ")
+            ));
+        }
+        let count = env.actions.len() + env.apps.values().map(|a| a.actions.len()).sum::<usize>();
+        if count > 0 {
+            out.push(format!(
+                "- {count} one-off actions (setup, diagnostics, backups…): list them with MCP list_actions and run them with run_action, not by hand; ask the user first."
+            ));
+        }
     }
     if !config.logs.is_empty() {
         out.push(format!(

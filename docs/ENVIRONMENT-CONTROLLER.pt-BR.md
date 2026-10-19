@@ -16,28 +16,34 @@ O exemplo de YAML, a tabela de estados, o formato JSON do status e os limites es
 
 ## `.corescope.yml`
 
-- `profiles.<nome>.lifecycle: controller` — os comandos fazem a operação inteira; `containers` passa
-  a ser só observado (o CoreScope não inicia nem para). `app:` liga o perfil a um app do status
-  (padrão: o nome do perfil). Sem `lifecycle`, o comportamento nativo continua igual.
-- `services[].profiles: [perfis]` — o check é exigido enquanto **qualquer** um desses perfis estiver
-  ligado. `services[].component: nome` — exigido quando o status diz `expected: true` (o controlador
-  conhece as dependências mantidas para outros apps; ele tem prioridade sobre os perfis).
-- `status: {run, timeout_seconds}` — comando somente leitura que imprime o JSON formato 1.
-- `actions.<nome>: {run, description, timeout_minutes, confirm, preview, heavy, group, kind}` —
-  ações pontuais, separadas dos perfis. `group` (um app, `memory`…) e `kind` (setup, run,
-  diagnostics, data, stop, other) organizam a lista na página Perfis; sem eles, vêm do nome
-  (`eco-arena-setup` → arena, preparar; `eco-memory-backup` → memory, dados).
+Tudo fica sob uma chave `environment:` (exemplo completo na versão em inglês):
+
+- `environment.status: {run, timeout_seconds}` — comando somente leitura que imprime o JSON formato 1.
+- `environment.apps.<app>` — um app do controlador: `title`, `modes` (formas de subir, uma por
+  vez: `dev: bin/eco up arena --web dev`), `down` (obrigatório com `modes`; derruba só este app),
+  `containers` (só observados) e `actions`. Um app sem modos é só um grupo de ações (memória dos
+  agentes, por exemplo).
+- `environment.actions` — ações do ambiente inteiro (init, doctor…).
+- Ação: `{run, description, timeout_minutes, confirm, preview, heavy, kind}`; `kind` (setup, run,
+  diagnostics, data, stop, other) ordena a lista e, sem ele, vem do nome.
+- `services[].profiles: [perfis]`, `services[].app: app` e `services[].component: nome` — o check
+  é exigido enquanto algo que precisa dele está ligado.
+
+As outras chaves (`profiles`, `ports`, `services`, `logs`, `agents`) funcionam como antes; um arquivo
+sem `environment` se comporta exatamente como antes.
 
 ## O que o CoreScope faz
 
-- **Iniciar** um perfil controlador só executa os comandos; nenhum contêiner é iniciado pelo
+- Na página Perfis, cada app é uma linha: estado numa coluna fixa, menu **Iniciar** com os modos e
+  **Parar**; aberta, mostra os modos, os componentes, os contêineres observados e as ações por tipo.
+  Iniciar outro modo troca o atual. Para o MCP, cada modo é o perfil `projeto/app:modo`.
+- **Iniciar** um modo só executa o comando dele; nenhum contêiner é iniciado pelo
   CoreScope, então não existe corrida com o `up` do controlador. Comando ainda rodando = operação em
   andamento (*iniciando*). Os comandos devem **terminar** depois de verificar o que subiram;
   watchers (Vite, Air) ficam dentro do controlador.
 - Saída 0 não significa saudável: a saúde vem do status, dos contêineres observados (parado,
   ausente ou `unhealthy` → degradado) e das saídas (≠ 0 ou cancelado → *falhou*).
-- **Parar** envia SIGTERM a uma operação ainda em andamento e executa só os `stop` deste perfil
-  (2 min cada). Nunca para contêineres e nunca roda comandos de outro perfil.
+- **Parar** envia SIGTERM a uma operação ainda em andamento e executa o `down` do app (2 min). Nunca para contêineres e nunca roda comandos de outro perfil.
 - Uma operação por ambiente (arquivo do projeto) por vez: início/parada de perfil controlador ou
   ação são recusados enquanto outra roda. O controlador deve ter a própria trava (terminais não
   passam pelo CoreScope).
@@ -53,6 +59,9 @@ O exemplo de YAML, a tabela de estados, o formato JSON do status e os limites es
   um shell interativo a cada leitura); lê até 256 KB do stdout. Leitura pedida há mais de 6 min, ou
   com `collected_at` mais de 2 min antes do pedido, é desatualizada. A última leitura válida continua visível, marcada como
   antiga.
+- Docker desligado não é falha: se o controlador não leu nenhum componente esperado (todos
+  `unknown`) e nenhum motor de contêineres responde ao CoreScope, o ambiente conta como desligado
+  (apps *desligados*, checks neutros, uma linha cinza no lugar do erro de conexão).
 - Reconciliação: se um status novo (pedido depois da última operação, sem nada rodando) diz que o
   app de um perfil iniciado pelo CoreScope não está mais selecionado, o CoreScope esquece o início
   sem executar nada. App selecionado no terminal aparece como *mudou fora do CoreScope*, sem adoção.

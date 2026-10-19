@@ -13,94 +13,108 @@ Everything here is optional. A `.corescope.yml` without these keys behaves exact
 
 ## `.corescope.yml`
 
+Everything lives under one `environment:` key. Each app of the controller is listed with the
+**modes** it can come up in (one at a time), the command that takes it **down**, the containers to
+watch and its **actions**; an app without modes is just a group of actions (agents' memory, say).
+Actions for the whole environment sit next to the apps.
+
 ```yaml
 name: Ecosystem
-
-profiles:
-  core:
-    lifecycle: controller          # the commands do the whole operation
-    commands:
-      - name: up
-        run: bin/eco up core
-        stop: bin/eco down core    # this app only, never a global shutdown
-  arena-front:
-    lifecycle: controller
-    app: arena                     # name in the status `apps` (default: the profile's name)
-    commands:
-      - run: bin/eco up arena --dev web
-        stop: bin/eco down arena
-    containers: [arena-go]         # observed only: CoreScope never starts or stops them
 
 services:
   - name: Arena
     target: https://arena.test/up
-    profiles: [arena-front]        # expected while one of these profiles is on
-  - name: Memory API
-    target: http://localhost:8888/health
-    component: hindsight-api       # expected when the status says so
+    app: arena                     # expected while arena is up (selected, or one of its modes on)
   - name: Memory MCP
     target: 8889
-    component: hindsight-mcp
+    component: hindsight-mcp       # expected when the status says so
 
-status:
-  run: bin/eco status --json
-  timeout_seconds: 5               # 1–30, default 5
-
-actions:
-  setup:
-    run: bin/eco setup
-    timeout_minutes: 20
-    heavy: true                    # waits for room first (agents.wait_for_capacity or defaults)
-    group: core                    # optional: where the Profiles page lists it (guessed from the name)
-    kind: setup                    # optional: setup, run, diagnostics, data, stop or other
-  hindsight-backup:
-    run: bin/eco hindsight backup
-    description: Backup of the agents' memory
-    timeout_minutes: 30
-  hindsight-restore:
-    run: bin/eco hindsight restore --target local
-    preview: bin/eco hindsight restore --target local --plan
-    confirm: true
-    timeout_minutes: 60
+environment:
+  status:
+    run: bin/eco status --json
+    timeout_seconds: 5             # 1–30, default 5
+  apps:
+    arena:
+      title: Arena
+      modes:                       # each does the whole operation and exits once verified
+        build: bin/eco up arena --web build --api build
+        frontend: bin/eco up arena --web dev --api build
+        dev: bin/eco up arena --web dev --api dev
+      down: bin/eco down arena     # this app only, never a global shutdown
+      containers: [arena-go]       # watched only: CoreScope never starts or stops them
+      actions:
+        setup:
+          run: bin/eco setup arena
+          heavy: true              # waits for room first (agents.wait_for_capacity or defaults)
+          timeout_minutes: 20
+        logs:
+          run: bin/eco logs arena
+          kind: diagnostics        # optional: setup, run, diagnostics, data, stop or other
+    memory:
+      title: Agents' memory
+      actions:
+        backup:
+          run: bin/eco memory backup
+          timeout_minutes: 30
+        restore:
+          run: bin/eco memory restore --target local
+          preview: bin/eco memory restore --target local --plan
+          confirm: true
+          timeout_minutes: 60
+  actions:
+    init:
+      run: bin/eco init
+    doctor:
+      run: bin/eco doctor
 ```
 
-`corescope config` validates the file: a `services[].profiles` entry must name a profile of the same
-file, `component` needs `status`, `app` is only for `lifecycle: controller`, `preview` needs
-`confirm: true`, timeouts have ranges.
+`corescope config` validates the file: `down` is required with `modes`, an app needs `modes` or
+`actions`, a `services[].profiles` entry must name a profile of the file, `app` an app of
+`environment.apps`, `component` needs `environment.status`, `preview` needs `confirm: true`, `kind`
+is one of the six, timeouts have ranges. The other keys (`profiles`, `ports`, `services`, `logs`,
+`agents`) work as before; a file without `environment` behaves exactly as before.
 
 ## What CoreScope does
 
-### Profiles with `lifecycle: controller`
+### Apps and their modes
 
-- **Start** runs the profile's commands (login shell, project folder, own session, log file) and
-  nothing else. No container is started by CoreScope, so there is no race between the controller's
-  `up` and a native start.
-- A command still running is the operation in flight: the profile shows **starting**. Commands of a
-  controller profile are expected to **exit**, after the controller verified what it started. Put
-  watchers (Vite, Air) inside the controller (containers, its own supervisor), not as profile
-  commands.
-- Exit 0 does not mean healthy. Health comes from the status (below), the observed `containers`
+- The Profiles page shows one row per app: its state in a fixed column (off, starting, up, degraded,
+  failed, unknown), a **Start** menu with its modes and **Stop**. Opening the row shows the modes
+  (the started one checked), the app's components from the status, the watched containers and its
+  actions by kind. Apps in use come first; everything starts folded. Shared components (no app) and
+  the whole-environment actions have rows of their own.
+- **Start** runs the mode's command (login shell, project folder, own session, log file) and
+  nothing else: CoreScope starts no container, so there is no race between the controller's `up`
+  and a native start. Starting another mode of the same app replaces the current one (the
+  controller switches); only one mode of an app is started at a time.
+- A mode's command still running is the operation in flight: the app shows **starting**. The command
+  is expected to **exit** after the controller verified what it started; put watchers (Vite, Air)
+  inside the controller (containers, its own supervisor).
+- Exit 0 does not mean healthy. Health comes from the status (below), the watched `containers`
   (stopped, missing or `unhealthy` → degraded) and the exits: non-zero or killed (cancel) →
-  **failed**.
-- **Stop** sends SIGTERM to an operation still running, then runs this profile's `stop` commands
-  (2 minutes each). It never stops containers itself and never runs another profile's commands.
-- One operation per environment (project file) at a time: a controller profile's start or stop, or an
-  action, is refused while another runs. The controller should still hold its own lock: other
-  tools and terminals do not go through CoreScope.
-- Profiles without `lifecycle` keep the native behaviour (CoreScope starts and stops the
-  containers, shared ones stay up while another started profile uses them).
+  **failed**, kept on the row until the next Start or Stop. A component whose state the controller
+  could not read (its engine is down) makes the app **unknown**.
+- **Stop** sends SIGTERM to an operation still running, then runs the app's `down` (2 minutes). It
+  never stops containers itself and never touches another app.
+- One operation per environment (project file) at a time: a Start, a Stop or an action is refused
+  while another runs. The controller should still hold its own lock: terminals do not go through
+  CoreScope.
+- To MCP each mode is a profile named `project/app:mode` (`list_profiles`, `start_profile`,
+  `stop_profile`), with `mode`, `app`, `health` and `health_reason`.
+- Profiles in `profiles:` keep the native behaviour (CoreScope starts and stops their containers,
+  shared ones stay up while another started profile uses them).
 
 ### Health of Services checks
 
-A check with `profiles` or `component` is **bound**. Its state follows the binding, never a port that
+A check with `profiles`, `app` or `component` is **bound**. Its state follows the binding, never a port that
 happens to listen (Herd's proxy on 443 says nothing about the apps behind it):
 
 | Situation | State | Alerts, uptime |
 | --- | --- | --- |
 | Nothing that needs it is on, no answer | `not_running` (switched off) | no |
 | Nothing that needs it is on, but it answers | `external` (running outside CoreScope, not adopted) | no |
-| A profile that needs it is on (any consumer) or the controller expects the component | `up` / `answered_with_error` / `down` | yes |
-| Its profile's operation runs, the component is `starting`, or within 2 min of a start before the first answer | `starting` | no |
+| A profile or app that needs it is on (any consumer) or the controller expects the component | `up` / `answered_with_error` / `down` | yes |
+| Its app or profile's operation runs, the component is `starting`, or within 2 min of a start before the first answer | `starting` | no |
 | The status failed, timed out, is invalid or stale, or does not list the component (and no bound profile is on) | `unknown` — never up, never off | no |
 
 A component the controller reports wins over profiles: it knows which dependencies it keeps for
@@ -120,6 +134,11 @@ discarded). A reading is stale when it was asked for more than 6 minutes ago or 
 failed, timed-out or invalid → `unknown` with the diagnostic; the last valid reading stays visible
 marked as old.
 
+**Docker switched off is not a failure.** When the controller could read none of the components it
+expects (all `unknown`) and no container engine answers CoreScope either, the environment counts as
+switched off: apps show *off*, checks bound to them stay neutral, and the card says so in one grey
+line instead of showing the controller's connection error.
+
 When a fresh status (asked after the profile's last operation, with nothing running) says the app of
 a profile CoreScope started is no longer selected, CoreScope forgets that start without running
 anything. An app selected from a terminal shows as *changed outside CoreScope* and its checks become
@@ -137,13 +156,11 @@ expected; CoreScope does not take ownership of it.
   saw): **the controller should re-plan and refuse if the hash differs**. Starting a profile never
   runs an action.
 - Every action receives `CORESCOPE_ACTION=<name>`.
-- **Listing**: the Profiles page shows running and recently failed actions on top and folds the
-  rest by `group` (else an app named in the action, `eco-arena-setup` → arena, else a word several
-  actions share after their common prefix, `eco-memory-backup` → memory, else *General*), ordered by
-  `kind` (else guessed from the name: backup/restore → data, doctor/logs/status → diagnostics,
-  stop/down → stop, init/setup/migrate → setup, up/build/dev/restart → run). `list_actions` reports
-  the same `group` and `kind`. Components are listed by app, with apps not selected folded into one
-  line.
+- **Listing**: running and recently failed actions stay on top of the environment card; the rest are
+  under their app (or *Whole environment*), ordered by `kind` (else guessed from the name:
+  backup/restore → data, doctor/logs/status → diagnostics, stop/down → stop, init/setup/migrate →
+  setup, up/build/dev/restart → run). To MCP an action is `project/app/action` (or `project/action`
+  for whole-environment ones); `list_actions` reports its `group` (the app) and `kind`.
 - Results: `succeeded`, `failed` (exit code), `cancelled`, `timed_out`, or `interrupted` (CoreScope
   closed and the process is gone). Cancelling or a timeout only stops the command CoreScope started:
   an operation the controller already handed to another process (a container, a server) may go on.
@@ -154,8 +171,9 @@ expected; CoreScope does not take ownership of it.
 
 ### MCP
 
-`list_profiles` (`lifecycle`, `health`, `health_reason`, `changed_outside_corescope`, `app`),
-`list_services` (`bound_to_profiles`, `component`, `expected` and the new statuses `starting`,
+`list_profiles` (app modes as `project/app:mode` with `lifecycle: controller`, `mode`, `app`,
+`health`, `health_reason`, `changed_outside_corescope`), `list_services` (`bound_to_profiles`,
+`component`, `expected` and the new statuses `starting`,
 `external`, `unknown`), `environment_status` (read-only; `refresh: true` reads now),
 `list_actions` (read-only), `run_action` (destructive: actions with `confirm` return the preview
 and `needs_confirmation` first; call again with `confirmed: true` after the user agrees),
@@ -231,11 +249,11 @@ diagnostics action, never in the status.
 - Integration with a real controller is only proven once the project's commands exist; CoreScope's
   side is covered by the parser, logic and native tests and by a manual run against a disposable
   stub controller.
-- The status poll runs a login shell every 30 s per project with `status` (a few hundred
-  milliseconds of CPU each); there is no back-off yet when the window is closed.
+- With no window open the status is read every 2 minutes, so a change made in a terminal can take
+  that long to show (opening a window reads it within 30 s; *Refresh* reads it now).
 - Containers are matched by name (`containers:`). Selection by Compose labels (project + service)
   is not implemented.
-- Mode and app selection are done by the controller's commands (profiles or actions); CoreScope has
-  no dedicated mode switch and no parameterized actions.
+- A mode started outside CoreScope is not identified by name: the row shows *changed outside
+  CoreScope* and the components' own modes. Actions take no parameters.
 - A command started before CoreScope restarts can be cancelled only while the same process (PID and
   start time) is alive.

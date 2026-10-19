@@ -65,7 +65,7 @@ struct PreferencesView: View {
         Toggle(L("Mostrar ícone"), isOn: $p.menuIcon)
         Toggle(isOn: $p.compact) {
           Text(L("Formato compacto"))
-          Text(L("Números mais curtos (RAM 11,6G em vez de RAM 11,65 GB), sem os pontos entre os itens; os rótulos continuam."))
+          Text(L("Números mais curtos (11,6G em vez de 11,65 GB) e menos espaço entre os itens."))
         }
         // One row per item: on/off, what it shows, and its place (left to right) when on.
         let ordered = p.menuItems + MenuBarItems.all.filter { !p.menuItems.contains($0) }
@@ -79,7 +79,11 @@ struct PreferencesView: View {
                   if value { p.menuItems.append(item) } else { p.menuItems.removeAll { $0 == item } }
                 })
             ) {
-              Text(index.map { "\($0 + 1). \(MenuBarItems.name(item))" } ?? MenuBarItems.name(item))
+              Label {
+                Text(index.map { "\($0 + 1). \(MenuBarItems.name(item))" } ?? MenuBarItems.name(item))
+              } icon: {
+                Image(systemName: MenuBarItems.symbol(item)).frame(width: 18)
+              }
               Text(MenuBarItems.explanation(item))
             }
             if let index {
@@ -99,8 +103,12 @@ struct PreferencesView: View {
             }
           }
         }
+        HStack(spacing: 14) {
+          Label("Codex", systemImage: MenuBarItems.codexSymbol)
+          Label("Claude", systemImage: MenuBarItems.claudeSymbol)
+        }.font(.caption)
         Text(
-          L("Os itens ligados aparecem na barra nesta ordem, da esquerda para a direita. Os limites do Codex e do Claude (parte do limite semanal usada) entram no fim quando ligados em Agentes. Passe o mouse sobre o ícone da barra para ver esta legenda.")
+          L("Cada item aparece na barra como um ícone e o valor, nesta ordem, da esquerda para a direita. Os limites do Codex e do Claude (parte do limite semanal usada) entram no fim quando ligados em Agentes. Passe o mouse sobre o item da barra para ver esta legenda.")
         ).font(.caption).foregroundStyle(.secondary)
       }
       Section(L("Notificações")) {

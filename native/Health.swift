@@ -15,8 +15,10 @@ struct HealthCheck: Codable, Identifiable, Equatable {
   var profiles: [String]? = nil
   /// A component of the project's status: `services[].component`.
   var component: String? = nil
-  /// Bound checks follow their profiles or component instead of the project-wide rule.
-  var bound: Bool { !(profiles ?? []).isEmpty || component != nil }
+  /// An app of the project's environment: `services[].app`.
+  var app: String? = nil
+  /// Bound checks follow their profiles, app or component instead of the project-wide rule.
+  var bound: Bool { !(profiles ?? []).isEmpty || component != nil || app != nil }
   /// The name without the project prefix, for rows inside the project's group.
   var shortName: String {
     guard let project, name.hasPrefix(project + " · ") else { return name }
@@ -61,7 +63,7 @@ final class HealthStore: ObservableObject {
         out.append(
           HealthCheck(
             id: stableID("\(file.file)#service#\(s.target)"), name: "\(file.project) · \(label)", target: s.target,
-            source: file.file, project: file.project, profiles: s.profiles, component: s.component))
+            source: file.file, project: file.project, profiles: s.profiles, component: s.component, app: s.app))
       }
     }
     guard out != fileChecks else { return }
@@ -169,7 +171,8 @@ final class HealthStore: ObservableObject {
   func profiles(_ check: HealthCheck) -> [EnvProfile] {
     guard let source = check.source else { return [] }
     let all = ProfileStore.shared.allProfiles.filter { $0.source == source }
-    guard let names = check.profiles, !names.isEmpty else { return all }
+    if let app = check.app { return all.filter { $0.app == app && $0.mode != nil } }
+    guard let names = check.profiles, !names.isEmpty else { return all.filter { $0.mode == nil } }
     return all.filter { names.contains($0.key ?? "") }
   }
   /// Whether a bound check should be up now (profiles on, or the controller expects its component).
@@ -181,8 +184,18 @@ final class HealthStore: ObservableObject {
     }
     var reason = "not reported by the status"
     if case .unavailable(let why) = input { reason = "status unavailable: \(why)" }
-    let bound = (check.profiles ?? []).isEmpty ? [] : profiles(check)
-    return serviceExpectation(profilesOn: bound.map { ProfileStore.shared.isOn($0) }, component: component, unknownReason: reason)
+    var on = ((check.profiles ?? []).isEmpty ? [] : profiles(check)).map { ProfileStore.shared.isOn($0) }
+    // An app is on when the status selects it or one of its modes is started.
+    if let app = check.app, let source = check.source {
+      let modes = ProfileStore.shared.modes(source: source, app: app)
+      let mine = modes.contains { ProfileStore.shared.active.contains($0.id) || ProfileStore.shared.inFlight($0) }
+      switch input {
+      case .fresh(let s): on.append(s.selected(app) ?? mine)
+      case .unavailable: on.append(mine ? true : nil)
+      case .none: on.append(mine)
+      }
+    }
+    return serviceExpectation(profilesOn: on, component: component, unknownReason: reason)
   }
   /// A bound check while its profile's operation runs, its component is reported starting, or
   /// within 2 min of a start before it first answered. A busy controller alone does not mute
@@ -194,7 +207,7 @@ final class HealthStore: ObservableObject {
     {
       return true
     }
-    let bound = (check.profiles ?? []).isEmpty ? [] : profiles(check)
+    let bound = (check.profiles ?? []).isEmpty && check.app == nil ? [] : profiles(check)
     return bound.contains { p in
       store.busy.contains(p.id) || store.inFlight(p) || (store.startedAt[p.id].map { -$0.timeIntervalSinceNow < 120 } ?? false)
     }

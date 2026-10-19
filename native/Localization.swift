@@ -1635,7 +1635,6 @@ private let entries = """
   %@ selecionado: %@ componentes ¦ %@ selected: %@ components ¦ %@ seleccionada: %@ componentes
   CPU: uso total, média de todos os núcleos ¦ CPU: total use, averaged over all cores ¦ CPU: uso total, media de todos los núcleos
   Cancelar %@ ¦ Cancel %@ ¦ Cancelar %@
-  Codex / Claude: parte do limite semanal já usada ¦ Codex / Claude: share of the weekly limit already used ¦ Codex / Claude: parte del límite semanal ya usada
   Compartilhados ¦ Shared ¦ Compartidos
   Componentes ¦ Components ¦ Componentes
   Criados no app ¦ Made in the app ¦ Creados en la app
@@ -1647,18 +1646,13 @@ private let entries = """
   Infraestrutura sem app (bancos, cache, memória dos agentes): fica no ar enquanto um app a usa. ¦ Infrastructure without an app (databases, cache, agents' memory): stays up while an app uses it. ¦ Infraestructura sin app (bases de datos, caché, memoria de los agentes): sigue en línea mientras una app la usa.
   Mostrar comandos e contêineres ¦ Show commands and containers ¦ Mostrar comandos y contenedores
   Não selecionados ¦ Not selected ¦ No seleccionadas
-  Números mais curtos (RAM 11,6G em vez de RAM 11,65 GB), sem os pontos entre os itens; os rótulos continuam. ¦ Shorter numbers (RAM 11.6G instead of RAM 11.65 GB), no dots between items; the labels stay. ¦ Números más cortos (RAM 11,6G en lugar de RAM 11,65 GB), sin puntos entre los elementos; las etiquetas se mantienen.
   Ocultar comandos e contêineres ¦ Hide commands and containers ¦ Ocultar comandos y contenedores
-  Os itens ligados aparecem na barra nesta ordem, da esquerda para a direita. Os limites do Codex e do Claude (parte do limite semanal usada) entram no fim quando ligados em Agentes. Passe o mouse sobre o ícone da barra para ver esta legenda. ¦ Items that are on appear in the menu bar in this order, left to right. Codex and Claude limits (share of the weekly limit used) come last when turned on in Agents. Hover over the menu bar item to see this legend. ¦ Los elementos activados aparecen en la barra en este orden, de izquierda a derecha. Los límites de Codex y Claude (parte del límite semanal usada) van al final cuando se activan en Agentes. Pasa el ratón sobre el elemento de la barra para ver esta leyenda.
   Preparar ¦ Set up ¦ Preparar
   RAM: memória em uso agora ¦ RAM: memory in use now ¦ RAM: memoria en uso ahora
-  Rede %@ ¦ Net %@ ¦ Red %@
   Rede: entrada + saída por segundo ¦ Net: in + out per second ¦ Red: entrada + salida por segundo
   SSD: temperatura do disco escolhido em Sensores ¦ SSD: temperature of the disk chosen in Sensors ¦ SSD: temperatura del disco elegido en Sensores
   Subir e modos ¦ Start and modes ¦ Subir y modos
   Temperatura do SSD ¦ SSD temperature ¦ Temperatura del SSD
-  Térm. %@ ¦ Therm. %@ ¦ Térm. %@
-  Térmico %@ ¦ Thermal %@ ¦ Térmico %@
   Térmico: estado do macOS (nominal é normal; moderado, sério e crítico reduzem a velocidade) ¦ Thermal: macOS's state (nominal is normal; fair, serious and critical slow the Mac down) ¦ Térmico: estado de macOS (nominal es normal; moderado, serio y crítico reducen la velocidad)
   aberto ¦ open ¦ abierto
   compartilhados %@ ¦ shared %@ ¦ compartidos %@
@@ -1668,4 +1662,19 @@ private let entries = """
   Perfis parados ¦ Stopped profiles ¦ Perfiles detenidos
   1 comando ¦ 1 command ¦ 1 comando
   1 contêiner ¦ 1 container ¦ 1 contenedor
+  Terminal: Codex · brilho: Claude — parte do limite semanal já usada ¦ Terminal: Codex · sparkle: Claude — share of the weekly limit already used ¦ Terminal: Codex · destello: Claude — parte del límite semanal ya usada
+  Cada item aparece na barra como um ícone e o valor, nesta ordem, da esquerda para a direita. Os limites do Codex e do Claude (parte do limite semanal usada) entram no fim quando ligados em Agentes. Passe o mouse sobre o item da barra para ver esta legenda. ¦ Each item shows in the menu bar as an icon and its value, in this order, left to right. Codex and Claude limits (share of the weekly limit used) come last when turned on in Agents. Hover over the menu bar item to see this legend. ¦ Cada elemento aparece en la barra como un icono y su valor, en este orden, de izquierda a derecha. Los límites de Codex y Claude (parte del límite semanal usada) van al final cuando se activan en Agentes. Pasa el ratón sobre el elemento de la barra para ver esta leyenda.
+  Números mais curtos (11,6G em vez de 11,65 GB) e menos espaço entre os itens. ¦ Shorter numbers (11.6G instead of 11.65 GB) and less space between items. ¦ Números más cortos (11,6G en lugar de 11,65 GB) y menos espacio entre los elementos.
+  %@ com problema ¦ %@ with a problem ¦ %@ con problemas
+  %@ componentes ¦ %@ components ¦ %@ componentes
+  %@ modos ¦ %@ modes ¦ %@ modos
+  1 modo ¦ 1 mode ¦ 1 modo
+  Ambiente inteiro ¦ Whole environment ¦ Todo el entorno
+  Contêineres observados: %@ ¦ Watched containers: %@ ¦ Contenedores observados: %@
+  Escolha o modo; iniciar outro modo troca o atual ¦ Pick the mode; starting another mode replaces the current one ¦ Elige el modo; iniciar otro modo reemplaza el actual
+  Modos ¦ Modes ¦ Modos
+  abrir ¦ open ¦ abrir
+  fechar ¦ close ¦ cerrar
+  parados: %@ ¦ stopped: %@ ¦ detenidos: %@
+  Docker desligado: nada deste ambiente está rodando. ¦ Docker is off: nothing in this environment is running. ¦ Docker apagado: nada de este entorno está en marcha.
   """

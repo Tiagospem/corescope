@@ -314,8 +314,8 @@ fn app_tools() -> Vec<(
             "list_actions",
             "actions.list",
             "One-off project actions from .corescope.yml (setup, rebuild, diagnostics, backup, \
-          restore), each with its group (an app such as arena, a shared word such as memory, or \
-          \"\" for general ones) and kind (setup, run, diagnostics, data, stop, other), and their last run: running, succeeded (with the artifact it reported), failed, \
+          restore), each with its group (the app of environment.apps it belongs to, or \
+          \"\" for environment-wide ones) and kind (setup, run, diagnostics, data, stop, other), and their last run: running, succeeded (with the artifact it reported), failed, \
           cancelled, timed_out or interrupted, plus the log.",
             json!({"project": {"type": "string"}}),
             vec![],
@@ -960,11 +960,14 @@ fn core_tools() -> Vec<Value> {
             "write_project_config",
             "Create or replace a project's .corescope.yml from a JSON config (validated; written as \
              commented YAML the team can commit). Shape: {name?, profiles: {NAME: {commands: [{name?, \
-             run, stop?}], containers?: [names], lifecycle?: native|controller, app?}}, ports?: {role: \
-             port}, services?: [{name?, target, profiles?: [profile names], component?}], status?: {run, \
-             timeout_seconds?}, actions?: {NAME: {run, description?, timeout_minutes?, confirm?, \
-             preview?, heavy?, group?, kind?: setup|run|diagnostics|data|stop|other}}, logs?: [globs relative to the project], agents?: {wait_for_capacity: \
-             {cpu_below?, memory?: normal|warning, max_wait_minutes?, heavy_commands: [prefixes]}}}. \
+             run, stop?}], containers?: [names]}}, ports?: {role: port}, services?: [{name?, target, \
+             profiles?: [profile names], component?, app?}], environment?: {status?: {run, \
+             timeout_seconds?}, apps?: {APP: {title?, modes?: {MODE: up command}, down?, containers?: \
+             [names], actions?: {NAME: ACTION}}}, actions?: {NAME: ACTION}} where ACTION is {run, \
+             description?, timeout_minutes?, confirm?, preview?, heavy?, kind?: \
+             setup|run|diagnostics|data|stop|other}, logs?: [globs relative to the project], agents?: \
+             {wait_for_capacity: {cpu_below?, memory?: normal|warning, max_wait_minutes?, \
+             heavy_commands: [prefixes]}}}. \
              Read the project's scripts first and confirm with the user before writing.",
             json!({"folder": {"type": "string"}, "config": {"type": "object"}}),
             &["folder", "config"],

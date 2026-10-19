@@ -11,9 +11,6 @@ struct ProjectConfig: Codable, Equatable {
   struct Profile: Codable, Equatable {
     var commands: [Command]?
     var containers: [String]?
-    /// "controller": the commands do the whole operation; containers are only observed.
-    var lifecycle: String?
-    var app: String?
   }
   struct Service: Codable, Equatable {
     var name: String?
@@ -22,6 +19,8 @@ struct ProjectConfig: Codable, Equatable {
     var profiles: [String]?
     /// A component of the status output.
     var component: String?
+    /// An app of `environment.apps`.
+    var app: String?
   }
   struct Status: Codable, Equatable {
     var run: String
@@ -34,8 +33,6 @@ struct ProjectConfig: Codable, Equatable {
     var confirm: Bool?
     var preview: String?
     var heavy: Bool?
-    /// Where the app lists it; guessed from the name when absent.
-    var group: String?
     /// setup, run, diagnostics, data, stop or other; guessed from the name when absent.
     var kind: String?
   }
@@ -51,9 +48,22 @@ struct ProjectConfig: Codable, Equatable {
   var name: String?
   var profiles: [String: Profile]?
   var ports: [String: Int]?
+  /// An app of the project's environment controller: the modes it comes up in, how it goes
+  /// down, containers to watch and its actions.
+  struct App: Codable, Equatable {
+    var title: String?
+    var modes: [String: String]?
+    var down: String?
+    var containers: [String]?
+    var actions: [String: Action]?
+  }
+  struct Environment: Codable, Equatable {
+    var status: Status?
+    var apps: [String: App]?
+    var actions: [String: Action]?
+  }
   var services: [Service]?
-  var status: Status?
-  var actions: [String: Action]?
+  var environment: Environment?
   var logs: [String]?
   var agents: Agents?
 }

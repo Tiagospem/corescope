@@ -634,6 +634,7 @@ enum ControlAPI {
     let store = ProfileStore.shared
     let containers = ContainerStore.shared.report?.containers ?? currentContainers()
     var extra: [String: Any] = ["lifecycle": p.isController ? "controller" : "native"]
+    if let mode = p.mode { extra["mode"] = mode }
     if p.isController {
       let h = store.health(p, containers: containers)
       extra["health"] = h.health.rawValue
@@ -700,12 +701,8 @@ enum ControlAPI {
       "needs_confirmation": a.confirm, "heavy": a.spec.heavy == true,
     ]
     if let d = a.spec.description { row["description"] = d }
-    // Same grouping as the Profiles page: an app or a shared word, "" for general ones.
-    let siblings = ActionStore.shared.actions.filter { $0.source == a.source }
-    let apps = (EnvironmentStore.shared.readings[a.source]?.last?.apps.map(\.name) ?? [])
-      + ProfileStore.shared.fileProfiles.filter { $0.source == a.source }.compactMap { $0.app ?? $0.key }
-    row["group"] = actionGroups(siblings.map { (name: $0.name, group: $0.spec.group) }, apps: apps)[a.name] ?? ""
-    row["kind"] = ActionKind.of(name: a.name, explicit: a.spec.kind).rawValue
+    row["group"] = a.group
+    row["kind"] = a.kind.rawValue
     if let run = ActionStore.shared.runs[a.id] {
       let iso = ISO8601DateFormatter()
       var last: [String: Any] = ["outcome": run.outcome.rawValue, "started_at": iso.string(from: run.startedAt), "log": run.log]

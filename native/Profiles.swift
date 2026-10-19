@@ -17,8 +17,10 @@ struct EnvProfile: Codable, Identifiable, Equatable {
   var lifecycle: String? = nil
   /// The app this profile selects in the project's status (default: its name in the file).
   var app: String? = nil
-  /// Its name in the file (`dev`), for `services[].profiles`.
+  /// Its name in the file (`dev`), for `services[].profiles`; `app:mode` for an app's mode.
   var key: String? = nil
+  /// The mode of an environment app this profile brings up (`dev`, `build`).
+  var mode: String? = nil
   var isController: Bool { lifecycle == "controller" }
 }
 struct ProfileCommand: Codable, Identifiable, Equatable {
@@ -108,12 +110,24 @@ final class ProfileStore: ObservableObject {
           let label = c.name ?? "cmd\(i + 1)"
           return ProfileCommand(id: stableID("\(key)#\(label)"), name: label, command: c.run, stopCommand: c.stop)
         }
-        let controller = spec.lifecycle == "controller"
         out.append(
           EnvProfile(
             id: stableID(key), name: "\(file.project)/\(name)", folder: file.folder, commands: commands,
-            containers: spec.containers ?? [], source: file.file, lifecycle: controller ? "controller" : nil,
-            app: controller ? spec.app ?? name : nil, key: name))
+            containers: spec.containers ?? [], source: file.file, key: name))
+      }
+      // Each mode of an environment app is a controller profile (`project/app:mode`): its command
+      // brings the app up that way, the app's `down` takes it down. Shown under the app on the
+      // Profiles page; MCP starts and stops them like any profile.
+      for (appKey, app) in (config.environment?.apps ?? [:]).sorted(by: { $0.key < $1.key }) {
+        for (mode, run) in (app.modes ?? [:]).sorted(by: { $0.key < $1.key }) {
+          let key = "\(file.file)#app#\(appKey)#\(mode)"
+          out.append(
+            EnvProfile(
+              id: stableID(key), name: "\(file.project)/\(appKey):\(mode)", folder: file.folder,
+              commands: [ProfileCommand(id: stableID("\(key)#up"), name: mode, command: run, stopCommand: app.down)],
+              containers: app.containers ?? [], source: file.file, lifecycle: "controller", app: appKey,
+              key: "\(appKey):\(mode)", mode: mode))
+        }
       }
     }
     if out != fileProfiles { fileProfiles = out }
@@ -188,6 +202,22 @@ final class ProfileStore: ObservableObject {
       if !c.running { return name }
       return c.health == "unhealthy" ? "\(name) (unhealthy)" : nil
     }
+  }
+  /// The modes of one environment app (one profile each).
+  func modes(source: String, app: String) -> [EnvProfile] {
+    fileProfiles.filter { $0.source == source && $0.app == app && $0.mode != nil }
+  }
+  /// The mode that speaks for the app: the one running its operation, else the started one, else
+  /// the last one started (or that failed), else the first.
+  func currentMode(source: String, app: String) -> EnvProfile? {
+    let all = modes(source: source, app: app)
+    return all.first(where: inFlight) ?? all.first { active.contains($0.id) }
+      ?? all.filter { startedAt[$0.id] != nil }.max { startedAt[$0.id]! < startedAt[$1.id]! }
+      ?? all.first { failedExit($0) != nil } ?? all.first
+  }
+  /// An app as one state (through its current mode).
+  func appHealth(source: String, app: String, containers: [ContainerItem]?) -> (health: EnvHealth, reason: String, outside: Bool)? {
+    currentMode(source: source, app: app).map { health($0, containers: containers) }
   }
   /// A controller profile as one state, from the project's status, its observed containers and
   /// its commands' exits.
@@ -269,6 +299,13 @@ final class ProfileStore: ObservableObject {
       errors += containerErrors
       DispatchQueue.main.async {
         self.launched.merge(started) { _, new in new }
+        // One mode per app: starting one replaces the other (the controller switches them).
+        if let app = profile.app, let source = profile.source, profile.mode != nil {
+          for other in self.modes(source: source, app: app) where other.id != profile.id {
+            self.active.remove(other.id)
+            other.commands.forEach { self.exits[$0.id] = nil }
+          }
+        }
         self.active.insert(profile.id)
         // Already running and no started profile accounts for it: someone else's, leave it be.
         let claimed = Set(self.allProfiles.filter { $0.id != profile.id && self.active.contains($0.id) }.flatMap(\.containers))
@@ -466,8 +503,8 @@ struct ProfilesView: View {
   private var sections: [(key: String, name: String, file: ProjectFile?, profiles: [EnvProfile])] {
     var out: [(key: String, name: String, file: ProjectFile?, profiles: [EnvProfile])] = []
     for file in files.files {
-      let mine = store.fileProfiles.filter { $0.source == file.file }
-      let environment = file.config?.status != nil || !(file.config?.actions ?? [:]).isEmpty
+      let mine = store.fileProfiles.filter { $0.source == file.file && $0.mode == nil }
+      let environment = file.config?.environment != nil
       if environment || !mine.isEmpty { out.append((file.file, file.project, environment ? file : nil, mine)) }
     }
     out.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
