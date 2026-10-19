@@ -96,9 +96,10 @@ fn tool(name: &str, description: &str, properties: Value, required: &[&str]) -> 
                            "destructiveHint": destructive, "openWorldHint": false}})
 }
 /// Tools that stop, delete or remove things; hosts ask the user before running them.
-const DESTRUCTIVE: [&str; 14] = [
+const DESTRUCTIVE: [&str; 15] = [
     "remove_volumes",
     "project_git_discard",
+    "project_remove_unused",
     "db_restore",
     "redis_flush",
     "eject_volume",
@@ -724,10 +725,38 @@ fn core_tools() -> Vec<Value> {
             "Every working tree of a project's repository (main first): path, branch, the agent \
              that made it, merged into the default branch, uncommitted changes, a process \
              working in it, git lock, folder gone, last commit, and size when already measured \
-             (pass `measure` with a worktree path to measure it). Removing worktrees is done on \
-             the Cleanup page (scan_dev_space / clean_dev_space). Read-only.",
+             (pass `measure` with a worktree path to measure it). To remove the unused ones see \
+             project_unused / project_remove_unused. Read-only.",
             json!({"project": {"type": "string"}, "folder": {"type": "string"},
                    "measure": {"type": "string", "description": "A worktree path to measure"}}),
+            &[],
+        ),
+        tool(
+            "project_unused",
+            "Dry run of what a project no longer uses: linked worktrees whose branch is merged \
+             into the default branch, whose upstream is gone or whose folder is gone, and local \
+             branches merged into the default branch. Each has `reasons` (merged, \
+             upstream_gone, folder_gone, worktree_removed) and `removable`; a `block` says why \
+             one stays (main, current, in_use, locked, dirty, unknown_changes, checked_out, \
+             default_branch). A branch with worktree_removed goes only together with its \
+             worktree. `measure` true measures removable worktrees not measured yet (slower). \
+             Read-only.",
+            json!({"project": {"type": "string"}, "folder": {"type": "string"},
+                   "measure": {"type": "boolean"}}),
+            &[],
+        ),
+        tool(
+            "project_remove_unused",
+            "Remove worktrees (`git worktree remove`, never --force) and then local branches \
+             (`git branch -d`, never -D) from project_unused's list. Every item is checked again \
+             first: the main and current working tree, a worktree in use, locked or with \
+             uncommitted changes, an unmerged branch and a branch checked out in a worktree that \
+             stays are refused, never forced. Returns each item's status (removed, refused with \
+             `reason`, failed with git's `message`). Destructive: show the user the list and ask \
+             first.",
+            json!({"project": {"type": "string"}, "folder": {"type": "string"},
+                   "worktrees": {"type": "array", "items": {"type": "string"}, "description": "Worktree paths as project_unused lists them"},
+                   "branches": {"type": "array", "items": {"type": "string"}, "description": "Branch names"}}),
             &[],
         ),
         tool(
@@ -1141,6 +1170,23 @@ fn call(params: &Value) -> Value {
             let mut request = args.clone();
             request["op"] = json!(op);
             request["folder"] = json!(folder);
+            match corescope::projects_tool(&request) {
+                Ok(v) => text(v, false),
+                Err(e) => text(json!({"error": e}), true),
+            }
+        }
+        "project_unused" | "project_remove_unused" => {
+            let folder = match project_folder(args) {
+                Ok(f) => f,
+                Err(e) => return text(json!({"error": e}), true),
+            };
+            // Agents never get the app's "uncommitted changes too" option.
+            let request = if name == "project_unused" {
+                json!({"op": "unused", "folder": folder, "measure": args["measure"]})
+            } else {
+                json!({"op": "remove_unused", "folder": folder, "worktrees": args["worktrees"],
+                       "branches": args["branches"], "allow_dirty": false})
+            };
             match corescope::projects_tool(&request) {
                 Ok(v) => text(v, false),
                 Err(e) => text(json!({"error": e}), true),

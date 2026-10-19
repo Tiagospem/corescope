@@ -364,6 +364,7 @@ private struct ProjectCard: View {
   @ViewState private var confirmRemove = false
   @ViewState private var confirmInit = false
   @ViewState private var instructions = false
+  @ViewState private var removingUnused = false
   var body: some View {
     Card {
       HStack(spacing: 10) {
@@ -410,6 +411,8 @@ private struct ProjectCard: View {
               .disabled(check?.git.is_repo != true)
             Button(L("Instruções para agentes…")) { instructions = true }
               .disabled(check?.config.exists != true || check?.config.error != nil)
+            Button(L("Remover worktrees e branches não usados…")) { removingUnused = true }
+              .disabled(check?.git.is_repo != true)
             Divider()
             Button(L("Remover da lista…"), role: .destructive) { confirmRemove = true }
           } label: { Image(systemName: "ellipsis.circle") }.menuStyle(.borderlessButton).fixedSize()
@@ -421,14 +424,15 @@ private struct ProjectCard: View {
         ProjectConfigView(config: check.config)
         if check.git.is_repo {
           Divider()
-          ProjectBranchesSection(project: project)
-          ProjectWorktreesSection(project: project)
+          ProjectBranchesSection(project: project) { removingUnused = true }
+          ProjectWorktreesSection(project: project) { removingUnused = true }
         }
       } else {
         ProgressView().controlSize(.small)
       }
     }
     .sheet(isPresented: $instructions) { AgentInstructionsSheet(project: project) }
+    .sheet(isPresented: $removingUnused) { RemoveUnusedSheet(project: project) }
     .confirmationDialog(L("Remover %@ da lista?", shownProjectName(project)), isPresented: $confirmRemove) {
       Button(L("Remover"), role: .destructive) { store.remove(project) }
       Button(L("Cancelar"), role: .cancel) {}

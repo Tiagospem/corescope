@@ -123,10 +123,9 @@ pub fn last_commit(worktree: &Path) -> Option<i64> {
     .parse()
     .ok()
 }
-/// Whether `branch` is fully merged into the repository's default branch (origin/HEAD, main or
-/// master).
-pub fn merged(repo: &Path, branch: &str) -> Option<bool> {
-    let default = git(
+/// The branch merged work lands on: origin/HEAD, else a local main or master.
+pub fn default_branch(repo: &Path) -> Option<String> {
+    git(
         repo,
         &["symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
         Duration::from_secs(3),
@@ -144,16 +143,29 @@ pub fn merged(repo: &Path, branch: &str) -> Option<bool> {
                 .is_some()
             })
             .map(|b| b.to_string())
-    })?;
-    if default.ends_with(&format!("/{branch}")) || default == branch {
-        return Some(false);
-    }
+    })
+}
+/// `branch` is the default branch itself (`main` for `origin/main`).
+pub fn is_default(default: &str, branch: &str) -> bool {
+    default == branch || default.ends_with(&format!("/{branch}"))
+}
+/// Local branches fully merged into `default`.
+pub fn merged_branches(repo: &Path, default: &str) -> Option<Vec<String>> {
     let out = git(
         repo,
-        &["branch", "--merged", &default, "--format=%(refname:short)"],
+        &["branch", "--merged", default, "--format=%(refname:short)"],
         Duration::from_secs(5),
     )?;
-    Some(out.lines().any(|l| l.trim() == branch))
+    Some(out.lines().map(|l| l.trim().to_string()).collect())
+}
+/// Whether `branch` is fully merged into the repository's default branch (origin/HEAD, main or
+/// master).
+pub fn merged(repo: &Path, branch: &str) -> Option<bool> {
+    let default = default_branch(repo)?;
+    if is_default(&default, branch) {
+        return Some(false);
+    }
+    Some(merged_branches(repo, &default)?.iter().any(|l| l == branch))
 }
 
 /// Main repositories under the roots (folders whose `.git` is a directory), a few levels deep.

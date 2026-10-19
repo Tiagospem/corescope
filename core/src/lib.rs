@@ -1826,7 +1826,8 @@ pub fn db_tool(v: &serde_json::Value) -> Result<serde_json::Value, String> {
 /// template}, rename {id, name}, set {id, show_in_panel, notify_minutes}, remove {id},
 /// init {folder}; and the repository's changes: status {folder}, diff {folder, path, staged},
 /// stage/unstage/discard {folder, paths}, commit {folder, message}, ignored {folder, paths};
-/// branches {folder}, worktrees {folder}, worktree_size {folder, path}; agent context {folder},
+/// branches {folder}, worktrees {folder}, worktree_size {folder, path}, unused {folder, measure},
+/// remove_unused {folder, worktrees, branches, allow_dirty}; agent context {folder},
 /// instructions {folder}, write_instructions {folder, files, remove}.
 pub fn projects_tool(v: &serde_json::Value) -> Result<serde_json::Value, String> {
     use serde_json::json;
@@ -1925,6 +1926,30 @@ pub fn projects_tool(v: &serde_json::Value) -> Result<serde_json::Value, String>
         "worktree_size" => {
             let path = v["path"].as_str().ok_or("path is required")?;
             Ok(json!({"path": path, "bytes": gitbranches::worktree_size(&folder()?, path)?}))
+        }
+        "unused" => Ok(json!(gitbranches::unused(
+            &folder()?,
+            &processes_now(),
+            v["measure"].as_bool().unwrap_or(false)
+        )?)),
+        "remove_unused" => {
+            let list = |key: &str| -> Vec<String> {
+                v[key]
+                    .as_array()
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|p| p.as_str().map(str::to_string))
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            };
+            Ok(json!({"results": gitbranches::remove_unused(
+                &folder()?,
+                &processes_now(),
+                &list("worktrees"),
+                &list("branches"),
+                v["allow_dirty"].as_bool().unwrap_or(false)
+            )?}))
         }
         "diff" => {
             let path = v["path"].as_str().ok_or("path is required")?;

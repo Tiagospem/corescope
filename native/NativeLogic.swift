@@ -1556,3 +1556,156 @@ func auditStaleAge(scannedAt: Double?, now: Double, limit: Double = AuditThresho
   let age = now - scannedAt
   return age > limit ? age : nil
 }
+
+// MARK: - Projects: worktrees and branches no longer used
+
+/// What decides whether a linked worktree can go (the core's `WorktreeView`).
+struct WorktreeFacts: Equatable {
+  var path: String
+  var branch: String? = nil
+  var main = false
+  var current = false
+  var locked = false
+  var prunable = false
+  var merged: Bool? = nil
+  var gone = false
+  var changes: Int? = 0
+  var inUse: String? = nil
+}
+/// What decides whether a local branch can go (the core's `LocalBranch`).
+struct BranchFacts: Equatable {
+  var name: String
+  var current = false
+  /// Checked out in this other working tree.
+  var worktree: String? = nil
+  var merged: Bool? = nil
+  var gone = false
+}
+enum PruneReason: String {
+  case merged, upstreamGone = "upstream_gone", folderGone = "folder_gone", worktreeRemoved = "worktree_removed"
+}
+/// Why an item stays. The core reports the same codes when it refuses one.
+enum PruneBlock: String {
+  case main, current, inUse = "in_use", locked, notMerged = "not_merged", defaultBranch = "default_branch"
+  case checkedOut = "checked_out", unknownChanges = "unknown_changes", dirty
+  case notAWorktree = "not_a_worktree", noSuchBranch = "no_such_branch"
+}
+struct PruneVerdict: Equatable {
+  var reasons: [PruneReason]
+  var block: PruneBlock?
+  var removable: Bool { block == nil && !reasons.isEmpty }
+}
+
+/// The app's copy of the core's rules (`gitbranches::worktree_verdict`), which decide again before
+/// removing: a linked worktree can go when its branch is merged into the default branch, its
+/// upstream is gone or its folder is already gone; never the main or the project's own working
+/// tree, one a process works in, one git locked, or one with uncommitted changes unless
+/// `allowDirty`.
+func worktreeVerdict(_ w: WorktreeFacts, allowDirty: Bool = false) -> PruneVerdict {
+  var reasons: [PruneReason] = []
+  if w.prunable { reasons.append(.folderGone) }
+  if w.merged == true { reasons.append(.merged) }
+  if w.gone { reasons.append(.upstreamGone) }
+  let block: PruneBlock?
+  if w.main {
+    block = .main
+  } else if w.current {
+    block = .current
+  } else if w.inUse != nil {
+    block = .inUse
+  } else if w.locked {
+    block = .locked
+  } else if reasons.isEmpty {
+    block = .notMerged
+  } else if w.prunable {
+    block = nil
+  } else if let n = w.changes {
+    block = n > 0 && !allowDirty ? .dirty : nil
+  } else {
+    block = .unknownChanges
+  }
+  return PruneVerdict(reasons: reasons, block: block)
+}
+
+/// `name` is the default branch itself (`main` for `origin/main`).
+func isDefaultBranch(_ name: String, default branch: String?) -> Bool {
+  guard let branch else { return false }
+  return branch == name || branch.hasSuffix("/" + name)
+}
+
+/// A local branch can go when it is merged into the default branch and checked out nowhere, or
+/// only in a worktree removed first (`freed`). Mirrors `gitbranches::branch_verdict`.
+func branchVerdict(_ b: BranchFacts, defaultBranch: String?, freed: Set<String> = []) -> PruneVerdict {
+  var reasons: [PruneReason] = []
+  if b.merged == true { reasons.append(.merged) }
+  if b.gone { reasons.append(.upstreamGone) }
+  let held = b.worktree.flatMap { freed.contains($0) ? nil : $0 }
+  if b.worktree != nil && held == nil { reasons.append(.worktreeRemoved) }
+  let block: PruneBlock?
+  if b.current {
+    block = .current
+  } else if isDefaultBranch(b.name, default: defaultBranch) {
+    block = .defaultBranch
+  } else if held != nil {
+    block = .checkedOut
+  } else if b.merged != true {
+    block = .notMerged
+  } else {
+    block = nil
+  }
+  return PruneVerdict(reasons: reasons, block: block)
+}
+
+/// How the project card groups worktrees and branches: what is in use (the checkout, the main
+/// working tree, a process inside, a branch checked out), what can go, and the rest.
+enum RefGroup: Int, CaseIterable {
+  case inUse, removable, other
+}
+func worktreeGroup(_ w: WorktreeFacts) -> RefGroup {
+  if w.main || w.current || w.inUse != nil { return .inUse }
+  return worktreeVerdict(w).removable ? .removable : .other
+}
+func branchGroup(_ b: BranchFacts, defaultBranch: String?) -> RefGroup {
+  if b.current || b.worktree != nil { return .inUse }
+  return branchVerdict(b, defaultBranch: defaultBranch).removable ? .removable : .other
+}
+
+/// One line of the removal sheet.
+struct PruneCandidate: Equatable {
+  enum Kind { case worktree, branch }
+  let kind: Kind
+  /// The worktree path or the branch name.
+  let target: String
+  let verdict: PruneVerdict
+  var key: String { (kind == .worktree ? "w:" : "b:") + target }
+}
+/// What the removal sheet lists: worktrees and branches that qualify, removable or held back with
+/// the reason. A branch freed by removing its worktree counts only while that worktree is chosen.
+func pruneCandidates(
+  worktrees: [WorktreeFacts], branches: [BranchFacts], defaultBranch: String?, allowDirty: Bool,
+  chosenWorktrees: Set<String>
+) -> [PruneCandidate] {
+  var out: [PruneCandidate] = []
+  var removable: Set<String> = []
+  for w in worktrees where !w.main && !w.current {
+    let v = worktreeVerdict(w, allowDirty: allowDirty)
+    guard !v.reasons.isEmpty else { continue }
+    if v.removable { removable.insert(w.path) }
+    out.append(PruneCandidate(kind: .worktree, target: w.path, verdict: v))
+  }
+  let freed = removable.intersection(chosenWorktrees)
+  for b in branches where b.merged == true {
+    let v = branchVerdict(b, defaultBranch: defaultBranch, freed: freed)
+    // A branch checked out in a worktree that cannot go is simply in use: not listed.
+    if v.block == .checkedOut, let wt = b.worktree, !removable.contains(wt) { continue }
+    out.append(PruneCandidate(kind: .branch, target: b.name, verdict: v))
+  }
+  return out
+}
+/// The ones ticked by default: removable, except those with uncommitted changes (the "dirty"
+/// option makes them choosable, never chosen for you).
+func defaultPruneSelection(_ candidates: [PruneCandidate], worktrees: [WorktreeFacts]) -> Set<String> {
+  let dirty = Set(worktrees.filter { ($0.changes ?? 0) > 0 }.map(\.path))
+  return Set(
+    candidates.filter { $0.verdict.removable && !($0.kind == .worktree && dirty.contains($0.target)) }.map(\.key))
+}

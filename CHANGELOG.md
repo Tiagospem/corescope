@@ -31,6 +31,19 @@ section as the GitHub release notes.
   (MySQL/PostgreSQL/Redis) warn that no snapshot is possible without a container. MCP
   `list_volumes` and `remove_volumes` (a dry run unless `confirm: true`; in-use volumes are
   always refused).
+- **Projects › Remove unused worktrees and branches**: *Remove unused…* on each repository's card
+  (Branches and Worktrees sections, card menu) opens a confirmation listing exactly what goes —
+  linked worktrees whose branch is merged into the default branch, whose upstream is gone or whose
+  folder is gone, and local branches merged into the default branch — with path, branch, size, why
+  each qualifies and a checkbox per item. Never the main or current working tree, a worktree a
+  process works in, a locked one, or a branch checked out in a worktree that stays; a worktree
+  with uncommitted changes is shown and skipped unless a separate option (off by default) allows
+  `--force`. A merged branch can go together with its worktree. Uses `git worktree remove` and
+  `git branch -d` (never `-D`); the core checks every item again against fresh state before
+  removing and reports each result (removed, refused with the rule, or git's error). MCP
+  `project_unused` (dry run with reasons) and `project_remove_unused` (same rules, never forced or
+  dirty).
+
 ### Changed
 - **Services tell "not running" apart from "down"**: checks are grouped by project (checks added
   in the app in their own group) with a per-group summary. A check from a project's
@@ -42,6 +55,9 @@ section as the GitHub release notes.
   paused. MCP `list_services` / `check_services` report `status` (`up`, `answered_with_error`,
   `down`, `not_running`, `paused`, `not_checked_yet`), `group`, `monitored` and `explanation`; new MCP
   `pause_service`.
+- The Worktrees and Local branches sections group their rows into *In use*, *Removable* and
+  *Other*, show the removable count and size next to the title, collapse long groups, and share
+  badges (merged, upstream gone, in use) in the same order and colors.
 
 ## [0.8.1] - 2026-10-18
 
