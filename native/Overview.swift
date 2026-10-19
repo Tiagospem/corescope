@@ -103,6 +103,7 @@ struct OverviewView: View {
             ServersCard(groups: s.serverGroups)
             OrphansCard(orphans: s.orphans)
           }
+          AuditCard()
           if Preferences.shared.limitsInOverview { LimitsCard() }
           AgentSessionsCard(snapshot: s)
           HealthCard()

@@ -981,6 +981,37 @@ private let entries = """
   Portas e exposição ¦ Ports and exposure ¦ Puertos y exposición
   Processos iniciados pelo app ¦ Processes the app started ¦ Procesos iniciados por la app
   Quanto o próprio CoreScope está gastando ¦ What CoreScope itself is spending ¦ Cuánto está gastando el propio CoreScope
+  Para aliviar o Mac ¦ To lighten the Mac ¦ Para aliviar el Mac
+  Nada pesando que dê para parar ou liberar agora. ¦ Nothing heavy to stop or free right now. ¦ Nada pesado que se pueda detener o liberar ahora.
+  Só leitura: cada linha abre a página onde agir. Agentes veem a lista completa no MCP performance_audit. ¦ Read-only: each row opens the page where you act. Agents get the full list from MCP performance_audit. ¦ Solo lectura: cada fila abre la página donde actuar. Los agentes ven la lista completa en MCP performance_audit.
+  certeza alta ¦ high confidence ¦ certeza alta
+  certeza média ¦ medium confidence ¦ certeza media
+  verifique ¦ check first ¦ verifica antes
+  Perfil iniciado: %@ ¦ Started profile: %@ ¦ Perfil iniciado: %@
+  %@ processos e %@ contêineres em execução por ele. ¦ %@ processes and %@ containers running for it. ¦ %@ procesos y %@ contenedores en ejecución por él.
+  Órfão %@ (PID %@) ¦ Orphan %@ (PID %@) ¦ Huérfano %@ (PID %@)
+  Rodando sem o processo pai. ¦ Running without its parent process. ¦ En ejecución sin su proceso padre.
+  Sessão de agente parada: %@ ¦ Stuck agent session: %@ ¦ Sesión de agente atascada: %@
+  Sessão de agente gastando energia: %@ ¦ Agent session drawing power: %@ ¦ Sesión de agente gastando energía: %@
+  Ela e o que iniciou somam %@ W. ¦ It and what it started draw %@ W. ¦ Ella y lo que inició suman %@ W.
+  Pesando agora: CPU alta ou muita memória. ¦ Heavy right now: high CPU or a lot of memory. ¦ Pesando ahora: CPU alta o mucha memoria.
+  Pesando agora: %@ processos deste app somados. ¦ Heavy right now: %@ processes of this app combined. ¦ Pesando ahora: %@ procesos de esta app sumados.
+  Contêiner ocioso: %@ ¦ Idle container: %@ ¦ Contenedor inactivo: %@
+  Rodando quase sem CPU e segurando memória; nenhum perfil iniciado o usa. ¦ Running with almost no CPU while holding memory; no started profile uses it. ¦ En marcha casi sin CPU y reteniendo memoria; ningún perfil iniciado lo usa.
+  %@ contêineres parados ¦ %@ stopped containers ¦ %@ contenedores detenidos
+  Não gastam CPU nem memória, mas prendem imagens e volumes que a limpeza não pode remover. ¦ They use no CPU or memory, but keep images and volumes that cleanup cannot remove. ¦ No gastan CPU ni memoria, pero retienen imágenes y volúmenes que la limpieza no puede quitar.
+  Worktree: %@. ¦ Worktree: %@. ¦ Worktree: %@.
+  %@ worktrees já mergeados ¦ %@ worktrees already merged ¦ %@ worktrees ya fusionados
+  Os branches já estão no principal; nada se perde além da pasta de trabalho. ¦ Their branches are already in the main one; only the working folder goes. ¦ Sus ramas ya están en la principal; solo se va la carpeta de trabajo.
+  Pasta de build que volta no próximo build ou install; sem mudanças há %@ dias. ¦ Build folder that comes back on the next build or install; unchanged for %@ days. ¦ Carpeta de build que vuelve en el próximo build o install; sin cambios desde hace %@ días.
+  Recriado sob demanda pela ferramenta que o usa. ¦ Re-created on demand by the tool that uses it. ¦ Lo recrea bajo demanda la herramienta que lo usa.
+  %@ cresceu %@ hoje ¦ %@ grew %@ today ¦ %@ creció %@ hoy
+  Uma ação da limpeza segura libera esta pasta. ¦ A safe cleanup action frees this folder. ¦ Una acción de la limpieza segura libera esta carpeta.
+  Sem ação automática: veja o que há dentro em Armazenamento. ¦ No automatic action: see what is inside on the Storage page. ¦ Sin acción automática: mira qué hay dentro en Almacenamiento.
+  Serviço sempre fora: %@ ¦ Service always down: %@ ¦ Servicio siempre caído: %@
+  No ar %@%% das últimas 24 h; a verificação ainda roda a cada 30 s. ¦ Up %@%% of the last 24 h; the check still runs every 30 s. ¦ Activo %@%% de las últimas 24 h; la verificación sigue cada 30 s.
+  Coleta a cada %@ s; 5 s gasta menos da metade. ¦ Samples every %@ s; 5 s costs less than half. ¦ Recolecta cada %@ s; 5 s gasta menos de la mitad.
+  Mantém o coletor no intervalo rápido mesmo com a janela fechada. ¦ Keeps the collector on the fast interval even with the window closed. ¦ Mantiene el recolector en el intervalo rápido incluso con la ventana cerrada.
   Status line do Claude ¦ Claude status line ¦ Status line de Claude
   a cada %@ s com janela ou painel visível, 10 s sem · %@ ms por passagem ¦ every %@ s with the window or panel visible, 10 s otherwise · %@ ms per pass ¦ cada %@ s con ventana o panel visible, 10 s sin ellos · %@ ms por pasada
   a cada 15 s, só com a página aberta ¦ every 15 s, only while the page is open ¦ cada 15 s, solo con la página abierta

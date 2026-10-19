@@ -352,6 +352,7 @@ enum ControlAPI {
       }
 
     case "app.cost": reply(SelfCost.current().json())
+    case "app.performance_audit": PerformanceAudit.run(args, reply: reply)
     case "app.update_status": reply(UpdateStore.shared.json())
     case "app.update_check":
       // Asked for by the user (corescope version --check): one request to the release feed.
