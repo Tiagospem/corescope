@@ -246,7 +246,8 @@ fn app_tools() -> Vec<(
             "Services health checks (CoreScope › Services), with group (project, or \"added in the app\"), \
           target, HTTP status or TCP result, latency, uptime and status: up, answered_with_error, down \
           (should be up and fails), not_running (from a project whose profile is not running and \
-          whose port nobody listens on: just switched off, not a failure; start_profile brings it up), \
+          whose port nobody listens on: just switched off, not a failure and not probed until the \
+          profile starts or the port opens; start_profile brings it up), \
           paused or not_checked_yet; explanation says why.",
             json!({}),
             vec![],
@@ -269,8 +270,8 @@ fn app_tools() -> Vec<(
         (
             "check_services",
             "services.check",
-            "Run every Services check now (paused ones are skipped) and return the results, with \
-          the same status as list_services.",
+            "Run every Services check now (paused ones and not_running apps are skipped) and return \
+          the results, with the same status as list_services.",
             json!({}),
             vec![],
         ),

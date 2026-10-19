@@ -613,6 +613,7 @@ enum ControlAPI {
       "name": c.name, "target": c.target, "defined_in": c.source ?? "CoreScope app",
       "group": c.project ?? "added in the app", "project": c.project ?? NSNull(),
       "status": state.mcpStatus, "explanation": store.explanation(c), "paused": store.isPaused(c),
+      "monitored": store.monitored(c),
     ]
     if c.source != nil {
       row["profile_running"] = store.profileRunning(c)

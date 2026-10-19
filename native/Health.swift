@@ -155,7 +155,7 @@ final class HealthStore: ObservableObject {
     if isPaused(check) {
       failures[check.id] = 0
       alerted.remove(check.id)
-    } else {
+    } else if monitored(check) {
       run(check)
     }
   }
@@ -171,18 +171,24 @@ final class HealthStore: ObservableObject {
       store.active.contains(p.id) || p.commands.contains { store.running($0) != nil }
     }
   }
-  /// Something on this Mac listens on the target's port. An answer (any HTTP status) counts;
-  /// nil for hosts elsewhere, where a local listener says nothing.
-  func listening(_ check: HealthCheck, answered: Bool) -> Bool? {
+  /// Something on this Mac listens on the target's port. A recent answer (any HTTP status)
+  /// counts; nil for hosts elsewhere, where a local listener says nothing.
+  func listening(_ check: HealthCheck, _ result: HealthResult?) -> Bool? {
     guard let port = HealthTarget(check.target)?.localPort else { return nil }
-    if answered { return true }
+    if let result, result.latency != nil, -result.at.timeIntervalSinceNow < 75 { return true }
     return Monitor.shared.snapshot?.processes.contains { $0.ports.contains { $0.port == port } } ?? false
   }
   func state(_ check: HealthCheck) -> ServiceState { state(check, results[check.id]) }
   private func state(_ check: HealthCheck, _ result: HealthResult?) -> ServiceState {
     serviceState(
       level: result?.level, paused: isPaused(check), fromProject: check.source != nil,
-      profileRunning: profileRunning(check), listening: listening(check, answered: result?.latency != nil))
+      hasProfile: !profiles(check).isEmpty, profileRunning: profileRunning(check), listening: listening(check, result))
+  }
+  /// Paused checks and project apps that are off (profile stopped, port free) are not probed.
+  func monitored(_ check: HealthCheck) -> Bool {
+    shouldProbe(
+      paused: isPaused(check), fromProject: check.source != nil, hasProfile: !profiles(check).isEmpty,
+      profileRunning: profileRunning(check), listening: listening(check, results[check.id]))
   }
 
   private func schedule() {
@@ -194,7 +200,14 @@ final class HealthStore: ObservableObject {
     timer?.tolerance = 5
   }
   func runAll() {
-    for check in allChecks where !isPaused(check) { run(check) }
+    for check in allChecks {
+      if monitored(check) {
+        run(check)
+      } else {
+        failures[check.id] = 0
+        alerted.remove(check.id)
+      }
+    }
   }
   func run(_ check: HealthCheck) {
     guard let target = HealthTarget(check.target) else {
@@ -390,11 +403,11 @@ extension HealthStore {
       let name = check.project ?? check.name
       return profiles(check).isEmpty
         ? L("Nada escuta na porta %@ e %@ não tem perfil: o app só está desligado. Não conta como falha nem gera alerta.", port, name)
-        : L("Nenhum perfil de %@ está rodando e nada escuta na porta %@: o app só está desligado. Não conta como falha nem gera alerta; Iniciar sobe o perfil.", name, port)
+        : L("Nenhum perfil de %@ está rodando e nada escuta na porta %@: o app está desligado, então não é verificado nem gera alerta. A verificação volta quando o perfil iniciar ou a porta abrir.", name, port)
     case .down:
       if check.source == nil { return L("Fora do ar (%@). Verificações adicionadas no app devem estar sempre no ar.", detail) }
       if profileRunning(check) { return L("Fora do ar com o perfil do projeto rodando (%@).", detail) }
-      if listening(check, answered: result?.latency != nil) == true {
+      if listening(check, result) == true {
         return L("Algo escuta na porta %@, mas a verificação falhou (%@).", port, detail)
       }
       return L("Fora do ar (%@).", detail)
@@ -473,7 +486,7 @@ struct HealthView: View {
           L("Verifica a cada 30 s enquanto o CoreScope está aberto: HTTP GET (2xx/3xx no ar, 4xx respondeu com erro, 5xx ou sem resposta fora do ar) ou conexão TCP na porta. Sem cookies nem cache; só os destinos que você adicionou são acessados. Alerta depois de duas falhas seguidas.")
         ).font(.caption).foregroundStyle(.secondary)
         Text(
-          L("Cinza: o app de um projeto sem perfil rodando e sem nada escutando na porta está só desligado; não conta na disponibilidade nem gera alerta. Vermelho fica para o que deveria estar no ar.")
+          L("Cinza: as verificações de um projeto acompanham o app dele. Com o perfil parado e nada escutando na porta, o app está desligado: não é verificado, não conta na disponibilidade nem gera alerta. Vermelho fica para o que deveria estar no ar.")
         ).font(.caption).foregroundStyle(.secondary)
       }.padding(20)
     }

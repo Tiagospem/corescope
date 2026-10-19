@@ -716,19 +716,28 @@ enum ServiceState: String, CaseIterable {
   }
 }
 /// - fromProject: declared in a `.corescope.yml` (hand-added checks always should be up).
+/// - hasProfile: that project defines a profile (its app is started through CoreScope).
 /// - profileRunning: one of that project's profiles is started or has a command running.
 /// - listening: something on this Mac listens on the target's port; nil when that can't be known
 ///   (remote host).
-func serviceState(level: HealthLevel?, paused: Bool, fromProject: Bool, profileRunning: Bool, listening: Bool?)
-  -> ServiceState
-{
+/// A project check is an app's health check: while the app is off it is "not running". With a
+/// profile it is not even probed (`shouldProbe`), whatever an older result said.
+func serviceState(
+  level: HealthLevel?, paused: Bool, fromProject: Bool, hasProfile: Bool, profileRunning: Bool, listening: Bool?
+) -> ServiceState {
   if paused { return .paused }
+  let off = fromProject && !profileRunning && listening == false
+  if off && hasProfile { return .notRunning }
   switch level {
-  case nil: return .pending
+  case nil: return off ? .notRunning : .pending
   case .up: return .up
   case .warn: return .warn
-  case .down: return fromProject && !profileRunning && listening == false ? .notRunning : .down
+  case .down: return off ? .notRunning : .down
   }
+}
+/// Paused checks and apps whose profile is stopped (and port free) are left alone.
+func shouldProbe(paused: Bool, fromProject: Bool, hasProfile: Bool, profileRunning: Bool, listening: Bool?) -> Bool {
+  !paused && !(fromProject && hasProfile && !profileRunning && listening == false)
 }
 /// Per-group summary, worst first, without empty states: [(.down, 2), (.up, 4)].
 func serviceSummary(_ states: [ServiceState]) -> [(state: ServiceState, count: Int)] {
