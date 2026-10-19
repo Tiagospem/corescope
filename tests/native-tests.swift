@@ -99,6 +99,34 @@ import Foundation
     precondition(samples[0].windowMinutes == 300)
     precondition(parseClaudeLimits(limits, now: .distantPast).count == 2)
     precondition(parseClaudeLimits(Data("nope".utf8)).isEmpty)
+    // Claude Code's /usage text (claude -p /usage): session and all-models week only.
+    let spZone = TimeZone(identifier: "America/Sao_Paulo")!
+    var spCal = Calendar(identifier: .gregorian)
+    spCal.timeZone = spZone
+    func sp(_ y: Int, _ mo: Int, _ d: Int, _ h: Int, _ mi: Int) -> Date {
+      spCal.date(from: DateComponents(year: y, month: mo, day: d, hour: h, minute: mi))!
+    }
+    let usageNow = sp(2026, 10, 18, 20, 45)
+    let usageText = """
+      You are currently using your subscription to power your Claude Code usage
+
+      Current session: 10% used · resets Oct 18 at 10:59pm (America/Sao_Paulo)
+      Current week (all models): 85% used · resets Oct 20 at 4am (America/Sao_Paulo)
+      Current week (Fable): 0% used · resets Oct 20 at 4am (America/Sao_Paulo)
+      """
+    let usage = parseClaudeUsageText(usageText, now: usageNow)
+    precondition(usage == [
+      ClaudeLimitSample(id: "five_hour", usedPercent: 10, windowMinutes: 300, resetsAt: sp(2026, 10, 18, 22, 59)),
+      ClaudeLimitSample(id: "seven_day", usedPercent: 85, windowMinutes: 10080, resetsAt: sp(2026, 10, 20, 4, 0)),
+    ], "\(usage)")
+    let bareTime = parseClaudeUsageText("Current session: 3% used · resets 11pm (America/Sao_Paulo)", now: usageNow)
+    precondition(bareTime.first?.resetsAt == sp(2026, 10, 18, 23, 0), "bare time: later today")
+    let early = parseClaudeUsageText("Current session: 3% used · resets 8:15pm (America/Sao_Paulo)", now: usageNow)
+    precondition(early.first?.resetsAt == sp(2026, 10, 19, 20, 15), "bare time already past: tomorrow")
+    let rollover = parseClaudeUsageText("Current week (all models): 12.5% used · resets Jan 2 at 12am (America/Sao_Paulo)", now: sp(2026, 12, 30, 9, 0))
+    precondition(rollover.first?.resetsAt == sp(2027, 1, 2, 0, 0) && rollover.first?.usedPercent == 12.5, "next year")
+    precondition(parseClaudeUsageText("Current week (all models): 40% used", now: usageNow).first?.resetsAt == nil)
+    precondition(parseClaudeUsageText("Total cost: $0.0000\nUsage: 0 input, 0 output", now: usageNow).isEmpty, "API key: no plan limits")
 
     // Demo mode never shows a real folder name, but keeps system paths readable.
     let fakes = ["acme-api", "web-dashboard", "mobile-app"]
@@ -276,7 +304,7 @@ import Foundation
     precondition(looksLikeTime("14:05") && looksLikeTime("2:05 pm") && looksLikeTime("14h05") && looksLikeTime("ontem 9:30"))
     precondition(!looksLikeTime("8000") && !looksLikeTime("redis") && !looksLikeTime("14"))
     print(
-      "31 native assertions passed: descendants, cycle, ordering, off-screen recovery, negative-origin monitor, forest roots, flatten, collapse, totals, ancestors, filter, formatting, container ports, shared ports, demo paths, debounce, sustained thresholds, new arrivals, port parsing, shortcut label, agent stalls, health targets, shared containers, ssh stats, gate hook, machine alerts, failed unit explanations, service history, own cost, links, palette, Claude Desktop usage, limit pace, settings backup, docker volumes; plus settings JSON, Unicode escapes, status line install/chain, Claude limits, update versions, release notes, appcast"
+      "31 native assertions passed: descendants, cycle, ordering, off-screen recovery, negative-origin monitor, forest roots, flatten, collapse, totals, ancestors, filter, formatting, container ports, shared ports, demo paths, debounce, sustained thresholds, new arrivals, port parsing, shortcut label, agent stalls, health targets, shared containers, ssh stats, gate hook, machine alerts, failed unit explanations, service history, own cost, links, palette, Claude Desktop usage, limit pace, settings backup, docker volumes; plus settings JSON, Unicode escapes, status line install/chain, Claude limits, Claude /usage text, update versions, release notes, appcast"
     )
     print(
       "token usage assertions passed: timestamps, formatting, Claude block dedupe, embedded entries, partial lines, long-line skip, fast/full parity, Codex repeats and forks"

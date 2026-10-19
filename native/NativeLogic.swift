@@ -436,6 +436,56 @@ func parseClaudeLimits(_ data: Data, now: Date = Date()) -> [ClaudeLimitSample] 
   }
 }
 
+/// Plan limits from the text Claude Code's own `/usage` command prints (`claude -p /usage`):
+/// "Current session: 10% used · resets Oct 18 at 10:59pm (America/Sao_Paulo)" is the 5-hour
+/// window and "Current week (all models): 85% used · resets Oct 20 at 4am (…)" the weekly one;
+/// per-model weekly lines are left out. The reset carries no year: the one that puts it closest
+/// to `now` wins, and a bare time ("resets 11pm") is the next such time.
+func parseClaudeUsageText(_ text: String, now: Date = Date()) -> [ClaudeLimitSample] {
+  let pattern = #"^\s*Current (session|week \(all models\)):\s*(\d+(?:\.\d+)?)% used(?:\s*·\s*resets\s+(.+?))?(?:\s*\(([^)]+)\))?\s*$"#
+  guard let regex = try? NSRegularExpression(pattern: pattern, options: [.anchorsMatchLines]) else { return [] }
+  var out: [ClaudeLimitSample] = []
+  let ns = text as NSString
+  for m in regex.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
+    func group(_ i: Int) -> String? { m.range(at: i).location == NSNotFound ? nil : ns.substring(with: m.range(at: i)) }
+    let (id, minutes) = group(1) == "session" ? ("five_hour", 300) : ("seven_day", 10080)
+    guard !out.contains(where: { $0.id == id }), let used = group(2).flatMap(Double.init) else { continue }
+    let zone = group(4).flatMap(TimeZone.init(identifier:)) ?? .current
+    let reset = group(3).flatMap { claudeUsageReset($0, zone: zone, now: now) }
+    out.append(ClaudeLimitSample(id: id, usedPercent: min(max(used, 0), 100), windowMinutes: minutes, resetsAt: reset))
+  }
+  return out
+}
+/// "Oct 20 at 3:59am", "Oct 20 at 4am" or "11pm" in `zone`.
+private func claudeUsageReset(_ text: String, zone: TimeZone, now: Date) -> Date? {
+  var calendar = Calendar(identifier: .gregorian)
+  calendar.timeZone = zone
+  let parts = text.components(separatedBy: " at ")
+  let timeText = parts.last!.lowercased().replacingOccurrences(of: " ", with: "")
+  guard let t = timeText.range(of: #"^(\d{1,2})(?::(\d{2}))?(am|pm)?$"#, options: .regularExpression) else { return nil }
+  let clock = String(timeText[t])
+  let pm = clock.hasSuffix("pm")
+  let am = clock.hasSuffix("am")
+  let digits = clock.trimmingCharacters(in: CharacterSet(charactersIn: "apm")).split(separator: ":")
+  guard var hour = Int(digits[0]), let minute = digits.count > 1 ? Int(digits[1]) : 0, hour < 24, minute < 60 else { return nil }
+  if pm && hour < 12 { hour += 12 }
+  if am && hour == 12 { hour = 0 }
+  if parts.count == 1 {
+    guard let today = calendar.date(bySettingHour: hour, minute: minute, second: 0, of: now) else { return nil }
+    return today > now ? today : calendar.date(byAdding: .day, value: 1, to: today)
+  }
+  let formatter = DateFormatter()
+  formatter.locale = Locale(identifier: "en_US_POSIX")
+  formatter.timeZone = zone
+  formatter.dateFormat = "MMM d"
+  guard let day = formatter.date(from: parts[0].trimmingCharacters(in: .whitespaces)) else { return nil }
+  let md = calendar.dateComponents([.month, .day], from: day)
+  let year = calendar.component(.year, from: now)
+  return (year - 1...year + 1).compactMap {
+    calendar.date(from: DateComponents(year: $0, month: md.month, day: md.day, hour: hour, minute: minute))
+  }.min { abs($0.timeIntervalSince(now)) < abs($1.timeIntervalSince(now)) }
+}
+
 /// Home folder shown in demo mode (`CORESCOPE_DEMO=1`).
 let demoHome = "/Users/dev"
 /// Stable stand-in from `list` for `key`, so a name always maps to the same fake one.
