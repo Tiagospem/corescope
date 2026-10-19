@@ -156,7 +156,8 @@ struct ClaudeUsage: Equatable {
   var windows: [LimitWindow] = []
   /// When the status line last ran with usage data (the file's modification time).
   var observedAt: Date?
-  /// "statusline" or "desktop" (Claude Desktop's own samples, no reset times).
+  /// "claude-code" (Claude Code's /usage), "statusline" or "desktop" (Claude Desktop's own
+  /// samples, no reset times).
   var source = "statusline"
   var weekly: LimitWindow? { windows.first { $0.windowMinutes == 10080 } ?? windows.last }
 }
@@ -376,6 +377,11 @@ final class AgentStore: ObservableObject {
   private var timer: Timer?
   private var lastCodexFile: (URL, Date)?
   private var claudeSamples: (Date, [ClaudeLimitSample])?
+  /// Last reading from Claude Code's /usage (only touched on `queue`).
+  private var claudeLive: ClaudeUsage?
+  private var lastLiveClaude: Date?
+  @Published private(set) var claudeLiveRunning = false
+  private let liveQueue = DispatchQueue(label: "app.corescope.claude-usage", qos: .utility)
   init() {
     if Preferences.shared.claudeLimits {
       queue.async {
@@ -399,8 +405,39 @@ final class AgentStore: ObservableObject {
     lastLiveCodex = nil
     refresh()
   }
+  /// Reads the Claude limit from Claude Code now (button on the limits card).
+  func refreshClaudeLive() {
+    lastLiveClaude = nil
+    refresh()
+  }
+  /// Claude Code's /usage takes a few seconds of CPU: every 5 minutes while a Claude session
+  /// worked in the last 10 minutes, every 30 minutes otherwise (usage on other devices).
+  private var claudeLiveDue: Bool {
+    guard Preferences.shared.claudeLiveLimits, !claudeLiveRunning else { return false }
+    guard let last = lastLiveClaude else { return true }
+    let recent = Date().timeIntervalSince1970 - 600
+    let active = claudeSessions.values.contains(where: \.isBusy)
+      || lastWrites.contains { $0.key.hasPrefix("claude:") && $0.value > recent }
+    return -last.timeIntervalSinceNow > (active ? 300 : 1800)
+  }
+  private func readClaudeLive() {
+    lastLiveClaude = Date()
+    claudeLiveRunning = true
+    liveQueue.async {
+      let usage = ClaudeUsageCLI.readLimits()
+      self.queue.async {
+        if let usage { self.claudeLive = usage }
+        DispatchQueue.main.async {
+          self.claudeLiveRunning = false
+          self.refresh()
+        }
+      }
+    }
+  }
   func refresh() {
     let readClaude = Preferences.shared.claudeLimits
+    let liveClaude = Preferences.shared.claudeLiveLimits
+    if claudeLiveDue { readClaudeLive() }
     // Live Codex limits (opt-in): at most every 5 minutes; local logs otherwise.
     let live = Preferences.shared.codexLiveLimits && (lastLiveCodex.map { -$0.timeIntervalSinceNow > 300 } ?? true)
     if live { lastLiveCodex = Date() }
@@ -411,9 +448,14 @@ final class AgentStore: ObservableObject {
       let cost = CostMeter.begin()
       defer { CostMeter.end("agents", cost) }
       let codex = (live ? CodexAppServer.readLimits() : nil) ?? (keepLive ? nil : self.readCodex())
-      var claude = readClaude ? self.readClaudeLimits() : ClaudeUsage()
-      // Claude Desktop samples the same limits while it runs: a local file, no credentials.
-      if claude.windows.isEmpty, let desktop = Self.readDesktopUsage() { claude = desktop }
+      // The newest of Claude Code's /usage, the status line and Claude Desktop's own samples
+      // (a local file, no credentials); one with reset times wins within 5 minutes.
+      if !liveClaude { self.claudeLive = nil }
+      let now = Date()
+      self.claudeLive?.windows.removeAll { ($0.resetsAt ?? .distantFuture) <= now }
+      let claude = [self.claudeLive, readClaude ? self.readClaudeLimits() : nil, Self.readDesktopUsage()]
+        .compactMap { $0 }.filter { !$0.windows.isEmpty }
+        .max { Self.rank($0) < Self.rank($1) } ?? ClaudeUsage()
       let sessions = Self.readClaudeSessions()
       let threads = CodexThreads.read()
       let writes = Transcripts.lastWrites(claude: Array(sessions.values), codex: threads)
@@ -449,6 +491,9 @@ final class AgentStore: ObservableObject {
         self.refresh()
       }
     }
+  }
+  private static func rank(_ u: ClaudeUsage) -> Date {
+    (u.observedAt ?? .distantPast).addingTimeInterval(u.windows.contains { $0.resetsAt != nil } ? 300 : 0)
   }
   /// Re-reads only when the file changed; expired windows drop out on every pass.
   private func readClaudeLimits() -> ClaudeUsage {
@@ -576,7 +621,8 @@ final class AgentStore: ObservableObject {
     var out: [Int32: ClaudeSessionMeta] = [:]
     for file in files.prefix(64) {
       guard let data = try? Data(contentsOf: file), data.count < 64 * 1024,
-        var meta = try? JSONDecoder().decode(ClaudeSessionMeta.self, from: data)
+        var meta = try? JSONDecoder().decode(ClaudeSessionMeta.self, from: data),
+        meta.pid != ClaudeUsageCLI.runningPID
       else { continue }
       if Demo.enabled {
         meta.name = Demo.sessionTitle(meta.pid)
@@ -664,7 +710,10 @@ struct LimitsCard: View {
             LimitPlaceholder(title: "Claude Code", text: claudeNote)
           } else {
             ForEach(agents.claude.windows) { w in LimitBar(title: "Claude", window: w) }
-            if agents.claude.source == "desktop" {
+            if agents.claude.source == "claude-code" {
+              Text(L("via Claude Code %@", (agents.claude.observedAt ?? Date()).formatted(date: .omitted, time: .shortened)))
+                .font(.caption2).foregroundStyle(.secondary)
+            } else if agents.claude.source == "desktop" {
               let at = agents.claude.observedAt ?? Date()
               Text(
                 L("via Claude Desktop %@ · sem horário de reinício; atualiza enquanto o Claude Desktop está aberto", at.formatted(.relative(presentation: .named)))
@@ -675,6 +724,24 @@ struct LimitsCard: View {
                 [agents.claude.observedAt.map { L("atualizado %@", $0.formatted(date: .omitted, time: .shortened)) },
                  L("renova a cada resposta do Claude Code")].compactMap { $0 }.joined(separator: " · ")
               ).font(.caption2).foregroundStyle(.secondary)
+            }
+          }
+          if ClaudeUsageCLI.available {
+            if prefs.claudeLiveLimits {
+              Button {
+                agents.refreshClaudeLive()
+              } label: {
+                Label(L("Atualizar"), systemImage: "arrow.clockwise")
+              }.buttonStyle(.bordered).controlSize(.small).disabled(agents.claudeLiveRunning)
+                .help(L("Pede o limite atual ao próprio Claude Code (atualiza sozinho a cada 5 min enquanto você usa o Claude, a cada 30 min fora disso)."))
+            } else {
+              Button {
+                prefs.claudeLiveLimits = true
+                agents.refreshClaudeLive()
+              } label: {
+                Label(L("Ler o limite atual pelo Claude Code"), systemImage: "arrow.down.circle")
+              }.buttonStyle(.bordered).controlSize(.small)
+                .help(L("Roda o /usage do próprio Claude Code, que consulta sua conta com o login dele; não gasta tokens. O CoreScope não lê credenciais. Pode desligar em Ajustes › Agentes."))
             }
           }
         }.frame(maxWidth: .infinity, alignment: .leading)

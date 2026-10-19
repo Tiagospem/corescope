@@ -11,16 +11,32 @@ section as the GitHub release notes.
 ## [Unreleased]
 
 ### Added
-- **Performance audit**: MCP `performance_audit` sweeps what CoreScope already knows and ranks what
-  the user could stop, remove or turn off — orphans, heavy apps and processes, stuck or
-  power-hungry agent sessions, started profiles, idle and stopped containers, reclaimable space
-  from the cached Cleanup scan and plan, folders Disk growth saw grow, Services checks that are
-  always down, and CoreScope's own costliest switches (collector interval, floating panel, Codex
-  live limits). Each finding carries what it would give back (CPU, memory, disk, watts), how sure
+- **Performance audit**: MCP `performance_audit` sweeps what CoreScope already knows and ranks
+  what the user could stop, remove or turn off — orphans, heavy apps and processes, stuck or
+  power-hungry agent sessions, started profiles, idle and stopped containers, reclaimable space from the
+  cached Cleanup scan and plan, folders Disk growth saw grow, Services checks that are always down,
+  and CoreScope's own costliest switches (collector interval, floating panel, Codex and Claude live
+  limits). Each finding carries what it would give back (CPU, memory, disk, watts), how sure
   CoreScope is, and the tool and arguments that act on it; the audit never acts, never scans the
   disk, and lists stale sources with the tool that refreshes them. Ranking weighs whatever is tight
   right now (memory pressure, a nearly full disk, battery). The top findings also show on the
   Overview as *To lighten the Mac*, each row opening the page where to act.
+
+## [0.8.1] - 2026-10-18
+
+### Added
+- **Current Claude limits** (opt-in): *Settings › Agents › Read the current limit through Claude
+  Code* (or the button on the limits card) runs Claude Code's own `/usage` (`claude -p /usage`, no
+  model turn, no tokens, no session saved, hooks off) every 5 minutes while a Claude session is
+  working and every 30 minutes otherwise, so the panel, menu bar and overview show the same 5-hour
+  and weekly numbers, with reset times, as Claude Code and Claude Desktop — instead of a Claude
+  Desktop sample that can be hours old. Claude Code asks Anthropic with its own login; CoreScope
+  reads no credentials. MCP `usage_limits` adds `age_seconds` and `live_read` for Claude and Codex.
+
+### Changed
+- The Claude limit shown is now the newest of Claude Code's `/usage`, the status line and Claude
+  Desktop's samples (one with reset times wins within 5 minutes); an old status-line reading no
+  longer hides a newer Claude Desktop sample.
 
 ## [0.8.0] - 2026-10-18
 
@@ -406,7 +422,8 @@ First public release.
   compact / standard / detailed layouts and in-panel controls.
 - English, Portuguese and Spanish; offline-only.
 
-[Unreleased]: https://github.com/Tiagospem/corescope/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/Tiagospem/corescope/compare/v0.8.1...HEAD
+[0.8.1]: https://github.com/Tiagospem/corescope/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/Tiagospem/corescope/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/Tiagospem/corescope/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/Tiagospem/corescope/compare/v0.5.1...v0.6.0

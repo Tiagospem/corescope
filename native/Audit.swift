@@ -339,6 +339,18 @@ enum PerformanceAudit {
           confidence: .medium, userOnly: true,
           note: "Settings › Agents: it asks OpenAI through Codex, so only the user switches it.", page: .settings))
     }
+    if p.claudeLiveLimits {
+      let claude = s.processes.filter { $0.ppid == getpid() && $0.name.lowercased().contains("claude") }
+      out.append(
+        AuditFinding(
+          id: "corescope:claude-live", category: "corescope", title: title("claudeLive"),
+          why: raw(feature("claudeLive")?.cadence ?? ""),
+          impact: AuditImpact(
+            cpu: claude.reduce(0) { $0 + max(0, $1.cpu.value ?? 0) }, memory: claude.reduce(0) { $0 + max(0, $1.memory.value ?? 0) }),
+          confidence: .low, userOnly: true,
+          note: "Settings › Agents: Claude Code asks Anthropic with its own login, so only the user switches it. Cost is a few seconds of CPU per reading.",
+          page: .settings))
+    }
     if p.historyEnabled, let h = feature("history"), h.weight >= .medium {
       out.append(
         AuditFinding(
