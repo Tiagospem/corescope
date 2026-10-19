@@ -3,7 +3,7 @@
 use serde::Serialize;
 use serde_json::Value;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     io::{Read, Write},
     os::unix::net::UnixStream,
     path::{Path, PathBuf},
@@ -414,9 +414,17 @@ pub struct VolumeInfo {
     pub engine: &'static str,
     /// Bytes on disk, when the engine measured it.
     pub size: Option<u64>,
-    /// Containers using it (stopped ones included); 0 means unused.
+    /// Containers using it (stopped ones included); 0 means unused, -1 unknown.
     pub containers: i64,
     pub project: Option<String>,
+    /// RFC 3339 creation time from the engine.
+    pub created: Option<String>,
+    pub driver: Option<String>,
+    pub labels: BTreeMap<String, String>,
+    /// Made by `docker run` or a Dockerfile `VOLUME` without a name (64-hex name).
+    pub anonymous: bool,
+    /// Names of the containers (running or stopped) that mount it.
+    pub used_by: Vec<String>,
 }
 /// Slower facts read on demand (a page asks every ~30 s, not every 5 s).
 #[derive(Debug, Default, Serialize)]
@@ -433,20 +441,52 @@ pub fn parse_volumes(body: &Value, engine: &'static str) -> Vec<VolumeInfo> {
         .into_iter()
         .flatten()
         .filter_map(|v| {
+            let name = v["Name"].as_str()?.to_string();
+            let labels: BTreeMap<String, String> = v["Labels"]
+                .as_object()
+                .into_iter()
+                .flatten()
+                .filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_string())))
+                .collect();
             Some(VolumeInfo {
-                name: v["Name"].as_str()?.to_string(),
                 engine,
                 size: v["UsageData"]["Size"]
                     .as_i64()
                     .filter(|s| *s >= 0)
                     .map(|s| s as u64),
                 containers: v["UsageData"]["RefCount"].as_i64().unwrap_or(-1),
-                project: v["Labels"]["com.docker.compose.project"]
-                    .as_str()
-                    .map(String::from),
+                project: labels.get("com.docker.compose.project").cloned(),
+                created: v["CreatedAt"].as_str().map(String::from),
+                driver: v["Driver"].as_str().map(String::from),
+                anonymous: labels.contains_key("com.docker.volume.anonymous")
+                    || (name.len() == 64 && name.bytes().all(|b| b.is_ascii_hexdigit())),
+                labels,
+                used_by: vec![],
+                name,
             })
         })
         .collect()
+}
+/// Container name → volume names it mounts, from a `/containers/json` list.
+pub fn volume_users(list: &Value) -> HashMap<String, Vec<String>> {
+    let mut out: HashMap<String, Vec<String>> = HashMap::new();
+    for c in list.as_array().into_iter().flatten() {
+        let name = c["Names"][0]
+            .as_str()
+            .map(|n| n.trim_start_matches('/').to_string())
+            .unwrap_or_default();
+        for m in c["Mounts"].as_array().into_iter().flatten() {
+            if m["Type"].as_str() == Some("volume")
+                && let Some(volume) = m["Name"].as_str()
+            {
+                let users = out.entry(volume.to_string()).or_default();
+                if !users.contains(&name) {
+                    users.push(name.clone());
+                }
+            }
+        }
+    }
+    out
 }
 /// Reads volumes, image dates and (for containers not seen before) restart policies. Inspect
 /// carries the container's environment, so only the policy name is taken from it.
@@ -458,6 +498,7 @@ pub fn details(known: &mut HashMap<String, String>) -> Details {
     let mut out = Details::default();
     for socket in sockets(&home, host.as_deref()) {
         let engine = engine_name(&socket.to_string_lossy());
+        let first_volume = out.volumes.len();
         if let Ok(r) = request(
             &socket,
             "GET",
@@ -496,12 +537,12 @@ pub fn details(known: &mut HashMap<String, String>) -> Details {
         ) else {
             continue;
         };
-        for c in serde_json::from_slice::<Value>(&list.body)
-            .unwrap_or_default()
-            .as_array()
-            .into_iter()
-            .flatten()
-        {
+        let list = serde_json::from_slice::<Value>(&list.body).unwrap_or_default();
+        let users = volume_users(&list);
+        for v in &mut out.volumes[first_volume..] {
+            v.used_by = users.get(&v.name).cloned().unwrap_or_default();
+        }
+        for c in list.as_array().into_iter().flatten() {
             let Some(id) = c["Id"].as_str().filter(|i| valid_id(i)) else {
                 continue;
             };
@@ -598,18 +639,274 @@ pub fn act(id: &str, action: &str) -> Result<(), String> {
     }
 }
 
+/// Why a volume may not be removed, decided from fresh engine data right before the request.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum VolumeRefusal {
+    Invalid,
+    NotFound,
+    /// Present in more than one engine; the caller must name one.
+    Ambiguous {
+        engines: Vec<String>,
+    },
+    /// Mounted by these containers (running or stopped); the engine is never asked to force.
+    InUse {
+        containers: Vec<String>,
+    },
+    /// The engine did not say whether anything uses it.
+    UsageUnknown,
+    NoAnswer,
+    Refused {
+        status: u16,
+        message: String,
+    },
+}
+impl VolumeRefusal {
+    /// Portuguese, like the other core errors (the app translates by `kind`).
+    pub fn pt(&self) -> String {
+        match self {
+            Self::Invalid => "Nome de volume inválido".into(),
+            Self::NotFound => "Volume não encontrado".into(),
+            Self::Ambiguous { engines } => {
+                format!("Volume existe em mais de um motor: {}", engines.join(", "))
+            }
+            Self::InUse { containers } => format!("Em uso por {}", containers.join(", ")),
+            Self::UsageUnknown => "O motor não informou se o volume está em uso".into(),
+            Self::NoAnswer => "O motor de contêineres não respondeu".into(),
+            Self::Refused { status, message } => format!("{REFUSED} (HTTP {status}) {message}")
+                .trim_end()
+                .into(),
+        }
+    }
+    /// English for agents (MCP).
+    pub fn en(&self) -> String {
+        match self {
+            Self::Invalid => "invalid volume name".into(),
+            Self::NotFound => "no such volume; list_volumes shows the names".into(),
+            Self::Ambiguous { engines } => format!(
+                "the volume exists in more than one engine ({}); pass engine",
+                engines.join(", ")
+            ),
+            Self::InUse { containers } => format!(
+                "in use by {} (running or stopped); it is never removed while a container references it",
+                containers.join(", ")
+            ),
+            Self::UsageUnknown => "the engine did not report whether the volume is in use".into(),
+            Self::NoAnswer => "the container engine did not answer".into(),
+            Self::Refused { status, message } => {
+                format!("the engine refused (HTTP {status}) {message}")
+                    .trim_end()
+                    .into()
+            }
+        }
+    }
+}
+
+/// Volume names the engine accepts (`[a-zA-Z0-9][a-zA-Z0-9_.-]*`); nothing else reaches a
+/// request path, so they need no escaping.
+pub fn valid_volume_name(name: &str) -> bool {
+    let b = name.as_bytes();
+    (1..=255).contains(&b.len())
+        && b[0].is_ascii_alphanumeric()
+        && b.iter()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'.' | b'-'))
+}
+/// Containers (all states) that mount a volume, through the list filter, never inspect.
+pub fn volume_users_path(name: &str) -> String {
+    format!("/containers/json?all=1&filters=%7B%22volume%22%3A%5B%22{name}%22%5D%7D")
+}
+/// The removal rule shared by the app and MCP: only a volume no container references.
+pub fn removal_refusal(ref_count: i64, users: &[String]) -> Option<VolumeRefusal> {
+    if !users.is_empty() {
+        Some(VolumeRefusal::InUse {
+            containers: users.to_vec(),
+        })
+    } else if ref_count > 0 {
+        Some(VolumeRefusal::InUse { containers: vec![] })
+    } else if ref_count < 0 {
+        Some(VolumeRefusal::UsageUnknown)
+    } else {
+        None
+    }
+}
+/// "MySQL", "PostgreSQL" or "Redis" when the name, the compose volume key or the images of the
+/// containers using the volume say so (the app's `volumeDatabaseKind` follows the same rule).
+pub fn database_kind(
+    name: &str,
+    labels: &BTreeMap<String, String>,
+    images: &[String],
+) -> Option<&'static str> {
+    let mut text = format!(
+        "{name} {}",
+        labels
+            .get("com.docker.compose.volume")
+            .map(String::as_str)
+            .unwrap_or("")
+    );
+    for image in images {
+        text.push(' ');
+        text.push_str(image);
+    }
+    let text = text.to_lowercase();
+    if text.contains("mysql") || text.contains("mariadb") {
+        Some("MySQL")
+    } else if text.contains("postgres") || text.contains("pgdata") {
+        Some("PostgreSQL")
+    } else if text.contains("redis") || text.contains("valkey") {
+        Some("Redis")
+    } else {
+        None
+    }
+}
+/// Every volume of the local engines with what uses it (the same read as the Containers page).
+pub fn volumes() -> Vec<VolumeInfo> {
+    details(&mut HashMap::new()).volumes
+}
+/// Removes one volume after the user (or an agent with the user's confirmation) asked for this
+/// exact name. Re-checks right before: it must exist in one engine (or the one named) and no
+/// container may mount it. `DELETE /volumes/{name}` without `force`, so the engine refuses too.
+pub fn remove_volume(name: &str, engine: Option<&str>) -> Result<&'static str, VolumeRefusal> {
+    if !valid_volume_name(name) {
+        return Err(VolumeRefusal::Invalid);
+    }
+    let home = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_default();
+    let host = std::env::var("DOCKER_HOST").ok();
+    let path = format!("/volumes/{name}");
+    let mut found: Vec<(PathBuf, &'static str)> = vec![];
+    for socket in sockets(&home, host.as_deref()) {
+        let label = engine_name(&socket.to_string_lossy());
+        if engine.is_some_and(|e| !e.eq_ignore_ascii_case(label)) {
+            continue;
+        }
+        if let Ok(r) = request(&socket, "GET", &path, Duration::from_secs(3))
+            && r.status == 200
+        {
+            found.push((socket, label));
+        }
+    }
+    let (socket, label) = match found.as_slice() {
+        [] => return Err(VolumeRefusal::NotFound),
+        [one] => one.clone(),
+        many => {
+            return Err(VolumeRefusal::Ambiguous {
+                engines: many.iter().map(|(_, l)| l.to_string()).collect(),
+            });
+        }
+    };
+    let users = request(
+        &socket,
+        "GET",
+        &volume_users_path(name),
+        Duration::from_secs(3),
+    )
+    .ok()
+    .filter(|r| r.status == 200)
+    .and_then(|r| serde_json::from_slice::<Value>(&r.body).ok())
+    .ok_or(VolumeRefusal::NoAnswer)?;
+    let users: Vec<String> = volume_users(&users).remove(name).unwrap_or_else(|| {
+        // The filter matched containers whose mount list was cut: still in use.
+        users
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|c| c["Names"][0].as_str())
+            .map(|n| n.trim_start_matches('/').to_string())
+            .collect()
+    });
+    if let Some(refusal) = removal_refusal(0, &users) {
+        return Err(refusal);
+    }
+    let r = request(&socket, "DELETE", &path, Duration::from_secs(60))
+        .map_err(|_| VolumeRefusal::NoAnswer)?;
+    match r.status {
+        204 => Ok(label),
+        404 => Err(VolumeRefusal::NotFound),
+        status => {
+            let message = serde_json::from_slice::<Value>(&r.body)
+                .ok()
+                .and_then(|v| {
+                    v["message"]
+                        .as_str()
+                        .map(|m| m.chars().take(160).collect::<String>())
+                })
+                .unwrap_or_default();
+            Err(VolumeRefusal::Refused { status, message })
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     #[test]
     fn volumes_from_system_df() {
         let body = serde_json::json!({"Volumes": [
-            {"Name": "shop_db", "UsageData": {"Size": 2048, "RefCount": 1}, "Labels": {"com.docker.compose.project": "shop"}},
-            {"Name": "orphan", "UsageData": {"Size": -1, "RefCount": 0}, "Labels": null}
+            {"Name": "shop_db", "UsageData": {"Size": 2048, "RefCount": 1}, "Labels": {"com.docker.compose.project": "shop"},
+             "CreatedAt": "2026-10-01T12:36:01-03:00", "Driver": "local"},
+            {"Name": "orphan", "UsageData": {"Size": -1, "RefCount": 0}, "Labels": null},
+            {"Name": "32a362dbf144daff3a909400cbdf09fba92b6f86ad4038252e201b676f0df432",
+             "UsageData": {"Size": 10, "RefCount": 0}, "Labels": {"com.docker.volume.anonymous": ""}}
         ]});
         let v = parse_volumes(&body, "OrbStack");
         assert_eq!(v[0].project.as_deref(), Some("shop"));
+        assert_eq!(v[0].created.as_deref(), Some("2026-10-01T12:36:01-03:00"));
+        assert!(!v[0].anonymous && v[2].anonymous);
         assert_eq!((v[1].size, v[1].containers), (None, 0));
+        assert!(v[1].labels.is_empty());
+    }
+    #[test]
+    fn volume_users_from_mounts() {
+        let list = serde_json::json!([
+            {"Names": ["/db"], "Mounts": [{"Type": "volume", "Name": "mysql_data"}, {"Type": "bind"}]},
+            {"Names": ["/db-old"], "Mounts": [{"Type": "volume", "Name": "mysql_data"}]},
+            {"Names": ["/web"], "Mounts": []}
+        ]);
+        let users = volume_users(&list);
+        assert_eq!(users["mysql_data"], vec!["db", "db-old"]);
+        assert_eq!(users.len(), 1);
+    }
+    #[test]
+    fn volume_removal_rules() {
+        assert!(valid_volume_name("lei45-mysql-279900a8"));
+        assert!(valid_volume_name(&"a".repeat(64)));
+        assert!(!valid_volume_name(""));
+        assert!(!valid_volume_name("../containers/x"));
+        assert!(!valid_volume_name("a b"));
+        assert!(!valid_volume_name("_x"));
+        assert!(!valid_volume_name("x?force=1"));
+        assert_eq!(removal_refusal(0, &[]), None);
+        assert_eq!(
+            removal_refusal(0, &["db".into()]),
+            Some(VolumeRefusal::InUse {
+                containers: vec!["db".into()]
+            })
+        );
+        assert!(matches!(
+            removal_refusal(2, &[]),
+            Some(VolumeRefusal::InUse { .. })
+        ));
+        assert_eq!(removal_refusal(-1, &[]), Some(VolumeRefusal::UsageUnknown));
+        assert!(remove_volume("../x", None) == Err(VolumeRefusal::Invalid));
+        let none = BTreeMap::new();
+        assert_eq!(
+            database_kind("lei45-mysql-279900a8", &none, &[]),
+            Some("MySQL")
+        );
+        assert_eq!(
+            database_kind("x", &none, &["library/redis:8.6.2".into()]),
+            Some("Redis")
+        );
+        assert_eq!(database_kind("typesense-data", &none, &[]), None);
+        assert!(volume_users_path("v1").ends_with("filters=%7B%22volume%22%3A%5B%22v1%22%5D%7D"));
+        assert!(
+            VolumeRefusal::InUse {
+                containers: vec!["db".into()]
+            }
+            .en()
+            .contains("never removed")
+        );
     }
     #[test]
     fn http_plain_and_chunked() {

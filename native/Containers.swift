@@ -503,41 +503,153 @@ private struct ComposeHeader: View {
   }
 }
 
-/// Named volumes with size and use; unused ones flagged (removing them deletes data, so CoreScope
-/// only shows them).
+/// Named volumes with size, what made them and what uses them. Only volumes no container
+/// references (running or stopped) can be removed, one or all at once, after a confirmation that
+/// names them: the engine deletes the data for good.
 private struct VolumesCard: View {
   let volumes: [VolumeInfo]
+  @ObservedObject var store = DockerDetailsStore.shared
+  @ObservedObject var containers = ContainerStore.shared
   @ViewState private var showAll = false
+  @ViewState private var pending: [VolumeInfo] = []
   var body: some View {
-    if !volumes.isEmpty {
-      let unused = volumes.filter { $0.containers == 0 }
+    if !volumes.isEmpty || !store.results.isEmpty {
+      let plan = volumeRemovalPlan(volumes.map { ($0.name, $0.size, $0.containers, $0.used_by) })
+      let removable = volumes.filter { volumeBlock(refCount: $0.containers, usedBy: $0.used_by) == nil }
       Card {
         CardHeader(title: L("Volumes"), symbol: "externaldrive.connected.to.line.below", count: volumes.count) {
           Text(diskBytes(Double(volumes.compactMap(\.size).reduce(0, +)))).font(.caption).foregroundStyle(.secondary)
-        }
-        if !unused.isEmpty {
-          Text(
-            L("%@ sem nenhum contêiner (%@). Remover um volume apaga os dados dele; faça pelo Docker se tiver certeza.",
-              "\(unused.count)", diskBytes(Double(unused.compactMap(\.size).reduce(0, +))))
-          ).font(.caption).foregroundStyle(.orange)
-        }
-        ForEach(Array((showAll ? volumes : Array(volumes.prefix(8))).enumerated()), id: \.offset) { _, v in
-          HStack(spacing: 8) {
-            Image(systemName: "cylinder").foregroundStyle(.secondary).frame(width: 16)
-            Text(v.name).font(.callout).lineLimit(1).truncationMode(.middle).help(v.name)
-            if let project = v.project { Badge(text: project, color: .secondary) }
-            Spacer()
-            Text(v.containers == 0 ? L("sem uso") : v.containers > 0 ? L("%@ contêiner(es)", "\(v.containers)") : "")
-              .font(.caption).foregroundStyle(v.containers == 0 ? .orange : .secondary)
-            Text(v.size.map { diskBytes(Double($0)) } ?? "—").font(.callout).monospacedDigit().frame(width: 80, alignment: .trailing)
+          if store.removing {
+            ProgressView().controlSize(.small)
+          } else if !removable.isEmpty {
+            Button(L("Remover sem uso…")) { pending = removable }
+              .controlSize(.small).tint(Tint.danger)
+              .help(L("Remove os volumes que nenhum contêiner usa, depois de confirmar"))
           }
         }
+        if !removable.isEmpty {
+          Text(
+            L("%@ sem nenhum contêiner (%@). Remover um volume apaga os dados dele para sempre.",
+              "\(removable.count)", diskBytes(Double(plan.bytes)))
+          ).font(.caption).foregroundStyle(.orange)
+        }
+        if !store.results.isEmpty { results }
+        ForEach(showAll ? volumes : Array(volumes.prefix(8)), id: \.self) { v in row(v) }
         if volumes.count > 8 {
           Button(showAll ? L("Mostrar menos") : L("Mostrar todos (%@)", "\(volumes.count)")) { showAll.toggle() }
             .buttonStyle(.link).font(.caption)
         }
       }
+      .confirmationDialog(confirmTitle, isPresented: Binding(get: { !pending.isEmpty }, set: { if !$0 { pending = [] } }),
+        titleVisibility: .visible
+      ) {
+        Button(L("Remover"), role: .destructive) {
+          store.remove(pending)
+          pending = []
+        }
+        Button(L("Cancelar"), role: .cancel) { pending = [] }
+      } message: {
+        Text(confirmMessage)
+      }
     }
+  }
+
+  private func row(_ v: VolumeInfo) -> some View {
+    let block = volumeBlock(refCount: v.containers, usedBy: v.used_by)
+    let kind = volumeDatabaseKind(name: v.name, labels: v.labels, images: images(v.used_by))
+    return HStack(spacing: 8) {
+      Image(systemName: "cylinder").foregroundStyle(.secondary).frame(width: 16)
+      VStack(alignment: .leading, spacing: 1) {
+        HStack(spacing: 6) {
+          Text(v.anonymous ? String(v.name.prefix(12)) : v.name).font(.callout).lineLimit(1).truncationMode(.middle)
+            .help(v.name)
+          if let project = v.origin?.project ?? v.project { Badge(text: project, color: .secondary) }
+          if let kind { Badge(text: kind, color: Tint.netIn) }
+        }
+        let info = details(v)
+        if !info.isEmpty { Text(info).font(.caption2).foregroundStyle(.secondary).lineLimit(1) }
+      }
+      Spacer()
+      usage(block).font(.caption)
+      Text(v.size.map { diskBytes(Double($0)) } ?? "—").font(.callout).monospacedDigit().frame(width: 80, alignment: .trailing)
+      if block == nil {
+        Button {
+          pending = [v]
+        } label: {
+          Image(systemName: "trash").font(.system(size: 12))
+        }.buttonStyle(.borderless).foregroundStyle(Tint.danger).disabled(store.removing)
+          .help(L("Remover o volume %@…", v.name)).accessibilityLabel(L("Remover o volume %@…", v.name))
+      } else {
+        Image(systemName: "trash").font(.system(size: 12)).foregroundStyle(.quaternary)
+          .help(blockHelp(block)).accessibilityHidden(true)
+      }
+    }
+  }
+  @ViewBuilder private func usage(_ block: VolumeBlock?) -> some View {
+    switch block {
+    case nil: Text(L("sem uso")).foregroundStyle(.orange)
+    case .inUse(let names):
+      Text(L("em uso por %@", names.joined(separator: ", "))).foregroundStyle(.secondary).lineLimit(1)
+        .help(blockHelp(block))
+    case .inUseCount(let n): Text(L("%@ contêiner(es)", "\(n)")).foregroundStyle(.secondary).help(blockHelp(block))
+    case .usageUnknown: Text(L("uso desconhecido")).foregroundStyle(.secondary).help(blockHelp(block))
+    }
+  }
+  private func blockHelp(_ block: VolumeBlock?) -> String {
+    switch block {
+    case .usageUnknown: L("O Docker não informou se algum contêiner usa este volume; o CoreScope não o remove.")
+    default:
+      L("Só volumes que nenhum contêiner usa (rodando ou parado) podem ser removidos. Remova o contêiner antes, se não precisar mais dele.")
+    }
+  }
+  /// What made it (labels), when, and for anonymous ones that nothing says more.
+  private func details(_ v: VolumeInfo) -> String {
+    var parts: [String] = []
+    if v.anonymous { parts.append(L("anônimo")) }
+    if let detail = v.origin?.detail { parts.append(L("volume %@ do compose", detail)) }
+    if let date = v.createdDate { parts.append(L("criado %@", date.formatted(.relative(presentation: .named)))) }
+    if v.anonymous, v.origin == nil, v.used_by.isEmpty {
+      parts.append(L("nenhum rótulo diz o que o criou"))
+    }
+    if Set(volumes.map(\.engine)).count > 1 { parts.append(v.engine) }
+    return parts.joined(separator: " · ")
+  }
+  private func images(_ names: [String]) -> [String] {
+    (containers.report?.containers ?? []).filter { names.contains($0.name) }.map(\.image)
+  }
+  private var results: some View {
+    VStack(alignment: .leading, spacing: 3) {
+      ForEach(store.results, id: \.name) { r in
+        HStack(spacing: 6) {
+          Image(systemName: r.error == nil ? "checkmark.circle.fill" : "xmark.octagon.fill")
+            .foregroundStyle(r.error == nil ? Tint.brand : Tint.danger)
+          Text(r.error.map { L("%@: %@", r.name, $0) } ?? L("%@ removido (%@)", r.name, r.size.map { diskBytes(Double($0)) } ?? "—"))
+            .lineLimit(2).truncationMode(.middle)
+        }.font(.caption)
+      }
+      Button(L("Limpar resultado")) { store.results = [] }.buttonStyle(.link).font(.caption)
+    }
+  }
+  private var confirmTitle: String {
+    pending.count == 1
+      ? L("Remover o volume %@?", pending[0].anonymous ? String(pending[0].name.prefix(12)) : pending[0].name)
+      : L("Remover %@ volumes sem uso?", "\(pending.count)")
+  }
+  private var confirmMessage: String {
+    let lines = pending.prefix(12).map { v in
+      "• \(v.name) — \(v.size.map { diskBytes(Double($0)) } ?? "—")"
+    }
+    var text = lines.joined(separator: "\n")
+    if pending.count > 12 { text += "\n" + L("+ %@ outros", "\(pending.count - 12)") }
+    let total = pending.compactMap(\.size).reduce(0, +)
+    text += "\n\n" + L("Total: %@. Os dados são apagados permanentemente pelo Docker e não podem ser recuperados.", diskBytes(Double(total)))
+    let kinds = Set(pending.compactMap { volumeDatabaseKind(name: $0.name, labels: $0.labels) })
+    if !kinds.isEmpty {
+      text += "\n\n" + L(
+        "Parece haver dados de %@ aqui. Sem nenhum contêiner usando o volume, não há servidor rodando para tirar um snapshot: se ainda precisar desses dados, suba um contêiner com ele e faça um snapshot em Bancos antes de remover.",
+        kinds.sorted().joined(separator: ", "))
+    }
+    return text
   }
 }
 
@@ -547,6 +659,17 @@ struct VolumeInfo: Decodable, Hashable {
   let size: Int64?
   let containers: Int
   let project: String?
+  let created: String?
+  let labels: [String: String]
+  let anonymous: Bool
+  let used_by: [String]
+  var origin: VolumeOrigin? { volumeOrigin(labels: labels) }
+  var createdDate: Date? { created.flatMap { ISO8601DateFormatter().date(from: $0) } }
+}
+struct VolumeRemoval {
+  let name: String
+  let size: Int64?
+  let error: String?
 }
 struct DockerDetails: Decodable {
   var volumes: [VolumeInfo] = []
@@ -557,6 +680,9 @@ struct DockerDetails: Decodable {
 final class DockerDetailsStore: ObservableObject {
   static let shared = DockerDetailsStore()
   @Published private(set) var details = DockerDetails()
+  @Published private(set) var removing = false
+  /// Outcome of the last removal, one line per volume, until the user clears it.
+  @Published var results: [VolumeRemoval] = []
   private let queue = DispatchQueue(label: "app.corescope.dockerdetails", qos: .utility)
   private var busy = false
   func refresh() {
@@ -575,6 +701,57 @@ final class DockerDetailsStore: ObservableObject {
         self.busy = false
         if let next { self.details = next }
       }
+    }
+  }
+  /// Runs after the user confirmed: one `DELETE /volumes/{name}` each (never forced); the core
+  /// re-checks that no container mounts it right before. Refreshes the list when done.
+  func remove(_ volumes: [VolumeInfo], done: (([VolumeRemoval]) -> Void)? = nil) {
+    guard !removing, !volumes.isEmpty else { return }
+    removing = true
+    results = []
+    let monitor = Monitor.shared
+    monitor.feedback = ActionFeedback(message: L("Removendo %@ volume(s)…", "\(volumes.count)"), pending: true)
+    DispatchQueue.global(qos: .userInitiated).async {
+      let out = volumes.map { v in VolumeRemoval(name: v.name, size: v.size, error: Self.removeOne(v.name, engine: v.engine)) }
+      DispatchQueue.main.async {
+        self.removing = false
+        self.results = out
+        let failed = out.filter { $0.error != nil }.count
+        let freed = out.filter { $0.error == nil }.compactMap(\.size).reduce(0, +)
+        monitor.feedback = ActionFeedback(
+          message: failed == 0
+            ? L("%@ volume(s) removido(s), %@ liberados.", "\(out.count)", diskBytes(Double(freed)))
+            : L("%@ de %@ volume(s) não foram removidos.", "\(failed)", "\(out.count)"),
+          failed: failed > 0)
+        done?(out)
+        self.refresh()
+      }
+    }
+  }
+  /// The error to show, localized from the core's refusal kind; nil when the engine removed it.
+  static func removeOne(_ name: String, engine: String?) -> String? {
+    guard
+      let pointer = name.withCString({ n in
+        engine.map { $0.withCString { cs_volume_remove(n, $0) } } ?? cs_volume_remove(n, nil)
+      })
+    else { return L("falha interna") }
+    defer { cs_free(pointer) }
+    let data = Data(bytes: pointer, count: strlen(pointer))
+    let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+    if obj?["ok"] as? Bool == true { return nil }
+    let refusal = obj?["refusal"] as? [String: Any]
+    switch refusal?["kind"] as? String {
+    case "in_use":
+      let names = refusal?["containers"] as? [String] ?? []
+      return names.isEmpty ? L("em uso por um contêiner") : L("em uso por %@", names.joined(separator: ", "))
+    case "not_found": return L("Volume não encontrado")
+    case "invalid": return L("Nome de volume inválido")
+    case "usage_unknown": return L("uso desconhecido")
+    case "ambiguous": return L("existe em mais de um motor")
+    case "no_answer": return L("O motor de contêineres não respondeu")
+    case "refused":
+      return L("O motor recusou a ação") + " (HTTP \(refusal?["status"] ?? "")) \(refusal?["message"] as? String ?? "")"
+    default: return (obj?["error"] as? String).map { L($0) } ?? L("falha interna")
     }
   }
 }

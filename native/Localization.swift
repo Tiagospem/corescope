@@ -881,7 +881,32 @@ private let entries = """
   Parar todos ¦ Stop all ¦ Detener todos
   Parar os contêineres de %@ ¦ Stop the containers of %@ ¦ Detener los contenedores de %@
   Volumes ¦ Volumes ¦ Volúmenes
-  %@ sem nenhum contêiner (%@). Remover um volume apaga os dados dele; faça pelo Docker se tiver certeza. ¦ %@ not used by any container (%@). Removing a volume deletes its data; do it through Docker if you are sure. ¦ %@ sin ningún contenedor (%@). Eliminar un volumen borra sus datos; hazlo con Docker si estás seguro.
+  %@ sem nenhum contêiner (%@). Remover um volume apaga os dados dele para sempre. ¦ %@ not used by any container (%@). Removing a volume deletes its data for good. ¦ %@ sin ningún contenedor (%@). Eliminar un volumen borra sus datos para siempre.
+  Remover sem uso… ¦ Remove unused… ¦ Eliminar sin uso…
+  Remove os volumes que nenhum contêiner usa, depois de confirmar ¦ Removes the volumes no container uses, after you confirm ¦ Elimina los volúmenes que ningún contenedor usa, tras confirmar
+  Remover o volume %@… ¦ Remove the %@ volume… ¦ Eliminar el volumen %@…
+  Remover o volume %@? ¦ Remove the %@ volume? ¦ ¿Eliminar el volumen %@?
+  Remover %@ volumes sem uso? ¦ Remove %@ unused volumes? ¦ ¿Eliminar %@ volúmenes sin uso?
+  em uso por %@ ¦ in use by %@ ¦ en uso por %@
+  em uso por um contêiner ¦ in use by a container ¦ en uso por un contenedor
+  uso desconhecido ¦ usage unknown ¦ uso desconocido
+  O Docker não informou se algum contêiner usa este volume; o CoreScope não o remove. ¦ Docker did not say whether any container uses this volume; CoreScope does not remove it. ¦ Docker no indicó si algún contenedor usa este volumen; CoreScope no lo elimina.
+  Só volumes que nenhum contêiner usa (rodando ou parado) podem ser removidos. Remova o contêiner antes, se não precisar mais dele. ¦ Only volumes no container uses (running or stopped) can be removed. Remove the container first if you no longer need it. ¦ Solo se pueden eliminar volúmenes que ningún contenedor usa (en ejecución o detenido). Elimina antes el contenedor si ya no lo necesitas.
+  anônimo ¦ anonymous ¦ anónimo
+  volume %@ do compose ¦ compose volume %@ ¦ volumen %@ de compose
+  criado %@ ¦ created %@ ¦ creado %@
+  nenhum rótulo diz o que o criou ¦ no label says what made it ¦ ninguna etiqueta dice qué lo creó
+  %@ removido (%@) ¦ %@ removed (%@) ¦ %@ eliminado (%@)
+  Limpar resultado ¦ Clear result ¦ Borrar resultado
+  + %@ outros ¦ + %@ more ¦ + %@ más
+  Total: %@. Os dados são apagados permanentemente pelo Docker e não podem ser recuperados. ¦ Total: %@. Docker deletes the data permanently; it cannot be recovered. ¦ Total: %@. Docker borra los datos de forma permanente y no se pueden recuperar.
+  Parece haver dados de %@ aqui. Sem nenhum contêiner usando o volume, não há servidor rodando para tirar um snapshot: se ainda precisar desses dados, suba um contêiner com ele e faça um snapshot em Bancos antes de remover. ¦ This looks like %@ data. With no container using the volume there is no running server to snapshot: if you still need the data, start a container with it and take a snapshot in Databases before removing. ¦ Parece haber datos de %@ aquí. Sin ningún contenedor usando el volumen no hay servidor en ejecución para un snapshot: si aún necesitas esos datos, levanta un contenedor con él y haz un snapshot en Bases de datos antes de eliminar.
+  Removendo %@ volume(s)… ¦ Removing %@ volume(s)… ¦ Eliminando %@ volumen(es)…
+  %@ volume(s) removido(s), %@ liberados. ¦ %@ volume(s) removed, %@ freed. ¦ %@ volumen(es) eliminado(s), %@ liberados.
+  %@ de %@ volume(s) não foram removidos. ¦ %@ of %@ volume(s) were not removed. ¦ %@ de %@ volumen(es) no se eliminaron.
+  Volume não encontrado ¦ Volume not found ¦ Volumen no encontrado
+  Nome de volume inválido ¦ Invalid volume name ¦ Nombre de volumen no válido
+  existe em mais de um motor ¦ exists in more than one engine ¦ existe en más de un motor
   sem uso ¦ unused ¦ sin uso
   %@ contêiner(es) ¦ %@ container(s) ¦ %@ contenedor(es)
   Mostrar todos (%@) ¦ Show all (%@) ¦ Mostrar todos (%@)

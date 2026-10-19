@@ -8,6 +8,8 @@ char *cs_history(const char *request);
 // Containers from local Docker Engine sockets only; action is "start", "stop" or "restart".
 char *cs_containers(int32_t stats);
 char *cs_container_action(const char *id, const char *action);
+// Removes an unused volume (never forced; refused while any container mounts it). engine may be NULL.
+char *cs_volume_remove(const char *name, const char *engine);
 // Reclaimable dev space: {"roots":[...],"auto":bool,"docker":bool}. Read-only.
 char *cs_dev_space(const char *request);
 // Re-checks a folder right before it goes to the Trash: {"ok":true} or {"error":...}.

@@ -216,8 +216,8 @@ The Storage page measures the folders that usually fill a developer's disk — c
 - **Stop / Restart** in place with the same click-to-arm, click-to-confirm button used for processes.
 - Read from the engine's **local Unix socket** only (`~/.orbstack/run/docker.sock`, `~/.docker/run/docker.sock`, Colima, `/var/run/docker.sock` or a `unix://` `DOCKER_HOST`), at most every 5 s and only while a container view is on screen.
 - **Grouped by compose project**, with *Start all* / *Stop all*, a start button for stopped containers, the restart policy (`unless-stopped`, `always`…) and how old each image is.
-- **Volumes** with their size and how many containers use them; unused ones are flagged (CoreScope only shows them — removing a volume deletes its data).
-- **Agents too**: MCP `list_containers`, `container_logs` and `container_action` (start/stop/restart). Stopping a container a started profile uses is refused with the profile's name unless the agent passes `force` after asking you. `corescope containers` prints the same in a terminal.
+- **Volumes** with their size, when they were created, what made them (compose project, anonymous) and which containers use them. **Unused volumes can be removed**, one by one or with *Remove unused…*, after a confirmation that lists names and sizes: only volumes no container references (running or stopped), re-checked right before, removed by the engine without force — the data does not come back.
+- **Agents too**: MCP `list_containers`, `container_logs`, `container_action` (start/stop/restart), `list_volumes` and `remove_volumes` (a dry run unless the agent passes `confirm: true` after asking you; volumes in use are always refused). Stopping a container a started profile uses is refused with the profile's name unless the agent passes `force` after asking you. `corescope containers` prints the same in a terminal.
 
 ### 🧹 Cleanup
 
@@ -328,6 +328,7 @@ Off by default. *Settings → MCP server for agents → Enable* registers `cores
 | `agent_hooks` | CoreScope's session-context and capacity hooks in Claude Code and Codex: which are installed, Codex's trust in them, install or remove one |
 | `system_capacity` / `wait_for_capacity` | Whether the Mac has room for heavy work under the project's rule; wait until it does |
 | `list_containers` / `container_logs` / `container_action` | Containers with project, ports, restart policy and volumes; logs; start/stop/restart under the profiles' sharing rules |
+| `list_volumes` / `remove_volumes` | Docker volumes with size, creator labels and the containers using them; remove unused ones (dry run unless `confirm: true`; never one in use) |
 | `recent_errors` / `search_logs` / `tail_log` / `list_log_sources` | A profile's or project's logs: errors with traces and counts, search, tail |
 | `read_project_config` / `write_project_config` | The project's `.corescope.yml`, parsed and validated / written as commented YAML |
 | `what_happened` | What the Mac was doing around a moment (History): CPU and power against the hour before, swap, pressure, thermal, who dominated, in plain English |
@@ -453,7 +454,7 @@ CoreScope is **local-only by default**: no network access, no telemetry, no acco
 - **Reading the current Claude limit through Claude Code is opt-in and off by default.** When you turn on *Read the current limit through Claude Code*, CoreScope runs the installed native `claude` (`~/.local/bin`, Homebrew, or the copy Claude Desktop bundles for its Code tab) as `claude -p /usage --output-format json --no-session-persistence --strict-mcp-config` with all hooks disabled, from `~/Library/Application Support/CoreScope/claude-usage`, and keeps only the session and all-models weekly percentages and reset times from its reply. `/usage` is a local Claude Code command — no model turn, no tokens — and **Claude Code** contacts Anthropic with its own login. CoreScope itself still makes no network requests and never reads credentials. No session is saved; the run is hidden from the agent lists.
   - Turning the option off restores the previous `statusLine` exactly (or leaves it alone if you edited it since) and deletes the saved limits and the script (the script stays only while a hand-edited status line still calls it).
 - Token usage is counted from the agents' transcripts, read-only, and only once you open the Agents page: `~/.claude/projects/<project>/<session>.jsonl` and `~/.claude/projects/<project>/<session>/subagents/*.jsonl` (the `usage` object of assistant entries) and `~/.codex/sessions/YYYY/MM/DD/*.jsonl` (`token_count` events). Only files written in the last 7 days and the transcripts of running sessions are read, each from where the previous pass stopped. **Message content is never retained:** lines are scanned in a small reusable buffer and only token counts, model ids, session ids, working directories and the id of the last message seen in each file are kept, in memory — nothing is written to disk.
-- Containers come from the Docker Engine API over its local Unix socket — never TCP, never registry or Docker Hub credentials. Nothing is read while no container view is on screen.
+- Containers come from the Docker Engine API over its local Unix socket — never TCP, never registry or Docker Hub credentials. Nothing is read while no container view is on screen. Removing a volume is the same local socket (`DELETE /volumes/{name}`, never forced), only after you confirm it, and only for volumes no container uses.
 - Notifications are optional and local (UserNotifications); nothing is sent anywhere. The global shortcut uses `RegisterEventHotKey` and sees only its own key combination.
 - Live charts (up to 10 minutes) live in memory only. Preferences and watched processes stay in `UserDefaults`.
 - **Persistent history is opt-in** (off by default; Settings › History, retention 1, 7 or 30 days). When on, CoreScope writes one-minute rollups — system CPU, memory, swap, disk/network rates, thermal state, memory pressure and, per minute, the top 10 processes by CPU and by memory (name, executable, working directory and agent/editor origin; never arguments or environment) — to `~/Library/Application Support/CoreScope/history.sqlite`, in one SQLite transaction per minute. Older rows are purged automatically and *Delete history* removes the file.
@@ -488,7 +489,7 @@ draws on its own) or 500 MB it says so. Agents read the same with
 | Directory | Role |
 |---|---|
 | `core/src/macos.c` | Thin C adapter over public SDK APIs (libproc, Mach, sysctl, IOKit, NVMe SMART) |
-| `core/src/containers.rs` | Docker Engine API client over local Unix sockets: container list, one-shot stats, stop/restart |
+| `core/src/containers.rs` | Docker Engine API client over local Unix sockets: container list, one-shot stats, stop/restart, volumes and removing unused ones |
 | `core/src/lib.rs` | Rust core: sampling, deltas, history, diagnostics, process classification (agents, editors, terminals, runtimes), origin and orphan detection, safe signaling, C ABI |
 | `native/` | SwiftUI + AppKit app: window, menu bar extra, floating `NSPanel`, agents, localization |
 | `scripts/` | Build, tests, procedural app icon, external read-only resource meter |

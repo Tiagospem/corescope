@@ -1408,3 +1408,52 @@ func pathAncestors(_ path: String) -> [String] {
   let parts = path.split(separator: "/").dropLast()
   return parts.indices.map { parts[parts.startIndex...$0].joined(separator: "/") }
 }
+
+// MARK: Docker volumes
+
+/// Why a volume cannot be removed. Only volumes no container references (running or stopped)
+/// are removable; when the engine did not say, nothing is removed.
+enum VolumeBlock: Equatable {
+  case inUse([String])
+  case inUseCount(Int)
+  case usageUnknown
+}
+/// `refCount` is the engine's RefCount (-1 when it did not report one); `usedBy` the containers
+/// whose mounts name the volume.
+func volumeBlock(refCount: Int, usedBy: [String]) -> VolumeBlock? {
+  if !usedBy.isEmpty { return .inUse(usedBy) }
+  if refCount > 0 { return .inUseCount(refCount) }
+  if refCount < 0 { return .usageUnknown }
+  return nil
+}
+/// `docker run -v /path` and Dockerfile `VOLUME` make volumes named by 64 hex digits.
+func isAnonymousVolume(_ name: String) -> Bool {
+  name.count == 64 && name.allSatisfy { $0.isHexDigit }
+}
+/// What the labels say made a volume: a compose project (and its volume key) or a swarm stack.
+struct VolumeOrigin: Equatable {
+  var project: String?
+  var detail: String?
+}
+func volumeOrigin(labels: [String: String]) -> VolumeOrigin? {
+  let value = { (key: String) in labels[key].flatMap { $0.isEmpty ? nil : $0 } }
+  let project = value("com.docker.compose.project") ?? value("com.docker.stack.namespace")
+  let detail = value("com.docker.compose.volume") ?? value("com.docker.compose.service")
+  return project == nil && detail == nil ? nil : VolumeOrigin(project: project, detail: detail)
+}
+/// "MySQL", "PostgreSQL" or "Redis" when the name, the compose volume key or the images of the
+/// containers using it say so. Removing such a volume deletes a database.
+func volumeDatabaseKind(name: String, labels: [String: String], images: [String] = []) -> String? {
+  let text = ([name, labels["com.docker.compose.volume"] ?? ""] + images).joined(separator: " ").lowercased()
+  if text.contains("mysql") || text.contains("mariadb") { return "MySQL" }
+  if text.contains("postgres") || text.contains("pgdata") { return "PostgreSQL" }
+  if text.contains("redis") || text.contains("valkey") { return "Redis" }
+  return nil
+}
+/// The volumes a bulk removal acts on (only removable ones) and the bytes it frees.
+func volumeRemovalPlan(_ volumes: [(name: String, size: Int64?, refCount: Int, usedBy: [String])])
+  -> (names: [String], bytes: Int64, blocked: Int)
+{
+  let ok = volumes.filter { volumeBlock(refCount: $0.refCount, usedBy: $0.usedBy) == nil }
+  return (ok.map(\.name), ok.compactMap(\.size).reduce(0, +), volumes.count - ok.count)
+}

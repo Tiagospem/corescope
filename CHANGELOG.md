@@ -10,6 +10,17 @@ section as the GitHub release notes.
 
 ## [Unreleased]
 
+### Added
+- **Remove unused Docker volumes** from the Containers page: a trash button per volume and
+  *Remove unused…* for all of them, each behind a confirmation that names the volumes, their sizes
+  and that the data is deleted for good. Only volumes no container references (running or
+  stopped) can be removed; volumes in use say by which containers, and the core re-checks right
+  before `DELETE /volumes/{name}` (never forced) over the same local socket. Per-volume results,
+  then the list refreshes. Rows show when each volume was created, anonymous (64-hex) volumes and
+  what the labels say made them (compose project and volume), and database-like volumes
+  (MySQL/PostgreSQL/Redis) warn that no snapshot is possible without a container. MCP
+  `list_volumes` and `remove_volumes` (a dry run unless `confirm: true`; in-use volumes are
+  always refused).
 ### Changed
 - **Services tell "not running" apart from "down"**: checks are grouped by project (checks added
   in the app in their own group) with a per-group summary. A check from a project's

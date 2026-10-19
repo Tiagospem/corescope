@@ -37,6 +37,7 @@ import Foundation
     tokenTests()
     updateTests()
     failedUnitTests()
+    volumeTests()
     // VM helper ports split among the containers that published them.
     let split = splitPorts([6379, 3306, 8025, 1025, 5555]) {
       [6379: "redis", 3306: "mysql", 8025: "mail", 1025: "mail"][$0]
@@ -334,7 +335,7 @@ import Foundation
     precondition(looksLikeTime("14:05") && looksLikeTime("2:05 pm") && looksLikeTime("14h05") && looksLikeTime("ontem 9:30"))
     precondition(!looksLikeTime("8000") && !looksLikeTime("redis") && !looksLikeTime("14"))
     print(
-      "31 native assertions passed: descendants, cycle, ordering, off-screen recovery, negative-origin monitor, forest roots, flatten, collapse, totals, ancestors, filter, formatting, container ports, shared ports, demo paths, debounce, sustained thresholds, new arrivals, port parsing, shortcut label, agent stalls, health targets, service states, shared containers, ssh stats, gate hook, machine alerts, failed unit explanations, service history, own cost, links, palette, Claude Desktop usage, limit pace, settings backup; plus settings JSON, Unicode escapes, status line install/chain, Claude limits, Claude /usage text, update versions, release notes, appcast"
+      "31 native assertions passed: descendants, cycle, ordering, off-screen recovery, negative-origin monitor, forest roots, flatten, collapse, totals, ancestors, filter, formatting, container ports, shared ports, demo paths, debounce, sustained thresholds, new arrivals, port parsing, shortcut label, agent stalls, health targets, service states, shared containers, ssh stats, gate hook, machine alerts, failed unit explanations, service history, own cost, links, palette, Claude Desktop usage, limit pace, settings backup, docker volumes; plus settings JSON, Unicode escapes, status line install/chain, Claude limits, Claude /usage text, update versions, release notes, appcast"
     )
     print(
       "token usage assertions passed: timestamps, formatting, Claude block dedupe, embedded entries, partial lines, long-line skip, fast/full parity, Codex repeats and forks"
@@ -580,4 +581,32 @@ func failedUnitTests() {
   precondition(journalEntry("Hint: You are currently not seeing messages") == nil)
   let missing = explainFailedUnit(unit: "gone.service", output: "Unit gone.service could not be found.\n" + FailedUnitCheck.journalMarker)
   precondition(missing.notFound)
+}
+
+func volumeTests() {
+  // Only volumes no container references (running or stopped) can be removed.
+  precondition(volumeBlock(refCount: 0, usedBy: []) == nil)
+  precondition(volumeBlock(refCount: 1, usedBy: ["db"]) == .inUse(["db"]))
+  precondition(volumeBlock(refCount: 0, usedBy: ["db-stopped"]) == .inUse(["db-stopped"]), "mounts win over a stale count")
+  precondition(volumeBlock(refCount: 2, usedBy: []) == .inUseCount(2))
+  precondition(volumeBlock(refCount: -1, usedBy: []) == .usageUnknown, "unknown usage is never removable")
+
+  let hex = "32a362dbf144daff3a909400cbdf09fba92b6f86ad4038252e201b676f0df432"
+  precondition(isAnonymousVolume(hex) && !isAnonymousVolume("mysql_data") && !isAnonymousVolume(String(hex.dropLast())))
+
+  precondition(volumeOrigin(labels: ["com.docker.volume.anonymous": ""]) == nil)
+  precondition(
+    volumeOrigin(labels: ["com.docker.compose.project": "shop", "com.docker.compose.volume": "db"])
+      == VolumeOrigin(project: "shop", detail: "db"))
+  precondition(volumeOrigin(labels: ["com.docker.stack.namespace": "infra"])?.project == "infra")
+
+  precondition(volumeDatabaseKind(name: "lei45-mysql-279900a8", labels: [:]) == "MySQL")
+  precondition(volumeDatabaseKind(name: "x", labels: ["com.docker.compose.volume": "pgdata"]) == "PostgreSQL")
+  precondition(volumeDatabaseKind(name: hex, labels: [:], images: ["library/redis:8.6.2"]) == "Redis")
+  precondition(volumeDatabaseKind(name: "typesense-data", labels: [:]) == nil)
+
+  let plan = volumeRemovalPlan([
+    ("a", 100, 0, []), ("b", nil, 0, []), ("mysql_data", 5000, 1, ["db"]), ("c", 7, -1, []),
+  ])
+  precondition(plan.names == ["a", "b"] && plan.bytes == 100 && plan.blocked == 2)
 }
