@@ -96,7 +96,8 @@ fn tool(name: &str, description: &str, properties: Value, required: &[&str]) -> 
                            "destructiveHint": destructive, "openWorldHint": false}})
 }
 /// Tools that stop, delete or remove things; hosts ask the user before running them.
-const DESTRUCTIVE: [&str; 14] = [
+const DESTRUCTIVE: [&str; 15] = [
+    "remove_volumes",
     "project_git_discard",
     "project_remove_unused",
     "db_restore",
@@ -113,7 +114,7 @@ const DESTRUCTIVE: [&str; 14] = [
     "remove_machine",
 ];
 /// Tools that change state without destroying anything.
-const CHANGES: [&str; 15] = [
+const CHANGES: [&str; 16] = [
     "generate_commit_message",
     "set_project",
     "agent_hooks",
@@ -126,6 +127,7 @@ const CHANGES: [&str; 15] = [
     "create_profile",
     "start_profile",
     "add_service",
+    "pause_service",
     "add_machine",
     "set_setting",
     "scan_dev_space",
@@ -243,7 +245,12 @@ fn app_tools() -> Vec<(
         (
             "list_services",
             "services.list",
-            "Services health checks (CoreScope › Services): target, up/down, HTTP status or TCP result, latency.",
+            "Services health checks (CoreScope › Services), with group (project, or \"added in the app\"), \
+          target, HTTP status or TCP result, latency, uptime and status: up, answered_with_error, down \
+          (should be up and fails), not_running (from a project whose profile is not running and \
+          whose port nobody listens on: just switched off, not a failure and not probed until the \
+          profile starts or the port opens; start_profile brings it up), \
+          paused or not_checked_yet; explanation says why.",
             json!({}),
             vec![],
         ),
@@ -265,8 +272,19 @@ fn app_tools() -> Vec<(
         (
             "check_services",
             "services.check",
-            "Run every Services check now and return the results.",
+            "Run every Services check now (paused ones and not_running apps are skipped) and return \
+          the results, with the same status as list_services.",
             json!({}),
+            vec![],
+        ),
+        (
+            "pause_service",
+            "services.pause",
+            "Pause or resume Services checks: one service (name or target) or a whole project group \
+          (project name as list_services shows it, or \"app\" for checks added in the app). Paused \
+          checks are not probed, keep no history and send no alerts.",
+            json!({"name": {"type": "string"}, "project": {"type": "string"},
+                "paused": {"type": "boolean", "description": "false resumes (default true)"}}),
             vec![],
         ),
         (
@@ -417,6 +435,24 @@ fn app_tools() -> Vec<(
             "app.cost",
             "What CoreScope itself costs right now: the app, its helpers (MCP servers like this one, the gate hook, the status line) and processes it started, in CPU (% of one core, now and 5-minute average), memory and watts, plus each background feature with whether it is on, how often it works and its measured CPU. Use it to tell the user what to turn off when the monitor spends too much.",
             json!({}),
+            vec![],
+        ),
+        (
+            "performance_audit",
+            "app.performance_audit",
+            "What the user could stop, remove or turn off to make this Mac faster, ranked: orphans, \
+             heavy apps and processes, stuck or power-hungry agent sessions, started profiles, idle \
+             and stopped containers, reclaimable disk from the cached Cleanup scan and plan, folders \
+             that grew today, Services checks that are always down, and CoreScope's own costliest \
+             switches. Each finding has the figure it would give back (CPU, memory, disk, watts), \
+             how sure CoreScope is, and the tool + arguments that would act on it (stop_process, \
+             stop_profile, container_action, clean_dev_space, run_cleanup_plan, remove_service, \
+             set_setting) or that only the user can. Read-only and cheap: it reuses the latest \
+             snapshot and cached scans, never scans the disk, and lists stale sources with the tool \
+             that refreshes them. Ask the user before acting on any finding.",
+            json!({"limit": {"type": "integer", "minimum": 1, "maximum": 50, "description": "default 20"},
+                   "category": {"type": "string", "enum": ["orphans", "processes", "agents", "profiles",
+                       "containers", "disk", "services", "corescope"]}}),
             vec![],
         ),
         (
@@ -832,6 +868,29 @@ fn core_tools() -> Vec<Value> {
             &[],
         ),
         tool(
+            "list_volumes",
+            "Docker volumes of the local engines: name, engine, size, created, labels, whether it \
+             is anonymous (64-hex name) and what made it (compose project/volume when the labels \
+             say), the containers (running or stopped) that mount it, whether it looks like \
+             database data, and whether it can be removed (only when no container references \
+             it) with the reason when not. Read-only.",
+            json!({"unused_only": {"type": "boolean", "description": "only volumes no container uses"}}),
+            &[],
+        ),
+        tool(
+            "remove_volumes",
+            "Remove Docker volumes by name through the local engine (DELETE /volumes, never \
+             forced). The data is deleted permanently. A volume any container references \
+             (running or stopped) is never removed. Without confirm: true it only returns what \
+             would be removed (names, sizes, refusals): show that to the user, and call again \
+             with confirm: true only after they agree. For database-like volumes no snapshot is \
+             possible (no server runs from an unused volume); say so before removing.",
+            json!({"names": {"type": "array", "items": {"type": "string"}, "maxItems": 100},
+                   "engine": {"type": "string", "description": "OrbStack, Docker Desktop, Colima…; needed only when a name exists in more than one"},
+                   "confirm": {"type": "boolean", "description": "true only after the user agreed to delete these volumes"}}),
+            &["names", "confirm"],
+        ),
+        tool(
             "container_logs",
             "The last lines of a container's logs (stdout and stderr, with timestamps).",
             json!({"name": {"type": "string"}, "lines": {"type": "integer", "minimum": 1, "maximum": 3000}}),
@@ -926,6 +985,11 @@ fn call(params: &Value) -> Value {
         "list_orphans" => text(orphans(&sample(false)), false),
         "list_databases" => text(databases(&sample(false)), false),
         "list_containers" => text(containers(), false),
+        "list_volumes" => text(
+            list_volumes(args["unused_only"].as_bool() == Some(true)),
+            false,
+        ),
+        "remove_volumes" => remove_volumes(args),
         "exposure_report" => text(crate::exposure(), false),
         "port_conflicts" => {
             let folders: Vec<std::path::PathBuf> = args["folders"]
@@ -1439,6 +1503,128 @@ fn project_folder(args: &Value) -> Result<String, String> {
         .ok_or_else(|| format!("no registered project called {wanted}"))
 }
 
+/// Volumes with what made them, what uses them and whether they may be removed. Also for other
+/// tools that sum up what can be cleaned.
+pub fn list_volumes(unused_only: bool) -> Value {
+    use corescope::containers as c;
+    let volumes = c::volumes();
+    let images: HashMap<String, String> = c::Reader::default()
+        .read(false)
+        .containers
+        .into_iter()
+        .map(|c| (c.name, c.image))
+        .collect();
+    let rows: Vec<Value> = volumes
+        .iter()
+        .filter(|v| !unused_only || c::removal_refusal(v.containers, &v.used_by).is_none())
+        .map(|v| {
+            let refusal = c::removal_refusal(v.containers, &v.used_by);
+            let used: Vec<String> = v
+                .used_by
+                .iter()
+                .filter_map(|n| images.get(n).cloned())
+                .collect();
+            let made_by = v
+                .labels
+                .get("com.docker.compose.project")
+                .or_else(|| v.labels.get("com.docker.stack.namespace"))
+                .map(|p| match v.labels.get("com.docker.compose.volume") {
+                    Some(key) => format!("compose project {p}, volume {key}"),
+                    None => format!("project {p}"),
+                });
+            json!({"name": v.name, "engine": v.engine, "size_bytes": v.size, "created": v.created,
+                   "driver": v.driver, "labels": v.labels, "anonymous": v.anonymous,
+                   "made_by": made_by.unwrap_or_else(|| if v.anonymous {
+                       "unknown: anonymous volume without labels saying what made it".into()
+                   } else { "unknown".into() }),
+                   "in_use_by": v.used_by, "ref_count": v.containers,
+                   "looks_like_database": c::database_kind(&v.name, &v.labels, &used),
+                   "removable": refusal.is_none(),
+                   "not_removable_because": refusal.map(|r| r.en())})
+        })
+        .collect();
+    let unused: Vec<&c::VolumeInfo> = volumes
+        .iter()
+        .filter(|v| c::removal_refusal(v.containers, &v.used_by).is_none())
+        .collect();
+    json!({"volumes": rows,
+           "unused": {"count": unused.len(), "bytes": unused.iter().filter_map(|v| v.size).sum::<u64>()},
+           "note": "Only volumes no container references (running or stopped) can be removed, with remove_volumes after the user agrees."})
+}
+
+/// Dry run without `confirm: true`; otherwise each volume is re-checked and removed by the engine.
+fn remove_volumes(args: &Value) -> Value {
+    use corescope::containers as c;
+    let names: Vec<&str> = args["names"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .take(100)
+        .collect();
+    if names.is_empty() {
+        return text(
+            json!({"error": "names is required; list_volumes shows them"}),
+            true,
+        );
+    }
+    let engine = args["engine"].as_str().filter(|e| !e.is_empty());
+    let volumes = c::volumes();
+    let find = |name: &str| {
+        volumes
+            .iter()
+            .filter(|v| v.name == name && engine.is_none_or(|e| e.eq_ignore_ascii_case(v.engine)))
+            .collect::<Vec<_>>()
+    };
+    let confirmed = args["confirm"].as_bool() == Some(true);
+    let mut freed = 0u64;
+    let results: Vec<Value> = names
+        .iter()
+        .map(|name| {
+            let found = find(name);
+            let size = found.first().and_then(|v| v.size);
+            let refusal = match found.as_slice() {
+                [] => Some(c::VolumeRefusal::NotFound),
+                [v] => c::removal_refusal(v.containers, &v.used_by),
+                many => Some(c::VolumeRefusal::Ambiguous {
+                    engines: many.iter().map(|v| v.engine.to_string()).collect(),
+                }),
+            };
+            if let Some(r) = refusal {
+                return json!({"name": name, "status": "refused", "reason": r.en()});
+            }
+            let database = found
+                .first()
+                .and_then(|v| c::database_kind(&v.name, &v.labels, &[]));
+            if !confirmed {
+                return json!({"name": name, "status": "would remove", "size_bytes": size,
+                              "looks_like_database": database});
+            }
+            match c::remove_volume(name, engine.or(found.first().map(|v| v.engine))) {
+                Ok(engine) => {
+                    freed += size.unwrap_or(0);
+                    json!({"name": name, "status": "removed", "engine": engine, "freed_bytes": size})
+                }
+                Err(r) => json!({"name": name, "status": "refused", "reason": r.en()}),
+            }
+        })
+        .collect();
+    if !confirmed {
+        return text(
+            json!({"error": "not removed: confirm is not true. Show the user these volumes and sizes; \
+                    the data is deleted permanently. Call again with confirm: true only after they agree.",
+                   "preview": results}),
+            true,
+        );
+    }
+    let removed = results.iter().any(|r| r["status"] == "removed");
+    text(
+        json!({"results": results, "freed_bytes": freed,
+               "note": "Removed by the Docker engine without force; the data cannot be recovered."}),
+        !removed,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1491,6 +1677,27 @@ mod tests {
             assert_eq!(t["inputSchema"]["type"], "object", "{}", t["name"]);
             assert!(t["description"].as_str().unwrap().len() > 20);
         }
+    }
+    #[test]
+    fn volume_removal_needs_confirm() {
+        let removal = tools()
+            .into_iter()
+            .find(|t| t["name"] == "remove_volumes")
+            .unwrap();
+        assert_eq!(removal["annotations"]["destructiveHint"], true);
+        assert!(
+            removal["inputSchema"]["required"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("confirm"))
+        );
+        let reply = call(&json!({"name": "remove_volumes",
+            "arguments": {"names": ["corescope-no-such-volume"]}}));
+        assert_eq!(reply["isError"], true);
+        let body: Value =
+            serde_json::from_str(reply["content"][0]["text"].as_str().unwrap()).unwrap();
+        assert!(body["error"].as_str().unwrap().contains("confirm"));
+        assert_eq!(body["preview"][0]["status"], "refused");
     }
     #[test]
     fn processes_outside_the_session_are_never_stopped() {

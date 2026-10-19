@@ -11,6 +11,26 @@ section as the GitHub release notes.
 ## [Unreleased]
 
 ### Added
+- **Performance audit**: MCP `performance_audit` sweeps what CoreScope already knows and ranks
+  what the user could stop, remove or turn off — orphans, heavy apps and processes, stuck or
+  power-hungry agent sessions, started profiles, idle and stopped containers, reclaimable space from the
+  cached Cleanup scan and plan, folders Disk growth saw grow, Services checks that are always down,
+  and CoreScope's own costliest switches (collector interval, floating panel, Codex and Claude live
+  limits). Each finding carries what it would give back (CPU, memory, disk, watts), how sure
+  CoreScope is, and the tool and arguments that act on it; the audit never acts, never scans the
+  disk, and lists stale sources with the tool that refreshes them. Ranking weighs whatever is tight
+  right now (memory pressure, a nearly full disk, battery). The top findings also show on the
+  Overview as *To lighten the Mac*, each row opening the page where to act.
+- **Remove unused Docker volumes** from the Containers page: a trash button per volume and
+  *Remove unused…* for all of them, each behind a confirmation that names the volumes, their sizes
+  and that the data is deleted for good. Only volumes no container references (running or
+  stopped) can be removed; volumes in use say by which containers, and the core re-checks right
+  before `DELETE /volumes/{name}` (never forced) over the same local socket. Per-volume results,
+  then the list refreshes. Rows show when each volume was created, anonymous (64-hex) volumes and
+  what the labels say made them (compose project and volume), and database-like volumes
+  (MySQL/PostgreSQL/Redis) warn that no snapshot is possible without a container. MCP
+  `list_volumes` and `remove_volumes` (a dry run unless `confirm: true`; in-use volumes are
+  always refused).
 - **Projects › Remove unused worktrees and branches**: *Remove unused…* on each repository's card
   (Branches and Worktrees sections, card menu) opens a confirmation listing exactly what goes —
   linked worktrees whose branch is merged into the default branch, whose upstream is gone or whose
@@ -25,6 +45,16 @@ section as the GitHub release notes.
   dirty).
 
 ### Changed
+- **Services tell "not running" apart from "down"**: checks are grouped by project (checks added
+  in the app in their own group) with a per-group summary. A check from a project's
+  `.corescope.yml` whose profile is not running and whose port nobody listens on is gray "not
+  running", with a Start button for the profile; while the app is off it is not probed at all
+  (checking resumes when the profile starts or the port opens), no longer counts against uptime
+  and sends no down notifications; red is kept for what should be up (profile running, port listening but
+  failing, checks added by hand). The tooltip explains each state. Checks and whole groups can be
+  paused. MCP `list_services` / `check_services` report `status` (`up`, `answered_with_error`,
+  `down`, `not_running`, `paused`, `not_checked_yet`), `group`, `monitored` and `explanation`; new MCP
+  `pause_service`.
 - The Worktrees and Local branches sections group their rows into *In use*, *Removable* and
   *Other*, show the removable count and size next to the title, collapse long groups, and share
   badges (merged, upstream gone, in use) in the same order and colors.

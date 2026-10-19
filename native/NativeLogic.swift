@@ -685,6 +685,66 @@ enum HealthTarget: Equatable {
     }
     return ["localhost", "127.0.0.1", "::1"].contains(host.lowercased()) || host.hasSuffix(".localhost")
   }
+  /// The port a listener on this Mac would hold: loopback, `.localhost` and `.test` hosts (Valet,
+  /// Herd, dnsmasq point those here). nil for other hosts, where a local listener says nothing.
+  var localPort: UInt16? {
+    switch self {
+    case .tcp(let host, let port):
+      return HealthTarget.tcp(host: host, port: port).isLocal || host.lowercased().hasSuffix(".test") ? port : nil
+    case .http(let url):
+      guard isLocal || (url.host ?? "").lowercased().hasSuffix(".test") else { return nil }
+      return url.port.map(UInt16.init) ?? (url.scheme?.lowercased() == "https" ? 443 : 80)
+    }
+  }
+}
+
+/// What a Services row means, beyond the probe's answer: a check from a project whose
+/// environment is off and whose port nobody listens on is "not running", not a failure.
+enum ServiceState: String, CaseIterable {
+  case down, warn, notRunning = "not_running", paused, pending, up
+  /// Counts as a failure (uptime, notifications, red).
+  var isFailure: Bool { self == .down }
+  /// Probe results are kept in the history and uptime only for checks that should be up.
+  var recordsHistory: Bool { self == .up || self == .warn || self == .down }
+  /// What MCP reports.
+  var mcpStatus: String {
+    switch self {
+    case .warn: "answered_with_error"
+    case .pending: "not_checked_yet"
+    default: rawValue
+    }
+  }
+}
+/// - fromProject: declared in a `.corescope.yml` (hand-added checks always should be up).
+/// - hasProfile: that project defines a profile (its app is started through CoreScope).
+/// - profileRunning: one of that project's profiles is started or has a command running.
+/// - listening: something on this Mac listens on the target's port; nil when that can't be known
+///   (remote host).
+/// A project check is an app's health check: while the app is off it is "not running". With a
+/// profile it is not even probed (`shouldProbe`), whatever an older result said.
+func serviceState(
+  level: HealthLevel?, paused: Bool, fromProject: Bool, hasProfile: Bool, profileRunning: Bool, listening: Bool?
+) -> ServiceState {
+  if paused { return .paused }
+  let off = fromProject && !profileRunning && listening == false
+  if off && hasProfile { return .notRunning }
+  switch level {
+  case nil: return off ? .notRunning : .pending
+  case .up: return .up
+  case .warn: return .warn
+  case .down: return off ? .notRunning : .down
+  }
+}
+/// Paused checks and apps whose profile is stopped (and port free) are left alone.
+func shouldProbe(paused: Bool, fromProject: Bool, hasProfile: Bool, profileRunning: Bool, listening: Bool?) -> Bool {
+  !paused && !(fromProject && hasProfile && !profileRunning && listening == false)
+}
+/// Per-group summary, worst first, without empty states: [(.down, 2), (.up, 4)].
+func serviceSummary(_ states: [ServiceState]) -> [(state: ServiceState, count: Int)] {
+  ServiceState.allCases.compactMap { s in
+    let n = states.filter { $0 == s }.count
+    return n > 0 ? (s, n) : nil
+  }
 }
 /// 2xx/3xx is healthy; 4xx answers but is probably the wrong path; anything else is down.
 enum HealthLevel: Int, Comparable {
@@ -1347,6 +1407,154 @@ enum SettingsBackupLogic {
 func pathAncestors(_ path: String) -> [String] {
   let parts = path.split(separator: "/").dropLast()
   return parts.indices.map { parts[parts.startIndex...$0].joined(separator: "/") }
+}
+
+// MARK: Docker volumes
+
+/// Why a volume cannot be removed. Only volumes no container references (running or stopped)
+/// are removable; when the engine did not say, nothing is removed.
+enum VolumeBlock: Equatable {
+  case inUse([String])
+  case inUseCount(Int)
+  case usageUnknown
+}
+/// `refCount` is the engine's RefCount (-1 when it did not report one); `usedBy` the containers
+/// whose mounts name the volume.
+func volumeBlock(refCount: Int, usedBy: [String]) -> VolumeBlock? {
+  if !usedBy.isEmpty { return .inUse(usedBy) }
+  if refCount > 0 { return .inUseCount(refCount) }
+  if refCount < 0 { return .usageUnknown }
+  return nil
+}
+/// `docker run -v /path` and Dockerfile `VOLUME` make volumes named by 64 hex digits.
+func isAnonymousVolume(_ name: String) -> Bool {
+  name.count == 64 && name.allSatisfy { $0.isHexDigit }
+}
+/// What the labels say made a volume: a compose project (and its volume key) or a swarm stack.
+struct VolumeOrigin: Equatable {
+  var project: String?
+  var detail: String?
+}
+func volumeOrigin(labels: [String: String]) -> VolumeOrigin? {
+  let value = { (key: String) in labels[key].flatMap { $0.isEmpty ? nil : $0 } }
+  let project = value("com.docker.compose.project") ?? value("com.docker.stack.namespace")
+  let detail = value("com.docker.compose.volume") ?? value("com.docker.compose.service")
+  return project == nil && detail == nil ? nil : VolumeOrigin(project: project, detail: detail)
+}
+/// "MySQL", "PostgreSQL" or "Redis" when the name, the compose volume key or the images of the
+/// containers using it say so. Removing such a volume deletes a database.
+func volumeDatabaseKind(name: String, labels: [String: String], images: [String] = []) -> String? {
+  let text = ([name, labels["com.docker.compose.volume"] ?? ""] + images).joined(separator: " ").lowercased()
+  if text.contains("mysql") || text.contains("mariadb") { return "MySQL" }
+  if text.contains("postgres") || text.contains("pgdata") { return "PostgreSQL" }
+  if text.contains("redis") || text.contains("valkey") { return "Redis" }
+  return nil
+}
+/// The volumes a bulk removal acts on (only removable ones) and the bytes it frees.
+func volumeRemovalPlan(_ volumes: [(name: String, size: Int64?, refCount: Int, usedBy: [String])])
+  -> (names: [String], bytes: Int64, blocked: Int)
+{
+  let ok = volumes.filter { volumeBlock(refCount: $0.refCount, usedBy: $0.usedBy) == nil }
+  return (ok.map(\.name), ok.compactMap(\.size).reduce(0, +), volumes.count - ok.count)
+}
+
+// MARK: - Performance audit (MCP performance_audit, Overview card)
+
+/// How sure CoreScope is that a finding can go without getting in the user's way.
+enum AuditConfidence: Int, Comparable {
+  case low, medium, high
+  var factor: Double { [0.4, 0.7, 1][rawValue] }
+  var name: String { ["low", "medium", "high"][rawValue] }
+  static func < (a: Self, b: Self) -> Bool { a.rawValue < b.rawValue }
+}
+/// What acting on a finding would give back: CPU in % of one core, memory and disk in bytes.
+struct AuditImpact: Equatable {
+  var cpu: Double = 0
+  var memory: Double = 0
+  var disk: Double = 0
+  var watts: Double = 0
+}
+/// The Mac's state, which decides the resource that matters most right now.
+struct AuditContext: Equatable {
+  var memoryTight = false
+  var diskTight = false
+  var onBattery = false
+  /// Memory pressure level (0 normal, 1 warning, 2 critical) or 2 GB of swap; startup disk under
+  /// 10 % free; running on battery.
+  init(pressure: Double?, swap: Double?, diskFree: Double?, diskTotal: Double?, onBattery: Bool) {
+    memoryTight = (pressure ?? 0) >= 1 || (swap ?? 0) >= 2 * 1_073_741_824
+    if let free = diskFree, let total = diskTotal, total > 0 { diskTight = free / total < 0.10 }
+    self.onBattery = onBattery
+  }
+  init() {}
+}
+/// One comparable figure per finding: a core fully busy ≈ 10, 1 GB of memory ≈ 4 (8 under
+/// pressure), 1 GB of disk ≈ 0.5 (2 when the disk is nearly full), 1 W ≈ 1 (2 on battery);
+/// scaled by confidence so a sure small win can beat a doubtful big one.
+func auditScore(_ impact: AuditImpact, confidence: AuditConfidence, context: AuditContext) -> Double {
+  let gb = 1_073_741_824.0
+  let cpu = max(0, impact.cpu) / 10
+  let memory = max(0, impact.memory) / gb * (context.memoryTight ? 8 : 4)
+  let disk = max(0, impact.disk) / gb * (context.diskTight ? 2 : 0.5)
+  let watts = max(0, impact.watts) * (context.onBattery ? 2 : 1)
+  return (cpu + memory + disk + watts) * confidence.factor
+}
+/// Highest score first; equal scores keep their order (stable for the same inputs).
+func rankAudit<T>(_ items: [T], score: (T) -> Double) -> [T] {
+  items.enumerated().sorted { a, b in
+    let (x, y) = (score(a.element), score(b.element))
+    return x != y ? x > y : a.offset < b.offset
+  }.map(\.element)
+}
+/// Thresholds for what is worth listing.
+enum AuditThreshold {
+  static let heavyCPU = 50.0
+  static let heavyMemory = 1.5 * 1_073_741_824
+  static let sustainedSeconds = 60.0
+  static let orphanMemory = 30.0 * 1_048_576
+  static let idleContainerCPU = 1.0
+  static let idleContainerMemory = 200.0 * 1_048_576
+  static let diskItem = 500.0 * 1_048_576
+  static let growth = 1_073_741_824.0
+  static let scanStale = 6 * 3600.0
+  static let deadService = 0.2
+}
+/// A process worth a look: CPU at least `heavyCPU` for a sustained minute (≥ 80 % of a core per
+/// the collector's own counter), or memory over `heavyMemory`.
+func auditHeavyProcess(cpu: Double, memory: Double, highCPUSeconds: Double) -> Bool {
+  (cpu >= AuditThreshold.heavyCPU && highCPUSeconds >= AuditThreshold.sustainedSeconds)
+    || memory >= AuditThreshold.heavyMemory
+}
+/// An orphan that holds something: memory, a busy core or a port.
+func auditOrphanWorthStopping(cpu: Double, memory: Double, listening: Bool) -> Bool {
+  memory >= AuditThreshold.orphanMemory || cpu >= 1 || listening
+}
+/// A running container nothing seems to use: nearly no CPU while holding memory, and no started
+/// profile owns it. Without stats (nil) nothing is claimed.
+func auditIdleContainer(cpu: Double?, memory: Double?, inActiveProfile: Bool) -> Bool {
+  guard let cpu, let memory, !inActiveProfile else { return false }
+  return cpu < AuditThreshold.idleContainerCPU && memory >= AuditThreshold.idleContainerMemory
+}
+/// Confidence that a reclaimable dev-space item can go: Docker data and caches are re-created on
+/// demand; a worktree only when merged; build folders untouched for a month.
+func auditDiskConfidence(kind: String, modified: Double, merged: Bool, now: Double) -> AuditConfidence {
+  switch kind {
+  case "docker_dangling", "docker_build_cache", "derived_data", "simulator_caches", "cache": return .high
+  case "worktree": return merged ? .high : .low
+  default:
+    return modified > 0 && now - modified > 30 * 86400 ? .high : .medium
+  }
+}
+/// A Services check that has been down most of a day still runs every 30 s for nothing.
+func auditDeadService(uptime24h: Double?) -> Bool {
+  guard let uptime24h else { return false }
+  return uptime24h < AuditThreshold.deadService
+}
+/// Seconds since the scan, or nil when it is fresh enough to rank from.
+func auditStaleAge(scannedAt: Double?, now: Double, limit: Double = AuditThreshold.scanStale) -> Double? {
+  guard let scannedAt else { return .infinity }
+  let age = now - scannedAt
+  return age > limit ? age : nil
 }
 
 // MARK: - Projects: worktrees and branches no longer used

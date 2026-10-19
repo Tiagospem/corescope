@@ -9,6 +9,21 @@ struct HealthCheck: Codable, Identifiable, Equatable {
   var target: String
   /// The `.corescope.yml` defining it; nil for checks added in the app.
   var source: String? = nil
+  /// The project named in that file.
+  var project: String? = nil
+  /// The name without the project prefix, for rows inside the project's group.
+  var shortName: String {
+    guard let project, name.hasPrefix(project + " · ") else { return name }
+    return String(name.dropFirst(project.count + 3))
+  }
+}
+/// Checks shown together: one project's file, or the ones added in the app (key "").
+struct ServiceGroup: Identifiable {
+  let key: String
+  let name: String
+  let checks: [HealthCheck]
+  var id: String { key }
+  var source: String? { key.isEmpty ? nil : key }
 }
 struct HealthResult: Equatable {
   let level: HealthLevel
@@ -40,7 +55,7 @@ final class HealthStore: ObservableObject {
         out.append(
           HealthCheck(
             id: stableID("\(file.file)#service#\(s.target)"), name: "\(file.project) · \(label)", target: s.target,
-            source: file.file))
+            source: file.file, project: file.project))
       }
     }
     guard out != fileChecks else { return }
@@ -72,9 +87,19 @@ final class HealthStore: ObservableObject {
     return URLSession(configuration: config)
   }()
 
+  /// Checks and groups (`ServiceGroup.key`) the user paused: not probed, no history, no alerts.
+  @Published private(set) var paused: Set<UUID> {
+    didSet { UserDefaults.standard.set(paused.map(\.uuidString), forKey: "healthPaused") }
+  }
+  @Published private(set) var pausedGroups: Set<String> {
+    didSet { UserDefaults.standard.set(Array(pausedGroups), forKey: "healthPausedGroups") }
+  }
+
   private init() {
     let data = UserDefaults.standard.data(forKey: "healthChecks")
     checks = data.flatMap { try? JSONDecoder().decode([HealthCheck].self, from: $0) } ?? []
+    paused = Set((UserDefaults.standard.stringArray(forKey: "healthPaused") ?? []).compactMap(UUID.init))
+    pausedGroups = Set(UserDefaults.standard.stringArray(forKey: "healthPausedGroups") ?? [])
     if let saved = try? Data(contentsOf: Self.historyFile),
       let decoded = try? JSONDecoder().decode([UUID: [Int: HealthBucket]].self, from: saved)
     {
@@ -82,7 +107,89 @@ final class HealthStore: ObservableObject {
     }
     schedule()
   }
-  var worst: HealthLevel? { allChecks.compactMap { results[$0.id]?.level }.max() }
+  /// The worst state among checks that should be up (not running and paused ones don't count).
+  var worst: HealthLevel? {
+    allChecks.compactMap { c -> HealthLevel? in
+      switch state(c) {
+      case .up: .up
+      case .warn: .warn
+      case .down: .down
+      default: nil
+      }
+    }.max()
+  }
+
+  /// Checks added in the app first, then one group per project file, by name.
+  var groups: [ServiceGroup] {
+    var out: [ServiceGroup] = []
+    if !checks.isEmpty { out.append(ServiceGroup(key: "", name: L("Adicionados no app"), checks: checks)) }
+    let byFile = Dictionary(grouping: fileChecks) { $0.source ?? "" }
+    for (file, list) in byFile.sorted(by: { ($0.value.first?.project ?? $0.key) < ($1.value.first?.project ?? $1.key) }) {
+      out.append(ServiceGroup(key: file, name: list.first?.project ?? (file as NSString).lastPathComponent, checks: list))
+    }
+    return out
+  }
+  func group(_ check: HealthCheck) -> String { check.source ?? "" }
+  func isPaused(_ check: HealthCheck) -> Bool { paused.contains(check.id) || pausedGroups.contains(group(check)) }
+  func setPaused(_ check: HealthCheck, _ on: Bool) {
+    if on {
+      paused.insert(check.id)
+    } else {
+      paused.remove(check.id)
+      pausedGroups.remove(group(check))
+    }
+    settle(check)
+  }
+  func setPaused(group key: String, _ on: Bool) {
+    let members = allChecks.filter { group($0) == key }
+    if on {
+      pausedGroups.insert(key)
+    } else {
+      pausedGroups.remove(key)
+      paused.subtract(members.map(\.id))
+    }
+    members.forEach(settle)
+  }
+  /// Paused: forget the streak and the alert. Resumed: check it now.
+  private func settle(_ check: HealthCheck) {
+    if isPaused(check) {
+      failures[check.id] = 0
+      alerted.remove(check.id)
+    } else if monitored(check) {
+      run(check)
+    }
+  }
+  /// The project's profiles (file checks only).
+  func profiles(_ check: HealthCheck) -> [EnvProfile] {
+    guard let source = check.source else { return [] }
+    return ProfileStore.shared.allProfiles.filter { $0.source == source }
+  }
+  /// One of the project's profiles is started, or a command of one is still running.
+  func profileRunning(_ check: HealthCheck) -> Bool {
+    let store = ProfileStore.shared
+    return profiles(check).contains { p in
+      store.active.contains(p.id) || p.commands.contains { store.running($0) != nil }
+    }
+  }
+  /// Something on this Mac listens on the target's port. A recent answer (any HTTP status)
+  /// counts; nil for hosts elsewhere, where a local listener says nothing.
+  func listening(_ check: HealthCheck, _ result: HealthResult?) -> Bool? {
+    guard let port = HealthTarget(check.target)?.localPort else { return nil }
+    if let result, result.latency != nil, -result.at.timeIntervalSinceNow < 75 { return true }
+    return Monitor.shared.snapshot?.processes.contains { $0.ports.contains { $0.port == port } } ?? false
+  }
+  func state(_ check: HealthCheck) -> ServiceState { state(check, results[check.id]) }
+  private func state(_ check: HealthCheck, _ result: HealthResult?) -> ServiceState {
+    serviceState(
+      level: result?.level, paused: isPaused(check), fromProject: check.source != nil,
+      hasProfile: !profiles(check).isEmpty, profileRunning: profileRunning(check), listening: listening(check, result))
+  }
+  /// Paused checks and project apps that are off (profile stopped, port free) are not probed.
+  func monitored(_ check: HealthCheck) -> Bool {
+    shouldProbe(
+      paused: isPaused(check), fromProject: check.source != nil, hasProfile: !profiles(check).isEmpty,
+      profileRunning: profileRunning(check), listening: listening(check, results[check.id]))
+  }
 
   private func schedule() {
     timer?.invalidate()
@@ -93,7 +200,14 @@ final class HealthStore: ObservableObject {
     timer?.tolerance = 5
   }
   func runAll() {
-    for check in allChecks { run(check) }
+    for check in allChecks {
+      if monitored(check) {
+        run(check)
+      } else {
+        failures[check.id] = 0
+        alerted.remove(check.id)
+      }
+    }
   }
   func run(_ check: HealthCheck) {
     guard let target = HealthTarget(check.target) else {
@@ -128,6 +242,13 @@ final class HealthStore: ObservableObject {
   private func record(_ check: HealthCheck, _ result: HealthResult) {
     guard allChecks.contains(where: { $0.id == check.id }) else { return }
     results[check.id] = result
+    // Not running or paused: no history, no uptime, no alert. An alert already sent is dropped
+    // quietly (stopping the project is not "it came back").
+    guard state(check, result).recordsHistory else {
+      failures[check.id] = 0
+      alerted.remove(check.id)
+      return
+    }
     var recent = history[check.id] ?? []
     recent.append(result.level == .down ? nil : result.latency)
     history[check.id] = Array(recent.suffix(40))
@@ -222,10 +343,89 @@ extension HealthLevel {
   }
 }
 
+extension ServiceState {
+  var color: Color {
+    switch self {
+    case .up: Tint.brand
+    case .warn: .orange
+    case .down: .red
+    case .notRunning, .paused, .pending: .secondary
+    }
+  }
+  var label: String {
+    switch self {
+    case .up: L("No ar")
+    case .warn: L("Respondeu com erro")
+    case .down: L("Fora do ar")
+    case .notRunning: L("Não está rodando")
+    case .paused: L("Pausado")
+    case .pending: L("Verificando…")
+    }
+  }
+  /// "2 fora do ar", for group summaries.
+  func count(_ n: Int) -> String {
+    switch self {
+    case .up: L("%@ no ar", "\(n)")
+    case .warn: L("%@ com erro", "\(n)")
+    case .down: L("%@ fora do ar", "\(n)")
+    case .notRunning: L("%@ não rodando", "\(n)")
+    case .paused: L("%@ pausados", "\(n)")
+    case .pending: L("%@ verificando", "\(n)")
+    }
+  }
+}
+
+/// Colored "1 fora do ar · 4 no ar".
+struct ServiceSummaryText: View {
+  let states: [ServiceState]
+  var body: some View {
+    HStack(spacing: 4) {
+      ForEach(Array(serviceSummary(states).enumerated()), id: \.offset) { i, item in
+        if i > 0 { Text("·").foregroundStyle(.tertiary) }
+        Text(item.state.count(item.count)).foregroundStyle(item.state == .up ? Color.secondary : item.state.color)
+      }
+    }.font(.caption).monospacedDigit().lineLimit(1)
+  }
+}
+
+extension HealthStore {
+  /// Why a row has its color, for its tooltip.
+  func explanation(_ check: HealthCheck) -> String {
+    let result = results[check.id]
+    let detail = result?.detail ?? ""
+    let port = HealthTarget(check.target)?.localPort.map { "\($0)" } ?? "?"
+    switch state(check) {
+    case .paused: return L("Pausado: não é verificado, não conta na disponibilidade e não gera alertas.")
+    case .pending: return L("Verificando…")
+    case .up: return L("No ar: %@.", detail)
+    case .warn: return L("Respondeu com erro (%@): o servidor está de pé, mas talvez o caminho esteja errado.", detail)
+    case .notRunning:
+      let name = check.project ?? check.name
+      return profiles(check).isEmpty
+        ? L("Nada escuta na porta %@ e %@ não tem perfil: o app só está desligado. Não conta como falha nem gera alerta.", port, name)
+        : L("Nenhum perfil de %@ está rodando e nada escuta na porta %@: o app está desligado, então não é verificado nem gera alerta. A verificação volta quando o perfil iniciar ou a porta abrir.", name, port)
+    case .down:
+      if check.source == nil { return L("Fora do ar (%@). Verificações adicionadas no app devem estar sempre no ar.", detail) }
+      if profileRunning(check) { return L("Fora do ar com o perfil do projeto rodando (%@).", detail) }
+      if listening(check, result) == true {
+        return L("Algo escuta na porta %@, mas a verificação falhou (%@).", port, detail)
+      }
+      return L("Fora do ar (%@).", detail)
+    }
+  }
+  /// Starts a profile, then checks again once it had time to come up.
+  func start(_ profile: EnvProfile) {
+    ProfileStore.shared.start(profile) { _ in
+      DispatchQueue.main.asyncAfter(deadline: .now() + 6) { HealthStore.shared.runAll() }
+    }
+  }
+}
+
 struct HealthView: View {
   @ObservedObject var store = HealthStore.shared
   @ObservedObject var monitor = Monitor.shared
   @ObservedObject var prefs = Preferences.shared
+  @ObservedObject var profiles = ProfileStore.shared
   @ViewState private var name = ""
   @ViewState private var target = ""
   @ViewState private var editing: UUID?
@@ -264,23 +464,19 @@ struct HealthView: View {
             EmptyNote(text: L("Nenhum serviço monitorado. Adicione uma URL de health check ou uma porta (API local, banco, staging)."))
           }
         } else {
-          Card {
-            CardHeader(title: L("Serviços"), symbol: "heart.text.square", tint: store.worst?.color ?? .secondary, count: store.allChecks.count) {
-              Button {
-                store.runAll()
-              } label: {
-                Label(L("Verificar agora"), systemImage: "arrow.clockwise")
-              }.controlSize(.small)
-            }
-            ForEach(store.allChecks) { check in
-              HealthRow(check: check, result: store.results[check.id], history: store.history[check.id] ?? []) {
-                editing = check.id
-                name = check.name
-                target = check.target
-              } remove: {
-                store.checks.removeAll { $0.id == check.id }
-              }
-              if check.id != store.allChecks.last?.id { Divider() }
+          CardHeader(title: L("Serviços"), symbol: "heart.text.square", tint: store.worst?.color ?? .secondary, count: store.allChecks.count) {
+            ServiceSummaryText(states: store.allChecks.map(store.state))
+            Button {
+              store.runAll()
+            } label: {
+              Label(L("Verificar agora"), systemImage: "arrow.clockwise")
+            }.controlSize(.small)
+          }
+          ForEach(store.groups) { group in
+            ServiceGroupCard(group: group) { check in
+              editing = check.id
+              name = check.name
+              target = check.target
             }
           }
         }
@@ -288,6 +484,9 @@ struct HealthView: View {
           .onChange(of: prefs.notifyServiceDown) { _, on in if on { Notifier.shared.activate() } }
         Text(
           L("Verifica a cada 30 s enquanto o CoreScope está aberto: HTTP GET (2xx/3xx no ar, 4xx respondeu com erro, 5xx ou sem resposta fora do ar) ou conexão TCP na porta. Sem cookies nem cache; só os destinos que você adicionou são acessados. Alerta depois de duas falhas seguidas.")
+        ).font(.caption).foregroundStyle(.secondary)
+        Text(
+          L("Cinza: as verificações de um projeto acompanham o app dele. Com o perfil parado e nada escutando na porta, o app está desligado: não é verificado, não conta na disponibilidade nem gera alerta. Vermelho fica para o que deveria estar no ar.")
         ).font(.caption).foregroundStyle(.secondary)
       }.padding(20)
     }
@@ -323,50 +522,138 @@ struct HealthView: View {
   }
 }
 
+/// One project's checks (or the ones added in the app), with a summary, Start and Pause.
+private struct ServiceGroupCard: View {
+  let group: ServiceGroup
+  let edit: (HealthCheck) -> Void
+  @ObservedObject var store = HealthStore.shared
+  @ObservedObject var profiles = ProfileStore.shared
+  var body: some View {
+    let states = group.checks.map(store.state)
+    let groupPaused = store.pausedGroups.contains(group.key)
+    let worst = states.filter(\.isFailure).isEmpty ? (states.contains(.warn) ? Color.orange : states.contains(.up) ? Tint.brand : .secondary) : .red
+    let projectProfiles = group.checks.first.map(store.profiles) ?? []
+    Card {
+      CardHeader(
+        title: group.name, symbol: group.source == nil ? "hand.point.up.left" : "folder", tint: worst,
+        count: group.checks.count
+      ) {
+        if let source = group.source {
+          Button {
+            NSWorkspace.shared.open(URL(fileURLWithPath: source))
+          } label: {
+            Badge(text: ".corescope.yml", color: Tint.netIn, symbol: "doc.text")
+          }.buttonStyle(.plain).help(L("Abrir .corescope.yml"))
+        }
+        ServiceSummaryText(states: states)
+        if states.contains(.notRunning) {
+          StartProfileButton(profiles: projectProfiles, compact: false)
+        }
+        Button {
+          store.setPaused(group: group.key, !groupPaused)
+        } label: {
+          Image(systemName: groupPaused ? "play.circle" : "pause.circle")
+        }.buttonStyle(.borderless)
+          .help(groupPaused ? L("Retomar as verificações deste grupo") : L("Pausar as verificações deste grupo"))
+          .accessibilityLabel(groupPaused ? L("Retomar as verificações deste grupo") : L("Pausar as verificações deste grupo"))
+      }
+      ForEach(group.checks) { check in
+        HealthRow(check: check, state: store.state(check), result: store.results[check.id], history: store.history[check.id] ?? []) {
+          edit(check)
+        } remove: {
+          store.checks.removeAll { $0.id == check.id }
+        }
+        if check.id != group.checks.last?.id { Divider() }
+      }
+    }
+  }
+}
+
+/// Starts the project's profile; a menu when the file has several.
+private struct StartProfileButton: View {
+  let profiles: [EnvProfile]
+  let compact: Bool
+  @ObservedObject var store = ProfileStore.shared
+  var body: some View {
+    let busy = profiles.contains { store.busy.contains($0.id) }
+    if busy {
+      ProgressView().controlSize(.small)
+    } else if profiles.count == 1, let p = profiles.first {
+      let button = Button {
+        HealthStore.shared.start(p)
+      } label: {
+        if compact { Image(systemName: "play.fill") } else { Label(L("Iniciar"), systemImage: "play.fill") }
+      }.controlSize(.small).help(L("Iniciar perfil %@", p.name)).accessibilityLabel(L("Iniciar perfil %@", p.name))
+      if compact { button.buttonStyle(.borderless) } else { button.buttonStyle(.bordered) }
+    } else if profiles.count > 1 {
+      Menu {
+        ForEach(profiles) { p in Button(L("Iniciar perfil %@", p.name)) { HealthStore.shared.start(p) } }
+      } label: {
+        if compact { Image(systemName: "play.fill") } else { Label(L("Iniciar"), systemImage: "play.fill") }
+      }.menuStyle(.borderlessButton).menuIndicator(compact ? .hidden : .visible).fixedSize()
+        .help(L("Iniciar um perfil do projeto"))
+    }
+  }
+}
 private struct HealthRow: View {
   let check: HealthCheck
+  let state: ServiceState
   let result: HealthResult?
   let history: [Double?]
   let edit: () -> Void
   let remove: () -> Void
+  @ObservedObject var store = HealthStore.shared
   @ViewState private var showHistory = false
   var body: some View {
+    let quiet = state == .notRunning || state == .paused
+    let explanation = store.explanation(check)
     HStack(spacing: 10) {
-      Circle().fill(result?.level.color ?? .secondary).frame(width: 9, height: 9)
-        .help(result?.level.label ?? L("Verificando…"))
-      VStack(alignment: .leading, spacing: 2) {
-        HStack(spacing: 6) {
-          Text(check.name).font(.callout.weight(.medium)).lineLimit(1)
-          if check.source != nil { Badge(text: ".corescope.yml", color: Tint.netIn, symbol: "doc.text") }
+      Group {
+        if state == .paused {
+          Image(systemName: "pause.circle.fill").font(.system(size: 10)).foregroundStyle(.secondary)
+        } else if state == .notRunning {
+          Circle().strokeBorder(Color.secondary, lineWidth: 1.5)
+        } else {
+          Circle().fill(state.color)
         }
+      }.frame(width: 9, height: 9)
+      VStack(alignment: .leading, spacing: 2) {
+        Text(check.shortName).font(.callout.weight(.medium)).lineLimit(1)
+          .foregroundStyle(quiet ? Color.secondary : Color.primary)
         Text(check.target).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
           .textSelection(.enabled)
       }
       Spacer(minLength: 8)
-      LatencyStrip(values: history).frame(width: 120, height: 18)
+      LatencyStrip(values: history).frame(width: 120, height: 18).opacity(quiet ? 0.35 : 1)
       Button {
         showHistory = true
       } label: {
         VStack(alignment: .trailing, spacing: 1) {
-          Text(HealthStore.shared.uptime(check.id, hours: 24).map { String(format: "%.1f%%", $0 * 100) } ?? "—")
-            .font(.callout).monospacedDigit()
+          Text(store.uptime(check.id, hours: 24).map { String(format: "%.1f%%", $0 * 100) } ?? "—")
+            .font(.callout).monospacedDigit().foregroundStyle(quiet ? Color.secondary : Color.primary)
           Text(L("24 h")).font(.caption2).foregroundStyle(.secondary)
         }
       }.buttonStyle(.plain).help(L("Disponibilidade e incidentes"))
       VStack(alignment: .trailing, spacing: 2) {
-        Text(result?.latency.map { String(format: "%.0f ms", $0) } ?? "—").font(.callout).monospacedDigit()
-        Text(result.map { "\($0.detail) · \($0.at.formatted(date: .omitted, time: .standard))" } ?? L("Verificando…"))
-          .font(.caption).foregroundStyle(result?.level == .up ? Color.secondary : result?.level.color ?? .secondary)
-          .lineLimit(1)
+        Text(quiet ? "—" : result?.latency.map { String(format: "%.0f ms", $0) } ?? "—").font(.callout).monospacedDigit()
+          .foregroundStyle(quiet ? Color.secondary : Color.primary)
+        Text(status).font(.caption).foregroundStyle(state == .up || quiet ? Color.secondary : state.color).lineLimit(1)
       }.frame(width: 190, alignment: .trailing)
-      if case .http(let url) = HealthTarget(check.target) {
-        Button {
-          NSWorkspace.shared.open(url)
-        } label: {
-          Image(systemName: "safari")
-        }.buttonStyle(.borderless).help(L("Abrir no navegador"))
-      }
+      // One fixed slot so the columns line up whichever button the row has.
+      Group {
+        if state == .notRunning {
+          StartProfileButton(profiles: store.profiles(check), compact: true)
+        } else if !quiet, case .http(let url) = HealthTarget(check.target) {
+          Button {
+            NSWorkspace.shared.open(url)
+          } label: {
+            Image(systemName: "safari")
+          }.buttonStyle(.borderless).help(L("Abrir no navegador"))
+        }
+      }.frame(width: 22)
       Menu {
+        Button(store.isPaused(check) ? L("Retomar") : L("Pausar")) { store.setPaused(check, !store.isPaused(check)) }
+        Divider()
         if let source = check.source {
           Button(L("Abrir .corescope.yml")) { NSWorkspace.shared.open(URL(fileURLWithPath: source)) }
         } else {
@@ -377,7 +664,18 @@ private struct HealthRow: View {
         Image(systemName: "ellipsis.circle")
       }.menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
     }.padding(.vertical, 3)
+    .contentShape(Rectangle())
+    .help(explanation)
+    .accessibilityElement(children: .contain)
+    .accessibilityLabel("\(check.name): \(state.label)")
     .sheet(isPresented: $showHistory) { ServiceHistorySheet(check: check) }
+  }
+  private var status: String {
+    switch state {
+    case .paused: L("pausado")
+    case .notRunning: L("não está rodando")
+    default: result.map { "\($0.detail) · \($0.at.formatted(date: .omitted, time: .standard))" } ?? L("Verificando…")
+    }
   }
 }
 
@@ -403,6 +701,7 @@ private struct LatencyStrip: View {
 /// Overview summary, shown only once a check exists.
 struct HealthCard: View {
   @ObservedObject var store = HealthStore.shared
+  @ObservedObject var profiles = ProfileStore.shared
   var body: some View {
     if !store.allChecks.isEmpty {
       Card {
@@ -412,13 +711,18 @@ struct HealthCard: View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 10, alignment: .leading)], alignment: .leading, spacing: 8) {
           ForEach(store.allChecks) { check in
             let result = store.results[check.id]
+            let state = store.state(check)
             HStack(spacing: 7) {
-              Circle().fill(result?.level.color ?? .secondary).frame(width: 8, height: 8)
+              Circle().fill(state.color.opacity(state == .notRunning || state == .paused ? 0.4 : 1)).frame(width: 8, height: 8)
               Text(check.name).font(.callout).lineLimit(1)
               Spacer(minLength: 4)
-              Text(result?.level == .down ? result?.detail ?? "" : result?.latency.map { String(format: "%.0f ms", $0) } ?? "—")
-                .font(.caption).foregroundStyle(result?.level == .down ? Color.red : .secondary).monospacedDigit().lineLimit(1)
-            }.help("\(check.target) · \(result?.level.label ?? L("Verificando…"))")
+              Text(
+                state == .down ? result?.detail ?? ""
+                  : state == .notRunning || state == .paused ? state.label.lowercased()
+                  : result?.latency.map { String(format: "%.0f ms", $0) } ?? "—"
+              )
+              .font(.caption).foregroundStyle(state == .down ? Color.red : .secondary).monospacedDigit().lineLimit(1)
+            }.help("\(check.target) · \(store.explanation(check))")
           }
         }
       }

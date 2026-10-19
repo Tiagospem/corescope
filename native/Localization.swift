@@ -881,7 +881,32 @@ private let entries = """
   Parar todos ¦ Stop all ¦ Detener todos
   Parar os contêineres de %@ ¦ Stop the containers of %@ ¦ Detener los contenedores de %@
   Volumes ¦ Volumes ¦ Volúmenes
-  %@ sem nenhum contêiner (%@). Remover um volume apaga os dados dele; faça pelo Docker se tiver certeza. ¦ %@ not used by any container (%@). Removing a volume deletes its data; do it through Docker if you are sure. ¦ %@ sin ningún contenedor (%@). Eliminar un volumen borra sus datos; hazlo con Docker si estás seguro.
+  %@ sem nenhum contêiner (%@). Remover um volume apaga os dados dele para sempre. ¦ %@ not used by any container (%@). Removing a volume deletes its data for good. ¦ %@ sin ningún contenedor (%@). Eliminar un volumen borra sus datos para siempre.
+  Remover sem uso… ¦ Remove unused… ¦ Eliminar sin uso…
+  Remove os volumes que nenhum contêiner usa, depois de confirmar ¦ Removes the volumes no container uses, after you confirm ¦ Elimina los volúmenes que ningún contenedor usa, tras confirmar
+  Remover o volume %@… ¦ Remove the %@ volume… ¦ Eliminar el volumen %@…
+  Remover o volume %@? ¦ Remove the %@ volume? ¦ ¿Eliminar el volumen %@?
+  Remover %@ volumes sem uso? ¦ Remove %@ unused volumes? ¦ ¿Eliminar %@ volúmenes sin uso?
+  em uso por %@ ¦ in use by %@ ¦ en uso por %@
+  em uso por um contêiner ¦ in use by a container ¦ en uso por un contenedor
+  uso desconhecido ¦ usage unknown ¦ uso desconocido
+  O Docker não informou se algum contêiner usa este volume; o CoreScope não o remove. ¦ Docker did not say whether any container uses this volume; CoreScope does not remove it. ¦ Docker no indicó si algún contenedor usa este volumen; CoreScope no lo elimina.
+  Só volumes que nenhum contêiner usa (rodando ou parado) podem ser removidos. Remova o contêiner antes, se não precisar mais dele. ¦ Only volumes no container uses (running or stopped) can be removed. Remove the container first if you no longer need it. ¦ Solo se pueden eliminar volúmenes que ningún contenedor usa (en ejecución o detenido). Elimina antes el contenedor si ya no lo necesitas.
+  anônimo ¦ anonymous ¦ anónimo
+  volume %@ do compose ¦ compose volume %@ ¦ volumen %@ de compose
+  criado %@ ¦ created %@ ¦ creado %@
+  nenhum rótulo diz o que o criou ¦ no label says what made it ¦ ninguna etiqueta dice qué lo creó
+  %@ removido (%@) ¦ %@ removed (%@) ¦ %@ eliminado (%@)
+  Limpar resultado ¦ Clear result ¦ Borrar resultado
+  + %@ outros ¦ + %@ more ¦ + %@ más
+  Total: %@. Os dados são apagados permanentemente pelo Docker e não podem ser recuperados. ¦ Total: %@. Docker deletes the data permanently; it cannot be recovered. ¦ Total: %@. Docker borra los datos de forma permanente y no se pueden recuperar.
+  Parece haver dados de %@ aqui. Sem nenhum contêiner usando o volume, não há servidor rodando para tirar um snapshot: se ainda precisar desses dados, suba um contêiner com ele e faça um snapshot em Bancos antes de remover. ¦ This looks like %@ data. With no container using the volume there is no running server to snapshot: if you still need the data, start a container with it and take a snapshot in Databases before removing. ¦ Parece haber datos de %@ aquí. Sin ningún contenedor usando el volumen no hay servidor en ejecución para un snapshot: si aún necesitas esos datos, levanta un contenedor con él y haz un snapshot en Bases de datos antes de eliminar.
+  Removendo %@ volume(s)… ¦ Removing %@ volume(s)… ¦ Eliminando %@ volumen(es)…
+  %@ volume(s) removido(s), %@ liberados. ¦ %@ volume(s) removed, %@ freed. ¦ %@ volumen(es) eliminado(s), %@ liberados.
+  %@ de %@ volume(s) não foram removidos. ¦ %@ of %@ volume(s) were not removed. ¦ %@ de %@ volumen(es) no se eliminaron.
+  Volume não encontrado ¦ Volume not found ¦ Volumen no encontrado
+  Nome de volume inválido ¦ Invalid volume name ¦ Nombre de volumen no válido
+  existe em mais de um motor ¦ exists in more than one engine ¦ existe en más de un motor
   sem uso ¦ unused ¦ sin uso
   %@ contêiner(es) ¦ %@ container(s) ¦ %@ contenedor(es)
   Mostrar todos (%@) ¦ Show all (%@) ¦ Mostrar todos (%@)
@@ -988,6 +1013,37 @@ private let entries = """
   Portas e exposição ¦ Ports and exposure ¦ Puertos y exposición
   Processos iniciados pelo app ¦ Processes the app started ¦ Procesos iniciados por la app
   Quanto o próprio CoreScope está gastando ¦ What CoreScope itself is spending ¦ Cuánto está gastando el propio CoreScope
+  Para aliviar o Mac ¦ To lighten the Mac ¦ Para aliviar el Mac
+  Nada pesando que dê para parar ou liberar agora. ¦ Nothing heavy to stop or free right now. ¦ Nada pesado que se pueda detener o liberar ahora.
+  Só leitura: cada linha abre a página onde agir. Agentes veem a lista completa no MCP performance_audit. ¦ Read-only: each row opens the page where you act. Agents get the full list from MCP performance_audit. ¦ Solo lectura: cada fila abre la página donde actuar. Los agentes ven la lista completa en MCP performance_audit.
+  certeza alta ¦ high confidence ¦ certeza alta
+  certeza média ¦ medium confidence ¦ certeza media
+  verifique ¦ check first ¦ verifica antes
+  Perfil iniciado: %@ ¦ Started profile: %@ ¦ Perfil iniciado: %@
+  %@ processos e %@ contêineres em execução por ele. ¦ %@ processes and %@ containers running for it. ¦ %@ procesos y %@ contenedores en ejecución por él.
+  Órfão %@ (PID %@) ¦ Orphan %@ (PID %@) ¦ Huérfano %@ (PID %@)
+  Rodando sem o processo pai. ¦ Running without its parent process. ¦ En ejecución sin su proceso padre.
+  Sessão de agente parada: %@ ¦ Stuck agent session: %@ ¦ Sesión de agente atascada: %@
+  Sessão de agente gastando energia: %@ ¦ Agent session drawing power: %@ ¦ Sesión de agente gastando energía: %@
+  Ela e o que iniciou somam %@ W. ¦ It and what it started draw %@ W. ¦ Ella y lo que inició suman %@ W.
+  Pesando agora: CPU alta ou muita memória. ¦ Heavy right now: high CPU or a lot of memory. ¦ Pesando ahora: CPU alta o mucha memoria.
+  Pesando agora: %@ processos deste app somados. ¦ Heavy right now: %@ processes of this app combined. ¦ Pesando ahora: %@ procesos de esta app sumados.
+  Contêiner ocioso: %@ ¦ Idle container: %@ ¦ Contenedor inactivo: %@
+  Rodando quase sem CPU e segurando memória; nenhum perfil iniciado o usa. ¦ Running with almost no CPU while holding memory; no started profile uses it. ¦ En marcha casi sin CPU y reteniendo memoria; ningún perfil iniciado lo usa.
+  %@ contêineres parados ¦ %@ stopped containers ¦ %@ contenedores detenidos
+  Não gastam CPU nem memória, mas prendem imagens e volumes que a limpeza não pode remover. ¦ They use no CPU or memory, but keep images and volumes that cleanup cannot remove. ¦ No gastan CPU ni memoria, pero retienen imágenes y volúmenes que la limpieza no puede quitar.
+  Worktree: %@. ¦ Worktree: %@. ¦ Worktree: %@.
+  %@ worktrees já mergeados ¦ %@ worktrees already merged ¦ %@ worktrees ya fusionados
+  Os branches já estão no principal; nada se perde além da pasta de trabalho. ¦ Their branches are already in the main one; only the working folder goes. ¦ Sus ramas ya están en la principal; solo se va la carpeta de trabajo.
+  Pasta de build que volta no próximo build ou install; sem mudanças há %@ dias. ¦ Build folder that comes back on the next build or install; unchanged for %@ days. ¦ Carpeta de build que vuelve en el próximo build o install; sin cambios desde hace %@ días.
+  Recriado sob demanda pela ferramenta que o usa. ¦ Re-created on demand by the tool that uses it. ¦ Lo recrea bajo demanda la herramienta que lo usa.
+  %@ cresceu %@ hoje ¦ %@ grew %@ today ¦ %@ creció %@ hoy
+  Uma ação da limpeza segura libera esta pasta. ¦ A safe cleanup action frees this folder. ¦ Una acción de la limpieza segura libera esta carpeta.
+  Sem ação automática: veja o que há dentro em Armazenamento. ¦ No automatic action: see what is inside on the Storage page. ¦ Sin acción automática: mira qué hay dentro en Almacenamiento.
+  Serviço sempre fora: %@ ¦ Service always down: %@ ¦ Servicio siempre caído: %@
+  No ar %@%% das últimas 24 h; a verificação ainda roda a cada 30 s. ¦ Up %@%% of the last 24 h; the check still runs every 30 s. ¦ Activo %@%% de las últimas 24 h; la verificación sigue cada 30 s.
+  Coleta a cada %@ s; 5 s gasta menos da metade. ¦ Samples every %@ s; 5 s costs less than half. ¦ Recolecta cada %@ s; 5 s gasta menos de la mitad.
+  Mantém o coletor no intervalo rápido mesmo com a janela fechada. ¦ Keeps the collector on the fast interval even with the window closed. ¦ Mantiene el recolector en el intervalo rápido incluso con la ventana cerrada.
   Status line do Claude ¦ Claude status line ¦ Status line de Claude
   a cada %@ s com janela ou painel visível, 10 s sem · %@ ms por passagem ¦ every %@ s with the window or panel visible, 10 s otherwise · %@ ms per pass ¦ cada %@ s con ventana o panel visible, 10 s sin ellos · %@ ms por pasada
   a cada 15 s, só com a página aberta ¦ every 15 s, only while the page is open ¦ cada 15 s, solo con la página abierta
@@ -1457,4 +1513,27 @@ private let entries = """
   Gerar mensagem ¦ Generate message ¦ Generar mensaje
   Escreve a mensagem a partir do diff em stage (%@). Você revisa antes de commitar. ¦ Writes the message from the staged diff (%@). You review it before committing. ¦ Escribe el mensaje a partir del diff preparado (%@). Lo revisas antes del commit.
   Não deu para gerar a mensagem: %@ ¦ Couldn't generate the message: %@ ¦ No se pudo generar el mensaje: %@
+  Não está rodando ¦ Not running ¦ No está en marcha
+  não está rodando ¦ not running ¦ no está en marcha
+  pausado ¦ paused ¦ en pausa
+  %@ no ar ¦ %@ up ¦ %@ en línea
+  %@ com erro ¦ %@ with errors ¦ %@ con error
+  %@ fora do ar ¦ %@ down ¦ %@ caídos
+  %@ não rodando ¦ %@ not running ¦ %@ sin ejecutar
+  %@ pausados ¦ %@ paused ¦ %@ en pausa
+  %@ verificando ¦ %@ checking ¦ %@ comprobando
+  Adicionados no app ¦ Added in the app ¦ Añadidos en la app
+  Iniciar um perfil do projeto ¦ Start one of the project's profiles ¦ Iniciar un perfil del proyecto
+  Pausar as verificações deste grupo ¦ Pause this group's checks ¦ Pausar las comprobaciones de este grupo
+  Retomar as verificações deste grupo ¦ Resume this group's checks ¦ Reanudar las comprobaciones de este grupo
+  Pausado: não é verificado, não conta na disponibilidade e não gera alertas. ¦ Paused: not checked, not counted in uptime and no alerts. ¦ En pausa: no se comprueba, no cuenta en la disponibilidad y no genera alertas.
+  No ar: %@. ¦ Up: %@. ¦ En línea: %@.
+  Respondeu com erro (%@): o servidor está de pé, mas talvez o caminho esteja errado. ¦ Answered with an error (%@): the server is up, but the path may be wrong. ¦ Respondió con error (%@): el servidor está en marcha, pero quizá la ruta sea incorrecta.
+  Nada escuta na porta %@ e %@ não tem perfil: o app só está desligado. Não conta como falha nem gera alerta. ¦ Nothing listens on port %@ and %@ has no profile: the app is just switched off. It doesn't count as a failure or send an alert. ¦ Nada escucha en el puerto %@ y %@ no tiene perfil: la app solo está apagada. No cuenta como fallo ni genera alerta.
+  Nenhum perfil de %@ está rodando e nada escuta na porta %@: o app está desligado, então não é verificado nem gera alerta. A verificação volta quando o perfil iniciar ou a porta abrir. ¦ No profile of %@ is running and nothing listens on port %@: the app is switched off, so it is not checked and sends no alerts. Checking resumes when the profile starts or the port opens. ¦ Ningún perfil de %@ está en marcha y nada escucha en el puerto %@: la app está apagada, así que no se comprueba ni genera alertas. La comprobación vuelve cuando el perfil arranca o el puerto se abre.
+  Fora do ar (%@). Verificações adicionadas no app devem estar sempre no ar. ¦ Down (%@). Checks added in the app should always be up. ¦ Caído (%@). Las comprobaciones añadidas en la app deberían estar siempre en línea.
+  Fora do ar com o perfil do projeto rodando (%@). ¦ Down while the project's profile is running (%@). ¦ Caído con el perfil del proyecto en marcha (%@).
+  Algo escuta na porta %@, mas a verificação falhou (%@). ¦ Something listens on port %@, but the check failed (%@). ¦ Algo escucha en el puerto %@, pero la comprobación falló (%@).
+  Fora do ar (%@). ¦ Down (%@). ¦ Caído (%@).
+  Cinza: as verificações de um projeto acompanham o app dele. Com o perfil parado e nada escutando na porta, o app está desligado: não é verificado, não conta na disponibilidade nem gera alerta. Vermelho fica para o que deveria estar no ar. ¦ Gray: a project's checks follow its app. With the profile stopped and nothing listening on the port, the app is switched off: it is not checked, doesn't count against uptime and sends no alerts. Red is kept for what should be up. ¦ Gris: las comprobaciones de un proyecto siguen a su app. Con el perfil detenido y nada escuchando en el puerto, la app está apagada: no se comprueba, no cuenta en la disponibilidad ni genera alertas. El rojo queda para lo que debería estar en línea.
   """

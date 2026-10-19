@@ -1520,6 +1520,34 @@ pub unsafe extern "C" fn cs_container_action(
     })
 }
 
+/// # Safety
+/// `name` is a valid NUL-terminated UTF-8 pointer; `engine` is one too, or null for "any".
+/// Removes an unused Docker volume (never forced): {"ok":true,"engine":…} or
+/// {"error":…,"refusal":{"kind":…}}.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cs_volume_remove(
+    name: *const c_char,
+    engine: *const c_char,
+) -> *mut c_char {
+    response(|| {
+        if name.is_null() {
+            return Err("Nome de volume inválido".into());
+        }
+        let name = unsafe { CStr::from_ptr(name) }
+            .to_str()
+            .map_err(|_| "Nome de volume inválido")?;
+        let engine = (!engine.is_null())
+            .then(|| unsafe { CStr::from_ptr(engine) }.to_str().ok())
+            .flatten()
+            .filter(|e| !e.is_empty());
+        Ok(match containers::remove_volume(name, engine) {
+            Ok(engine) => serde_json::json!({"ok": true, "engine": engine}),
+            Err(r) => serde_json::json!({"error": r.pt(), "refusal": r}),
+        }
+        .to_string())
+    })
+}
+
 #[derive(Deserialize)]
 struct DevSpaceRequest {
     #[serde(default)]
