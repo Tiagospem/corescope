@@ -467,13 +467,17 @@ enum ControlAPI {
         "claude": [
           "source": agents.claude.windows.isEmpty ? NSNull() : agents.claude.source as Any,
           "observed_at": at(agents.claude.observedAt),
+          "age_seconds": agents.claude.observedAt.map { Int(-$0.timeIntervalSinceNow) } ?? NSNull(),
+          "live_read": Preferences.shared.claudeLiveLimits,
           "windows": agents.claude.windows.map(window),
         ],
         "codex": [
           "plan": agents.codex.plan ?? NSNull(), "observed_at": at(agents.codex.observedAt),
+          "age_seconds": agents.codex.observedAt.map { Int(-$0.timeIntervalSinceNow) } ?? NSNull(),
+          "live_read": Preferences.shared.codexLiveLimits,
           "windows": agents.codex.windows.map(window),
         ],
-        "note": "Claude: 'statusline' comes from Claude Code's status line (with reset times); 'desktop' from Claude Desktop's local samples (no reset times). Pace is the average since the window started.",
+        "note": "Claude: 'claude-code' is Claude Code's own /usage, read by CoreScope every 5 min while Claude is in use when live_read is on (current, with reset times); 'statusline' comes from Claude Code's status line (refreshed by terminal replies); 'desktop' from Claude Desktop's occasional local samples (no reset times). The newest source is shown; age_seconds says how old it is. live_read is turned on by the user in Settings › Agents. Pace is the average since the window started.",
       ])
     case "agents.stuck":
       let watch = StallWatch.shared
