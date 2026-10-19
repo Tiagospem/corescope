@@ -10,6 +10,8 @@ section as the GitHub release notes.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-18
+
 ### Added
 - **Performance audit**: MCP `performance_audit` sweeps what CoreScope already knows and ranks
   what the user could stop, remove or turn off — orphans, heavy apps and processes, stuck or
@@ -459,7 +461,8 @@ First public release.
   compact / standard / detailed layouts and in-panel controls.
 - English, Portuguese and Spanish; offline-only.
 
-[Unreleased]: https://github.com/Tiagospem/corescope/compare/v0.8.1...HEAD
+[Unreleased]: https://github.com/Tiagospem/corescope/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/Tiagospem/corescope/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/Tiagospem/corescope/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/Tiagospem/corescope/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/Tiagospem/corescope/compare/v0.6.0...v0.7.0
