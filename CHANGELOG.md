@@ -10,6 +10,49 @@ section as the GitHub release notes.
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-19
+
+### Added
+- **Environment controllers** (all optional in `.corescope.yml` under `environment:`, older files
+  unchanged; see [docs/ENVIRONMENT-CONTROLLER.md](docs/ENVIRONMENT-CONTROLLER.md)): each app of a
+  project's own controller is listed with the modes it can come up in (`modes`, one at a time), the
+  command that takes it down, containers to watch and its actions; mode commands do the whole
+  operation while CoreScope only watches (no second Docker operation, no race with
+  `docker compose up -d`, Stop runs only that app's `down`). Services checks follow the profiles,
+  app or status component that need them (`profiles:`, `app:`, `component:`), so an app that is
+  switched off raises no alert even when a proxy keeps its port open, with the new states
+  `starting`, `external` and `unknown` (never up, never off). A `status` command's versioned JSON
+  is read every 30 s with a short timeout and reconciled with what CoreScope started (selection
+  changed in a terminal, CoreScope restarted, stale readings). One-off actions (setup, backup,
+  restore) have their own timeout, log, artifact, cancel and, for restores, a preview the user
+  confirms. MCP: `environment_status`, `list_actions`, `run_action`, `cancel_action`; each app mode
+  is a profile `project/app:mode` for `start_profile` / `stop_profile`.
+
+### Changed
+- **Profiles** is grouped by project: each project's environment card shows a summary (apps
+  selected, expected components ready, problems) and one folded row per app, with its state in a
+  fixed column, a Start menu with its modes and Stop, and inside it the app's components and
+  actions by kind (`kind:`, otherwise guessed from the names); profile cards fold their commands and containers while stopped, show
+  the profile's own name with its state in a fixed column, and stopped profiles of a project fold
+  into one line when there are more than three. Components whose state the controller could not
+  read are summed up in one line and make the app *unknown*, not *starting*; when no container
+  engine answers at all (Docker switched off) the environment simply shows as off, without errors
+  or alerts. What is open is remembered.
+- **Menu bar**: every value has its own SF Symbol (cpu, memory chip, disk I/O arrows, network,
+  thermometer, internal drive for the SSD, terminal for Codex, sparkle for Claude) next to it,
+  also in the compact format, and the item's tooltip explains each one; the same icons are in
+  Settings. Settings › Menu bar is a single list (on/off, what it shows, order) instead of the
+  toggles followed by an unexplained copy of the same items.
+- **Lower cost**: environment status reads use `/bin/sh` with the login environment read once
+  instead of an interactive login shell every 30 s, and slow to every 2 min with no window open;
+  the floating panel is released when turned off and the menu bar window stops rendering while
+  closed (both kept updating on every sample); freed memory is returned to macOS after the window
+  closes and every 5 min while closed.
+
+### Fixed
+- An ejected volume leaves Storage at once instead of up to 30 s later.
+- *Language: System* followed the language last chosen in CoreScope instead of macOS's.
+
 ## [0.9.0] - 2026-10-18
 
 ### Added
@@ -461,7 +504,8 @@ First public release.
   compact / standard / detailed layouts and in-panel controls.
 - English, Portuguese and Spanish; offline-only.
 
-[Unreleased]: https://github.com/Tiagospem/corescope/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/Tiagospem/corescope/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/Tiagospem/corescope/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/Tiagospem/corescope/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/Tiagospem/corescope/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/Tiagospem/corescope/compare/v0.7.0...v0.8.0

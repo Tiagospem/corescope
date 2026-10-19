@@ -701,7 +701,9 @@ enum HealthTarget: Equatable {
 /// What a Services row means, beyond the probe's answer: a check from a project whose
 /// environment is off and whose port nobody listens on is "not running", not a failure.
 enum ServiceState: String, CaseIterable {
-  case down, warn, notRunning = "not_running", paused, pending, up
+  /// Worst first (summaries follow this order). `starting`, `external` and `unknown` only come from
+  /// checks bound to profiles or a status component (`boundServiceState`).
+  case down, unknown, warn, starting, notRunning = "not_running", external, paused, pending, up
   /// Counts as a failure (uptime, notifications, red).
   var isFailure: Bool { self == .down }
   /// Probe results are kept in the history and uptime only for checks that should be up.
@@ -739,6 +741,265 @@ func serviceState(
 func shouldProbe(paused: Bool, fromProject: Bool, hasProfile: Bool, profileRunning: Bool, listening: Bool?) -> Bool {
   !paused && !(fromProject && hasProfile && !profileRunning && listening == false)
 }
+
+/// Whether a check bound to profiles (`profiles:`) or a status component (`component:`) should be
+/// up right now.
+enum ServiceExpectation: Equatable {
+  case expected
+  case notExpected
+  /// The selection could not be read (status failed, timed out or is stale): never up, never off.
+  case unknown(String)
+}
+/// - profilesOn: per bound profile, on (true), off (false) or unknown (nil: a controller profile
+///   whose status could not be read and that CoreScope did not start).
+/// - component: the bound component's `expected` from a fresh status; nil when there is no
+///   binding; `.some(nil)` when bound but the status is missing, stale or does not list it.
+/// A component the controller reports wins: it knows about dependencies kept for other apps.
+func serviceExpectation(profilesOn: [Bool?], component: Bool??, unknownReason: String) -> ServiceExpectation {
+  if case .some(.some(let expected)) = component { return expected ? .expected : .notExpected }
+  if profilesOn.contains(true) { return .expected }
+  if component == nil, !profilesOn.isEmpty, profilesOn.allSatisfy({ $0 == false }) { return .notExpected }
+  return .unknown(unknownReason)
+}
+/// A bound check: the binding, not a port that happens to listen (a proxy on 443 proves nothing
+/// about the apps behind it), says whether it should be up.
+/// - starting: its profile's operation is running, the controller says the component is starting,
+///   or the profile started moments ago and the check has not answered yet.
+func boundServiceState(level: HealthLevel?, paused: Bool, expectation: ServiceExpectation, starting: Bool) -> ServiceState {
+  if paused { return .paused }
+  switch expectation {
+  case .unknown: return .unknown
+  case .notExpected: return level == .up || level == .warn ? .external : .notRunning
+  case .expected:
+    if level == .up { return .up }
+    if starting { return .starting }
+    switch level {
+    case nil: return .pending
+    case .warn: return .warn
+    default: return .down
+    }
+  }
+}
+/// Bound checks that nothing selected are probed only while something listens on their port (to
+/// tell "running outside CoreScope" from "off"); remote targets (listening nil) are probed.
+func shouldProbeBound(paused: Bool, expectation: ServiceExpectation, listening: Bool?) -> Bool {
+  !paused && (expectation != .notExpected || listening != false)
+}
+
+/// What a project's `status` command reports (format 1, docs/ENVIRONMENT-CONTROLLER.md). Data,
+/// never instructions: strings are clipped and only these fields are read.
+struct EnvironmentStatus: Equatable {
+  struct App: Equatable {
+    var name: String
+    var selected: Bool
+  }
+  struct Component: Equatable {
+    var name: String
+    var app: String?
+    var mode: String?
+    var expected: Bool
+    /// running, starting, stopped, failed or unknown.
+    var state: String
+    var ready: Bool?
+    /// controller or external.
+    var controlledBy: String?
+    /// Why it is kept up (a dependency of another app).
+    var reason: String?
+    var detail: String?
+  }
+  var environment: String
+  var collectedAt: Date
+  /// An operation the controller is running (its lock is held).
+  var busy: String?
+  var apps: [App]
+  var components: [Component]
+  var errors: [String]
+  static let maxBytes = 256 * 1024
+  static let states: Set<String> = ["running", "starting", "stopped", "failed", "unknown"]
+
+  /// Throws a short reason (shown as the diagnostic) for anything that is not format 1.
+  init(parsing data: Data) throws {
+    guard data.count <= Self.maxBytes else { throw StatusError("output over 256 KB") }
+    guard let object = try? JSONSerialization.jsonObject(with: data), let root = object as? [String: Any] else {
+      throw StatusError("output is not a JSON object")
+    }
+    guard (root["format"] as? NSNumber)?.intValue == 1 else { throw StatusError("format must be 1") }
+    func text(_ value: Any?, _ limit: Int = 200) -> String? {
+      guard let s = value as? String else { return nil }
+      let clean = String(s.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) })
+      return clean.isEmpty ? nil : String(clean.prefix(limit))
+    }
+    guard let environment = text(root["environment"], 100) else { throw StatusError("environment is missing") }
+    let iso = ISO8601DateFormatter()
+    let fractional = ISO8601DateFormatter()
+    fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    guard let stamp = root["collected_at"] as? String, let at = iso.date(from: stamp) ?? fractional.date(from: stamp) else {
+      throw StatusError("collected_at must be an ISO 8601 date")
+    }
+    self.environment = environment
+    collectedAt = at
+    busy = text(root["busy"])
+    apps = ((root["apps"] as? [[String: Any]]) ?? []).prefix(100).compactMap { a in
+      guard let name = text(a["name"], 100), let selected = a["selected"] as? Bool else { return nil }
+      return App(name: name, selected: selected)
+    }
+    components = ((root["components"] as? [[String: Any]]) ?? []).prefix(500).compactMap { c in
+      guard let name = text(c["name"], 100), let expected = c["expected"] as? Bool else { return nil }
+      let state = text(c["state"], 20).map { Self.states.contains($0) ? $0 : "unknown" } ?? "unknown"
+      return Component(
+        name: name, app: text(c["app"], 100), mode: text(c["mode"], 40), expected: expected, state: state,
+        ready: c["ready"] as? Bool, controlledBy: text(c["controlled_by"], 20), reason: text(c["reason"]),
+        detail: text(c["detail"]))
+    }
+    errors = ((root["errors"] as? [Any]) ?? []).prefix(20).compactMap { text($0, 300) }
+  }
+  init(environment: String, collectedAt: Date, busy: String? = nil, apps: [App], components: [Component], errors: [String] = []) {
+    self.environment = environment
+    self.collectedAt = collectedAt
+    self.busy = busy
+    self.apps = apps
+    self.components = components
+    self.errors = errors
+  }
+  /// The app is selected: as listed, else when one of its components is expected.
+  func selected(_ app: String) -> Bool? {
+    if let a = apps.first(where: { $0.name == app }) { return a.selected }
+    let mine = components.filter { $0.app == app }
+    return mine.isEmpty ? nil : mine.contains(where: \.expected)
+  }
+  /// Not running as expected: failed, stopped or not ready (starting ones are only late).
+  var failing: [Component] {
+    components.filter { $0.expected && ($0.state == "failed" || $0.state == "stopped" || ($0.state == "running" && $0.ready == false)) }
+  }
+}
+extension EnvironmentStatus {
+  /// The controller could not read any component (every expected one is `unknown`): with no
+  /// container engine answering either, that is the engine switched off, not a failure.
+  var nothingRead: Bool {
+    let expected = components.filter(\.expected)
+    return !expected.isEmpty && expected.allSatisfy { $0.state == "unknown" }
+  }
+  /// The same reading with the container engine off: nothing selected, nothing expected,
+  /// everything stopped. Apps show off and checks stay neutral; the engine being off is the
+  /// user's choice, not an error.
+  var engineOff: EnvironmentStatus {
+    var s = self
+    s.apps = apps.map { App(name: $0.name, selected: false) }
+    s.components = components.map {
+      var c = $0
+      c.expected = false
+      c.state = "stopped"
+      c.ready = nil
+      return c
+    }
+    s.errors = []
+    s.busy = nil
+    return s
+  }
+}
+struct StatusError: Error, Equatable {
+  let reason: String
+  init(_ reason: String) { self.reason = reason }
+}
+/// A status reading too old to trust: asked for more than three polls ago (at least 2 min; the
+/// app polls every 2 min with no window open), answered from a cache over 2 min old, or claiming
+/// to come from the future.
+func statusIsStale(collectedAt: Date, fetchedAt: Date, now: Date, interval: Double = 30) -> Bool {
+  now.timeIntervalSince(fetchedAt) > max(120, interval * 3) || fetchedAt.timeIntervalSince(collectedAt) > 120
+    || collectedAt.timeIntervalSince(fetchedAt) > 300
+}
+
+/// A profile run by an environment controller (`lifecycle: controller`), as one state.
+enum EnvHealth: String {
+  case off, starting, up, degraded, failed, unknown
+}
+/// The environment's status as a controller profile sees it.
+enum StatusInput {
+  /// The project has no `status` command.
+  case none
+  /// Failed, timed out, invalid or stale: the reason.
+  case unavailable(String)
+  case fresh(EnvironmentStatus)
+}
+/// - active: started through CoreScope and not stopped.
+/// - inFlight: one of its commands (the controller's operation) is still running.
+/// - failedExit: a command exited non-zero since the profile started.
+/// - missingContainers: observed containers that are not running.
+/// Returns the state, why (English, for MCP; empty when obvious) and whether the selection was
+/// changed outside CoreScope (terminal, another tool).
+func controllerHealth(
+  active: Bool, inFlight: Bool, failedExit: Int32?, status: StatusInput, app: String, missingContainers: [String]
+) -> (health: EnvHealth, reason: String, outside: Bool) {
+  if inFlight { return (.starting, "the controller's operation is running", false) }
+  if let failedExit, active { return (.failed, "a command exited with \(failedExit)", false) }
+  switch status {
+  case .unavailable(let why):
+    return (.unknown, "status unavailable: \(why)", false)
+  case .none:
+    guard active else { return (.off, "", false) }
+    if !missingContainers.isEmpty { return (.degraded, "not running: \(missingContainers.joined(separator: ", "))", false) }
+    return (.up, "no status command: the commands succeeded", false)
+  case .fresh(let s):
+    guard s.selected(app) == true else {
+      return (.off, active ? "switched off outside CoreScope" : "", active)
+    }
+    let mine = s.components.filter { $0.app == app && $0.expected }
+    let failing = s.failing.filter { $0.app == app }.map(\.name) + (active ? missingContainers : [])
+    if !failing.isEmpty { return (.degraded, "not running as expected: \(failing.joined(separator: ", "))", !active) }
+    if let busy = s.busy { return (.starting, "controller busy: \(busy)", !active) }
+    // The controller could not tell (its engine is down, say): unknown, not "starting".
+    let unread = mine.filter { $0.state == "unknown" }.map(\.name)
+    if !unread.isEmpty { return (.unknown, "state unknown: \(unread.joined(separator: ", "))", !active) }
+    let late = mine.filter { $0.state == "starting" }.map(\.name)
+    if !late.isEmpty { return (.starting, "starting: \(late.joined(separator: ", "))", !active) }
+    return (.up, active ? "" : "selected outside CoreScope", !active)
+  }
+}
+/// The compact menu bar form of a formatted value: "11,65 GB" → "11,6G", "1,9 MB/s" → "1,9M/s",
+/// "512 B/s" → "512B/s". One decimal at most (cut, not rounded: it is a glance).
+func compactValue(_ text: String) -> String {
+  let parts = text.split(separator: " ", maxSplits: 1).map(String.init)
+  guard parts.count == 2 else { return text }
+  var number = parts[0]
+  if let sep = number.firstIndex(where: { $0 == "," || $0 == "." }) {
+    let decimals = number[number.index(after: sep)...]
+    number = decimals.count > 1 ? String(number[...number.index(after: sep)]) : number
+  }
+  let units = ["TB": "T", "GB": "G", "MB": "M", "KB": "K", "kB": "K", "B": "B"]
+  let unit = parts[1].hasSuffix("/s") ? String(parts[1].dropLast(2)) : parts[1]
+  guard let short = units[unit] else { return text }
+  return number + short + (parts[1].hasSuffix("/s") ? "/s" : "")
+}
+
+/// What a project action is for, to list them in a useful order.
+enum ActionKind: String, CaseIterable {
+  case setup, run, diagnostics, data, stop, other
+  /// From `kind:` in the file, else from the words of its name: `eco-arena-migrate` is setup,
+  /// `docker-hindsight-stop` stop, `eco-memory-backup` data.
+  static func of(name: String, explicit: String?) -> ActionKind {
+    if let explicit, let kind = ActionKind(rawValue: explicit) { return kind }
+    let words = Set(name.lowercased().split { !$0.isLetter && !$0.isNumber }.map(String.init))
+    let table: [(ActionKind, Set<String>)] = [
+      (.data, ["backup", "restore", "export", "import", "recover", "restored", "dump", "snapshot"]),
+      (.diagnostics, ["doctor", "status", "logs", "log", "agents", "check", "diagnostic", "diagnostics", "health", "test"]),
+      (.stop, ["stop", "down", "halt"]),
+      (.setup, ["init", "setup", "migrate", "config", "install", "seed", "herd", "storage", "banks", "bootstrap"]),
+      (.run, ["up", "start", "build", "dev", "only", "restart", "activate", "mode", "use", "rebuild", "run"]),
+    ]
+    return table.first { !$0.1.isDisjoint(with: words) }?.0 ?? .other
+  }
+}
+/// The last `CORESCOPE_ARTIFACT=<path>` line an action printed (relative paths resolve against
+/// the project folder). The caller shows it only after exit 0 and if the file exists.
+func actionArtifact(_ output: String, folder: String) -> String? {
+  guard let line = output.split(whereSeparator: \.isNewline).last(where: { $0.hasPrefix("CORESCOPE_ARTIFACT=") }) else {
+    return nil
+  }
+  let path = line.dropFirst("CORESCOPE_ARTIFACT=".count).trimmingCharacters(in: .whitespaces)
+  guard !path.isEmpty else { return nil }
+  return path.hasPrefix("/") ? path : (folder as NSString).appendingPathComponent(path)
+}
+
 /// Per-group summary, worst first, without empty states: [(.down, 2), (.up, 4)].
 func serviceSummary(_ states: [ServiceState]) -> [(state: ServiceState, count: Int)] {
   ServiceState.allCases.compactMap { s in

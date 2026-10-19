@@ -219,7 +219,7 @@ private struct WeakWindow {
   weak var window: NSWindow?
 }
 /// Reports the window that hosts a view, so polling follows that window's visibility.
-private struct WindowReader: NSViewRepresentable {
+struct WindowReader: NSViewRepresentable {
   let onChange: (NSWindow?) -> Void
   final class Probe: NSView {
     var onChange: ((NSWindow?) -> Void)?

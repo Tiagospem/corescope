@@ -269,9 +269,10 @@ struct StorageView: View {
             ).font(.caption).foregroundStyle(.secondary)
           }
           Card {
-            CardHeader(title: L("Volumes montados"), symbol: "folder", count: s.volumes.count)
-            if s.volumes.isEmpty { EmptyNote(text: L("Inventário temporariamente indisponível.")) }
-            ForEach(Array(s.volumes.enumerated()), id: \.offset) { _, v in
+            let volumes = VolumeEject.visible(s.volumes)
+            CardHeader(title: L("Volumes montados"), symbol: "folder", count: volumes.count)
+            if volumes.isEmpty { EmptyNote(text: L("Inventário temporariamente indisponível.")) }
+            ForEach(Array(volumes.enumerated()), id: \.offset) { _, v in
               VStack(alignment: .leading, spacing: 6) {
                 HStack {
                   Text(v.mount).font(.callout.weight(.medium)).textSelection(.enabled)

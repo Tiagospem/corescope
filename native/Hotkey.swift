@@ -145,6 +145,14 @@ enum PortLookup {
   }
 
   /// The MenuBarExtra's status item button (the app has exactly one status item).
+  /// The menu bar item's tooltip (what each value is). The button appears a moment after launch.
+  static func setToolTip(_ text: String) {
+    if let button = statusButton() {
+      button.toolTip = text
+    } else {
+      DispatchQueue.main.asyncAfter(deadline: .now() + 2) { statusButton()?.toolTip = text }
+    }
+  }
   private static func statusButton() -> NSStatusBarButton? {
     func find(_ view: NSView?) -> NSStatusBarButton? {
       guard let view else { return nil }

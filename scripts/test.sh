@@ -5,5 +5,5 @@ cargo fmt --manifest-path core/Cargo.toml --check
 cargo test --locked --manifest-path core/Cargo.toml
 cargo clippy --all-targets --all-features --locked --manifest-path core/Cargo.toml -- -D warnings
 mkdir -p build
-swiftc -O native/NativeLogic.swift native/TokenUsage.swift native/UpdateLogic.swift tests/native-tests.swift -o build/native-tests
+swiftc -O native/NativeLogic.swift native/TokenUsage.swift native/UpdateLogic.swift native/Localization.swift tests/native-tests.swift -o build/native-tests
 ./build/native-tests

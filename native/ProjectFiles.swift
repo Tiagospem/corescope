@@ -15,6 +15,26 @@ struct ProjectConfig: Codable, Equatable {
   struct Service: Codable, Equatable {
     var name: String?
     var target: String
+    /// Profiles of the file that need it (expected while one is on).
+    var profiles: [String]?
+    /// A component of the status output.
+    var component: String?
+    /// An app of `environment.apps`.
+    var app: String?
+  }
+  struct Status: Codable, Equatable {
+    var run: String
+    var timeout_seconds: Double?
+  }
+  struct Action: Codable, Equatable {
+    var run: String
+    var description: String?
+    var timeout_minutes: Double?
+    var confirm: Bool?
+    var preview: String?
+    var heavy: Bool?
+    /// setup, run, diagnostics, data, stop or other; guessed from the name when absent.
+    var kind: String?
   }
   struct Capacity: Codable, Equatable {
     var cpu_below: Double
@@ -28,7 +48,22 @@ struct ProjectConfig: Codable, Equatable {
   var name: String?
   var profiles: [String: Profile]?
   var ports: [String: Int]?
+  /// An app of the project's environment controller: the modes it comes up in, how it goes
+  /// down, containers to watch and its actions.
+  struct App: Codable, Equatable {
+    var title: String?
+    var modes: [String: String]?
+    var down: String?
+    var containers: [String]?
+    var actions: [String: Action]?
+  }
+  struct Environment: Codable, Equatable {
+    var status: Status?
+    var apps: [String: App]?
+    var actions: [String: Action]?
+  }
   var services: [Service]?
+  var environment: Environment?
   var logs: [String]?
   var agents: Agents?
 }
@@ -117,6 +152,8 @@ final class ProjectFileStore: ObservableObject {
           self.files = found
           ProfileStore.shared.reloadFileProfiles()
           HealthStore.shared.reloadFileChecks()
+          EnvironmentStore.shared.reload()
+          ActionStore.shared.reload()
         }
         done?()
         if self.rerun {
