@@ -635,6 +635,57 @@ enum HealthTarget: Equatable {
     }
     return ["localhost", "127.0.0.1", "::1"].contains(host.lowercased()) || host.hasSuffix(".localhost")
   }
+  /// The port a listener on this Mac would hold: loopback, `.localhost` and `.test` hosts (Valet,
+  /// Herd, dnsmasq point those here). nil for other hosts, where a local listener says nothing.
+  var localPort: UInt16? {
+    switch self {
+    case .tcp(let host, let port):
+      return HealthTarget.tcp(host: host, port: port).isLocal || host.lowercased().hasSuffix(".test") ? port : nil
+    case .http(let url):
+      guard isLocal || (url.host ?? "").lowercased().hasSuffix(".test") else { return nil }
+      return url.port.map(UInt16.init) ?? (url.scheme?.lowercased() == "https" ? 443 : 80)
+    }
+  }
+}
+
+/// What a Services row means, beyond the probe's answer: a check from a project whose
+/// environment is off and whose port nobody listens on is "not running", not a failure.
+enum ServiceState: String, CaseIterable {
+  case down, warn, notRunning = "not_running", paused, pending, up
+  /// Counts as a failure (uptime, notifications, red).
+  var isFailure: Bool { self == .down }
+  /// Probe results are kept in the history and uptime only for checks that should be up.
+  var recordsHistory: Bool { self == .up || self == .warn || self == .down }
+  /// What MCP reports.
+  var mcpStatus: String {
+    switch self {
+    case .warn: "answered_with_error"
+    case .pending: "not_checked_yet"
+    default: rawValue
+    }
+  }
+}
+/// - fromProject: declared in a `.corescope.yml` (hand-added checks always should be up).
+/// - profileRunning: one of that project's profiles is started or has a command running.
+/// - listening: something on this Mac listens on the target's port; nil when that can't be known
+///   (remote host).
+func serviceState(level: HealthLevel?, paused: Bool, fromProject: Bool, profileRunning: Bool, listening: Bool?)
+  -> ServiceState
+{
+  if paused { return .paused }
+  switch level {
+  case nil: return .pending
+  case .up: return .up
+  case .warn: return .warn
+  case .down: return fromProject && !profileRunning && listening == false ? .notRunning : .down
+  }
+}
+/// Per-group summary, worst first, without empty states: [(.down, 2), (.up, 4)].
+func serviceSummary(_ states: [ServiceState]) -> [(state: ServiceState, count: Int)] {
+  ServiceState.allCases.compactMap { s in
+    let n = states.filter { $0 == s }.count
+    return n > 0 ? (s, n) : nil
+  }
 }
 /// 2xx/3xx is healthy; 4xx answers but is probably the wrong path; anything else is down.
 enum HealthLevel: Int, Comparable {

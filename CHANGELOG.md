@@ -10,6 +10,17 @@ section as the GitHub release notes.
 
 ## [Unreleased]
 
+### Changed
+- **Services tell "not running" apart from "down"**: checks are grouped by project (checks added
+  in the app in their own group) with a per-group summary. A check from a project's
+  `.corescope.yml` whose profile is not running and whose port nobody listens on is gray "not
+  running", with a Start button for the profile, and no longer counts against uptime or sends
+  down notifications; red is kept for what should be up (profile running, port listening but
+  failing, checks added by hand). The tooltip explains each state. Checks and whole groups can be
+  paused. MCP `list_services` / `check_services` report `status` (`up`, `answered_with_error`,
+  `down`, `not_running`, `paused`, `not_checked_yet`), `group` and `explanation`; new MCP
+  `pause_service`.
+
 ## [0.8.0] - 2026-10-18
 
 ### Added

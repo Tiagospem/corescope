@@ -160,6 +160,27 @@ import Foundation
     precondition(HealthTarget("http://api.localhost:8080")?.isLocal == true)
     precondition(HealthTarget("nonsense") == nil && HealthTarget("host:99999") == nil && HealthTarget("http://") == nil)
     precondition(HealthLevel(httpStatus: 204) == .up && HealthLevel(httpStatus: 404) == .warn && HealthLevel(httpStatus: 503) == .down)
+    // Services: a project's app that is simply off is "not running", not a failure.
+    precondition(HealthTarget("https://topo_tenant.test/up")?.localPort == 443)
+    precondition(HealthTarget("http://127.0.0.1:9091/healthz")?.localPort == 9091)
+    precondition(HealthTarget("http://localhost/up")?.localPort == 80 && HealthTarget("3306")?.localPort == 3306)
+    precondition(HealthTarget("https://staging.app/up")?.localPort == nil && HealthTarget("db.local:5432")?.localPort == nil)
+    let off = serviceState(level: .down, paused: false, fromProject: true, profileRunning: false, listening: false)
+    precondition(off == .notRunning && !off.isFailure && !off.recordsHistory && off.mcpStatus == "not_running")
+    // Should be up: profile running, port listening but failing, hand-added, or a remote host.
+    precondition(serviceState(level: .down, paused: false, fromProject: true, profileRunning: true, listening: false) == .down)
+    precondition(serviceState(level: .down, paused: false, fromProject: true, profileRunning: false, listening: true) == .down)
+    precondition(serviceState(level: .down, paused: false, fromProject: false, profileRunning: false, listening: false) == .down)
+    precondition(serviceState(level: .down, paused: false, fromProject: true, profileRunning: false, listening: nil) == .down)
+    precondition(serviceState(level: .up, paused: false, fromProject: true, profileRunning: false, listening: false) == .up)
+    precondition(serviceState(level: .warn, paused: false, fromProject: false, profileRunning: false, listening: true) == .warn)
+    precondition(serviceState(level: .down, paused: true, fromProject: false, profileRunning: true, listening: true) == .paused)
+    precondition(serviceState(level: nil, paused: false, fromProject: true, profileRunning: false, listening: false) == .pending)
+    precondition(ServiceState.down.recordsHistory && ServiceState.up.recordsHistory && !ServiceState.paused.recordsHistory)
+    precondition(ServiceState.warn.mcpStatus == "answered_with_error" && ServiceState.pending.mcpStatus == "not_checked_yet")
+    let summary = serviceSummary([.up, .notRunning, .up, .down, .up])
+    precondition(summary.map(\.state) == [.down, .notRunning, .up] && summary.map(\.count) == [1, 1, 3])
+    precondition(serviceSummary([]).isEmpty)
     // Shared containers survive until the last active profile using them stops.
     let plan = planContainerStop(
       ["mysql", "redis", "mailpit", "stopped"], running: ["mysql", "redis", "mailpit"],
@@ -275,7 +296,7 @@ import Foundation
     precondition(looksLikeTime("14:05") && looksLikeTime("2:05 pm") && looksLikeTime("14h05") && looksLikeTime("ontem 9:30"))
     precondition(!looksLikeTime("8000") && !looksLikeTime("redis") && !looksLikeTime("14"))
     print(
-      "31 native assertions passed: descendants, cycle, ordering, off-screen recovery, negative-origin monitor, forest roots, flatten, collapse, totals, ancestors, filter, formatting, container ports, shared ports, demo paths, debounce, sustained thresholds, new arrivals, port parsing, shortcut label, agent stalls, health targets, shared containers, ssh stats, gate hook, machine alerts, failed unit explanations, service history, own cost, links, palette, Claude Desktop usage, limit pace, settings backup; plus settings JSON, Unicode escapes, status line install/chain, Claude limits, update versions, release notes, appcast"
+      "31 native assertions passed: descendants, cycle, ordering, off-screen recovery, negative-origin monitor, forest roots, flatten, collapse, totals, ancestors, filter, formatting, container ports, shared ports, demo paths, debounce, sustained thresholds, new arrivals, port parsing, shortcut label, agent stalls, health targets, service states, shared containers, ssh stats, gate hook, machine alerts, failed unit explanations, service history, own cost, links, palette, Claude Desktop usage, limit pace, settings backup; plus settings JSON, Unicode escapes, status line install/chain, Claude limits, update versions, release notes, appcast"
     )
     print(
       "token usage assertions passed: timestamps, formatting, Claude block dedupe, embedded entries, partial lines, long-line skip, fast/full parity, Codex repeats and forks"
