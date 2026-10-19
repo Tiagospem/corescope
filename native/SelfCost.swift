@@ -169,6 +169,7 @@ struct SelfCost {
       f("agents", L("Agentes, sessões e limites"), on: true, L("a cada 20 s"), measured: "agents"),
       f("tokens", L("Uso de tokens"), on: true, L("a cada 20 s, só arquivos novos ou alterados"), measured: "tokens"),
       f("codexLive", L("Limites ao vivo do Codex"), on: p.codexLiveLimits, L("inicia o codex app-server a cada 5 min")),
+      f("claudeLive", L("Limites ao vivo do Claude"), on: p.claudeLiveLimits, L("roda claude -p /usage a cada 5 min com o Claude em uso, 30 min sem · alguns segundos de CPU por leitura")),
       f("claudeLimits", L("Status line do Claude"), on: p.claudeLimits, L("roda o corescope a cada atualização do status line do Claude")),
       f(
         "services", L("Serviços"), on: checks > 0,
@@ -309,6 +310,7 @@ struct SelfCostView: View {
     case "panel": toggle($p.panelVisible)
     case "history": toggle($p.historyEnabled)
     case "codexLive": toggle($p.codexLiveLimits)
+    case "claudeLive": toggle($p.claudeLiveLimits)
     case "economy": toggle($p.economyMode)
     case "mcp": toggle($p.mcpAppAccess)
     default: EmptyView()
