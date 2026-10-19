@@ -10,6 +10,8 @@ section as the GitHub release notes.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-18
+
 ### Added
 - **Projects page** (phase 1 of the Projects epic): register local repositories by folder, with a
   default name from `.corescope.yml` (or the folder) that stays editable; the file is validated
@@ -404,7 +406,8 @@ First public release.
   compact / standard / detailed layouts and in-panel controls.
 - English, Portuguese and Spanish; offline-only.
 
-[Unreleased]: https://github.com/Tiagospem/corescope/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/Tiagospem/corescope/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/Tiagospem/corescope/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/Tiagospem/corescope/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/Tiagospem/corescope/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/Tiagospem/corescope/compare/v0.5.0...v0.5.1
