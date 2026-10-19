@@ -10,6 +10,22 @@ section as the GitHub release notes.
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-10-18
+
+### Added
+- **Current Claude limits** (opt-in): *Settings › Agents › Read the current limit through Claude
+  Code* (or the button on the limits card) runs Claude Code's own `/usage` (`claude -p /usage`, no
+  model turn, no tokens, no session saved, hooks off) every 5 minutes while a Claude session is
+  working and every 30 minutes otherwise, so the panel, menu bar and overview show the same 5-hour
+  and weekly numbers, with reset times, as Claude Code and Claude Desktop — instead of a Claude
+  Desktop sample that can be hours old. Claude Code asks Anthropic with its own login; CoreScope
+  reads no credentials. MCP `usage_limits` adds `age_seconds` and `live_read` for Claude and Codex.
+
+### Changed
+- The Claude limit shown is now the newest of Claude Code's `/usage`, the status line and Claude
+  Desktop's samples (one with reset times wins within 5 minutes); an old status-line reading no
+  longer hides a newer Claude Desktop sample.
+
 ## [0.8.0] - 2026-10-18
 
 ### Added
@@ -78,18 +94,6 @@ section as the GitHub release notes.
   `write_agent_instructions`), leaving the rest of the file alone. MCP `agent_hooks` reports and
   changes the hooks; the MCP instructions ask agents to read `agent_context` when no session
   context came.
-- **Current Claude limits** (opt-in): *Settings › Agents › Read the current limit through Claude
-  Code* (or the button on the limits card) runs Claude Code's own `/usage` (`claude -p /usage`, no
-  model turn, no tokens, no session saved, hooks off) every 5 minutes while a Claude session is
-  working and every 30 minutes otherwise, so the panel, menu bar and overview show the same 5-hour
-  and weekly numbers, with reset times, as Claude Code and Claude Desktop — instead of a Claude
-  Desktop sample that can be hours old. Claude Code asks Anthropic with its own login; CoreScope
-  reads no credentials. MCP `usage_limits` adds `age_seconds` and `live_read` for Claude and Codex.
-
-### Changed
-- The Claude limit shown is now the newest of Claude Code's `/usage`, the status line and Claude
-  Desktop's samples (one with reset times wins within 5 minutes); an old status-line reading no
-  longer hides a newer Claude Desktop sample.
 
 ### Fixed
 - The Navigate menu gives ⌘1–⌘9 to the first nine pages only; more pages would have crashed it.
@@ -406,7 +410,8 @@ First public release.
   compact / standard / detailed layouts and in-panel controls.
 - English, Portuguese and Spanish; offline-only.
 
-[Unreleased]: https://github.com/Tiagospem/corescope/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/Tiagospem/corescope/compare/v0.8.1...HEAD
+[0.8.1]: https://github.com/Tiagospem/corescope/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/Tiagospem/corescope/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/Tiagospem/corescope/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/Tiagospem/corescope/compare/v0.5.1...v0.6.0
