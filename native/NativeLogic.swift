@@ -685,6 +685,66 @@ enum HealthTarget: Equatable {
     }
     return ["localhost", "127.0.0.1", "::1"].contains(host.lowercased()) || host.hasSuffix(".localhost")
   }
+  /// The port a listener on this Mac would hold: loopback, `.localhost` and `.test` hosts (Valet,
+  /// Herd, dnsmasq point those here). nil for other hosts, where a local listener says nothing.
+  var localPort: UInt16? {
+    switch self {
+    case .tcp(let host, let port):
+      return HealthTarget.tcp(host: host, port: port).isLocal || host.lowercased().hasSuffix(".test") ? port : nil
+    case .http(let url):
+      guard isLocal || (url.host ?? "").lowercased().hasSuffix(".test") else { return nil }
+      return url.port.map(UInt16.init) ?? (url.scheme?.lowercased() == "https" ? 443 : 80)
+    }
+  }
+}
+
+/// What a Services row means, beyond the probe's answer: a check from a project whose
+/// environment is off and whose port nobody listens on is "not running", not a failure.
+enum ServiceState: String, CaseIterable {
+  case down, warn, notRunning = "not_running", paused, pending, up
+  /// Counts as a failure (uptime, notifications, red).
+  var isFailure: Bool { self == .down }
+  /// Probe results are kept in the history and uptime only for checks that should be up.
+  var recordsHistory: Bool { self == .up || self == .warn || self == .down }
+  /// What MCP reports.
+  var mcpStatus: String {
+    switch self {
+    case .warn: "answered_with_error"
+    case .pending: "not_checked_yet"
+    default: rawValue
+    }
+  }
+}
+/// - fromProject: declared in a `.corescope.yml` (hand-added checks always should be up).
+/// - hasProfile: that project defines a profile (its app is started through CoreScope).
+/// - profileRunning: one of that project's profiles is started or has a command running.
+/// - listening: something on this Mac listens on the target's port; nil when that can't be known
+///   (remote host).
+/// A project check is an app's health check: while the app is off it is "not running". With a
+/// profile it is not even probed (`shouldProbe`), whatever an older result said.
+func serviceState(
+  level: HealthLevel?, paused: Bool, fromProject: Bool, hasProfile: Bool, profileRunning: Bool, listening: Bool?
+) -> ServiceState {
+  if paused { return .paused }
+  let off = fromProject && !profileRunning && listening == false
+  if off && hasProfile { return .notRunning }
+  switch level {
+  case nil: return off ? .notRunning : .pending
+  case .up: return .up
+  case .warn: return .warn
+  case .down: return off ? .notRunning : .down
+  }
+}
+/// Paused checks and apps whose profile is stopped (and port free) are left alone.
+func shouldProbe(paused: Bool, fromProject: Bool, hasProfile: Bool, profileRunning: Bool, listening: Bool?) -> Bool {
+  !paused && !(fromProject && hasProfile && !profileRunning && listening == false)
+}
+/// Per-group summary, worst first, without empty states: [(.down, 2), (.up, 4)].
+func serviceSummary(_ states: [ServiceState]) -> [(state: ServiceState, count: Int)] {
+  ServiceState.allCases.compactMap { s in
+    let n = states.filter { $0 == s }.count
+    return n > 0 ? (s, n) : nil
+  }
 }
 /// 2xx/3xx is healthy; 4xx answers but is probably the wrong path; anything else is down.
 enum HealthLevel: Int, Comparable {
@@ -1347,6 +1407,55 @@ enum SettingsBackupLogic {
 func pathAncestors(_ path: String) -> [String] {
   let parts = path.split(separator: "/").dropLast()
   return parts.indices.map { parts[parts.startIndex...$0].joined(separator: "/") }
+}
+
+// MARK: Docker volumes
+
+/// Why a volume cannot be removed. Only volumes no container references (running or stopped)
+/// are removable; when the engine did not say, nothing is removed.
+enum VolumeBlock: Equatable {
+  case inUse([String])
+  case inUseCount(Int)
+  case usageUnknown
+}
+/// `refCount` is the engine's RefCount (-1 when it did not report one); `usedBy` the containers
+/// whose mounts name the volume.
+func volumeBlock(refCount: Int, usedBy: [String]) -> VolumeBlock? {
+  if !usedBy.isEmpty { return .inUse(usedBy) }
+  if refCount > 0 { return .inUseCount(refCount) }
+  if refCount < 0 { return .usageUnknown }
+  return nil
+}
+/// `docker run -v /path` and Dockerfile `VOLUME` make volumes named by 64 hex digits.
+func isAnonymousVolume(_ name: String) -> Bool {
+  name.count == 64 && name.allSatisfy { $0.isHexDigit }
+}
+/// What the labels say made a volume: a compose project (and its volume key) or a swarm stack.
+struct VolumeOrigin: Equatable {
+  var project: String?
+  var detail: String?
+}
+func volumeOrigin(labels: [String: String]) -> VolumeOrigin? {
+  let value = { (key: String) in labels[key].flatMap { $0.isEmpty ? nil : $0 } }
+  let project = value("com.docker.compose.project") ?? value("com.docker.stack.namespace")
+  let detail = value("com.docker.compose.volume") ?? value("com.docker.compose.service")
+  return project == nil && detail == nil ? nil : VolumeOrigin(project: project, detail: detail)
+}
+/// "MySQL", "PostgreSQL" or "Redis" when the name, the compose volume key or the images of the
+/// containers using it say so. Removing such a volume deletes a database.
+func volumeDatabaseKind(name: String, labels: [String: String], images: [String] = []) -> String? {
+  let text = ([name, labels["com.docker.compose.volume"] ?? ""] + images).joined(separator: " ").lowercased()
+  if text.contains("mysql") || text.contains("mariadb") { return "MySQL" }
+  if text.contains("postgres") || text.contains("pgdata") { return "PostgreSQL" }
+  if text.contains("redis") || text.contains("valkey") { return "Redis" }
+  return nil
+}
+/// The volumes a bulk removal acts on (only removable ones) and the bytes it frees.
+func volumeRemovalPlan(_ volumes: [(name: String, size: Int64?, refCount: Int, usedBy: [String])])
+  -> (names: [String], bytes: Int64, blocked: Int)
+{
+  let ok = volumes.filter { volumeBlock(refCount: $0.refCount, usedBy: $0.usedBy) == nil }
+  return (ok.map(\.name), ok.compactMap(\.size).reduce(0, +), volumes.count - ok.count)
 }
 
 // MARK: - Performance audit (MCP performance_audit, Overview card)

@@ -256,6 +256,20 @@ enum ControlAPI {
       }
       HealthStore.shared.checks.removeAll { $0.id == check.id }
       reply(["removed": check.name])
+    case "services.pause":
+      let store = HealthStore.shared
+      let paused = args["paused"] as? Bool ?? true
+      if let project = (args["project"] as? String)?.lowercased(), !project.isEmpty {
+        let manual = ["app", "added in the app"].contains(project)
+        guard let group = store.groups.first(where: { manual ? $0.key.isEmpty : $0.name.lowercased() == project }) else {
+          return reply(["error": "no project \(project) in Services; list_services shows the projects"])
+        }
+        store.setPaused(group: group.key, paused)
+        return reply(["project": group.name, "paused": paused, "services": group.checks.map(serviceJSON)])
+      }
+      guard let check = findService(args) else { return reply(["error": "pass name (a service) or project"]) }
+      store.setPaused(check, paused)
+      reply(serviceJSON(check))
     case "services.check":
       HealthStore.shared.runAll()
       DispatchQueue.main.asyncAfter(deadline: .now() + 6) {
@@ -594,9 +608,20 @@ enum ControlAPI {
     return HealthStore.shared.allChecks.first { $0.name.lowercased() == key || $0.target.lowercased() == key }
   }
   private static func serviceJSON(_ c: HealthCheck) -> [String: Any] {
-    var row: [String: Any] = ["name": c.name, "target": c.target, "defined_in": c.source ?? "CoreScope app"]
-    if let r = HealthStore.shared.results[c.id] {
-      row["status"] = ["up", "answered with an error", "down"][r.level.rawValue]
+    let store = HealthStore.shared
+    let state = store.state(c)
+    var row: [String: Any] = [
+      "name": c.name, "target": c.target, "defined_in": c.source ?? "CoreScope app",
+      "group": c.project ?? "added in the app", "project": c.project ?? NSNull(),
+      "status": state.mcpStatus, "explanation": store.explanation(c), "paused": store.isPaused(c),
+      "monitored": store.monitored(c),
+    ]
+    if c.source != nil {
+      row["profile_running"] = store.profileRunning(c)
+      row["profiles"] = store.profiles(c).map(\.name)
+    }
+    if let r = store.results[c.id] {
+      row["last_result"] = ["up", "answered with an error", "down"][r.level.rawValue]
       row["detail"] = r.detail
       row["latency_ms"] = r.latency.map { ($0 * 10).rounded() / 10 } ?? NSNull()
       row["checked_at"] = ISO8601DateFormatter().string(from: r.at)
@@ -605,8 +630,6 @@ enum ControlAPI {
       row["incidents_7d"] = HealthStore.shared.incidents(c.id).prefix(10).map {
         ["start": ISO8601DateFormatter().string(from: $0.start), "minutes": Int($0.end.timeIntervalSince($0.start) / 60)]
       }
-    } else {
-      row["status"] = "not checked yet"
     }
     return row
   }
