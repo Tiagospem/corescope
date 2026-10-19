@@ -10,6 +10,25 @@ section as the GitHub release notes.
 
 ## [Unreleased]
 
+### Added
+- **Projects › Remove unused worktrees and branches**: *Remove unused…* on each repository's card
+  (Branches and Worktrees sections, card menu) opens a confirmation listing exactly what goes —
+  linked worktrees whose branch is merged into the default branch, whose upstream is gone or whose
+  folder is gone, and local branches merged into the default branch — with path, branch, size, why
+  each qualifies and a checkbox per item. Never the main or current working tree, a worktree a
+  process works in, a locked one, or a branch checked out in a worktree that stays; a worktree
+  with uncommitted changes is shown and skipped unless a separate option (off by default) allows
+  `--force`. A merged branch can go together with its worktree. Uses `git worktree remove` and
+  `git branch -d` (never `-D`); the core checks every item again against fresh state before
+  removing and reports each result (removed, refused with the rule, or git's error). MCP
+  `project_unused` (dry run with reasons) and `project_remove_unused` (same rules, never forced or
+  dirty).
+
+### Changed
+- The Worktrees and Local branches sections group their rows into *In use*, *Removable* and
+  *Other*, show the removable count and size next to the title, collapse long groups, and share
+  badges (merged, upstream gone, in use) in the same order and colors.
+
 ## [0.8.0] - 2026-10-18
 
 ### Added

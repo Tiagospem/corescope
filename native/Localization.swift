@@ -1308,6 +1308,33 @@ private let entries = """
   Em uso por %@ ¦ In use by %@ ¦ En uso por %@
   bloqueado ¦ locked ¦ bloqueado
   git worktree lock: o git não remove este worktree ¦ git worktree lock: git won't remove this worktree ¦ git worktree lock: git no elimina este worktree
+  Em uso ¦ In use ¦ En uso
+  Removíveis ¦ Removable ¦ Eliminables
+  Outras ¦ Other ¦ Otras
+  Outros ¦ Other ¦ Otros
+  Mergeado no branch padrão ¦ Merged into the default branch ¦ Fusionado en la rama por defecto
+  Remover não usados… ¦ Remove unused… ¦ Eliminar los no usados…
+  %@ removíveis ¦ %@ removable ¦ %@ eliminables
+  mergeado em %@ ¦ merged into %@ ¦ fusionado en %@
+  sai junto com o worktree ¦ goes with its worktree ¦ se va junto con su worktree
+  working tree principal ¦ main working tree ¦ working tree principal
+  é o checkout atual ¦ it is the current checkout ¦ es el checkout actual
+  em uso por %@ ¦ in use by %@ ¦ en uso por %@
+  bloqueado (git worktree lock) ¦ locked (git worktree lock) ¦ bloqueado (git worktree lock)
+  é o branch padrão ¦ it is the default branch ¦ es la rama por defecto
+  aberto num worktree que fica ¦ checked out in a worktree that stays ¦ abierta en un worktree que se queda
+  o git não conseguiu ler as alterações ¦ git could not read its changes ¦ git no pudo leer sus cambios
+  alterações não commitadas ¦ uncommitted changes ¦ cambios sin commit
+  não é mais um worktree deste projeto ¦ no longer a worktree of this project ¦ ya no es un worktree de este proyecto
+  o branch não existe mais ¦ the branch no longer exists ¦ la rama ya no existe
+  Remover worktrees e branches não usados ¦ Remove unused worktrees and branches ¦ Eliminar worktrees y ramas no usados
+  Remover worktrees e branches não usados… ¦ Remove unused worktrees and branches… ¦ Eliminar worktrees y ramas no usados…
+  Worktrees mergeados (ou com o upstream removido) que nenhum processo está usando, e branches locais mergeados em %@ sem worktree. Usa git worktree remove e git branch -d: nada é forçado e o git recusa o que tiver trabalho não salvo. Arquivos ignorados dentro de um worktree (node_modules, builds, .env) saem junto com ele. ¦ Merged worktrees (or ones whose upstream is gone) that no process is using, and local branches merged into %@ with no worktree. Uses git worktree remove and git branch -d: nothing is forced and git refuses anything with unsaved work. Ignored files inside a worktree (node_modules, builds, .env) go with it. ¦ Worktrees fusionados (o con el upstream eliminado) que ningún proceso está usando, y ramas locales fusionadas en %@ sin worktree. Usa git worktree remove y git branch -d: nada se fuerza y git rechaza lo que tenga trabajo sin guardar. Los archivos ignorados dentro de un worktree (node_modules, builds, .env) se van con él.
+  Lendo worktrees e branches… ¦ Reading worktrees and branches… ¦ Leyendo worktrees y ramas…
+  %@ worktrees · %@ branches ¦ %@ worktrees · %@ branches ¦ %@ worktrees · %@ ramas
+  Nada para remover: nenhum worktree ou branch mergeado fora de uso. ¦ Nothing to remove: no merged worktree or branch out of use. ¦ Nada que eliminar: ningún worktree ni rama fusionados fuera de uso.
+  Permitir worktrees com alterações não commitadas (git worktree remove --force; as alterações se perdem) ¦ Allow worktrees with uncommitted changes (git worktree remove --force; the changes are lost) ¦ Permitir worktrees con cambios sin commit (git worktree remove --force; los cambios se pierden)
+  %@ de %@ removidos ¦ %@ of %@ removed ¦ %@ de %@ eliminados
   Instruções para agentes ¦ Agent instructions ¦ Instrucciones para agentes
   O que o .corescope.yml deste projeto pede aos agentes. Com o hook de contexto ligado (Ajustes › Servidor MCP), Claude Code e Codex recebem isto no início de cada sessão; para outros agentes, grave como uma seção marcada no CLAUDE.md / AGENTS.md (o resto do arquivo fica como está). ¦ What this project's .corescope.yml asks of agents. With the context hook on (Settings › MCP server), Claude Code and Codex get this at the start of every session; for other agents, write it as a marked section in CLAUDE.md / AGENTS.md (the rest of the file stays as it is). ¦ Lo que el .corescope.yml de este proyecto pide a los agentes. Con el hook de contexto activado (Ajustes › Servidor MCP), Claude Code y Codex lo reciben al inicio de cada sesión; para otros agentes, guárdalo como una sección marcada en CLAUDE.md / AGENTS.md (el resto del archivo queda igual).
   O texto fica oculto no modo de demonstração. ¦ The text is hidden in demo mode. ¦ El texto se oculta en el modo de demostración.

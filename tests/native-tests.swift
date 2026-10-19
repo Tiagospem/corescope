@@ -37,6 +37,7 @@ import Foundation
     tokenTests()
     updateTests()
     failedUnitTests()
+    pruneTests()
     // VM helper ports split among the containers that published them.
     let split = splitPorts([6379, 3306, 8025, 1025, 5555]) {
       [6379: "redis", 3306: "mysql", 8025: "mail", 1025: "mail"][$0]
@@ -275,7 +276,7 @@ import Foundation
     precondition(looksLikeTime("14:05") && looksLikeTime("2:05 pm") && looksLikeTime("14h05") && looksLikeTime("ontem 9:30"))
     precondition(!looksLikeTime("8000") && !looksLikeTime("redis") && !looksLikeTime("14"))
     print(
-      "31 native assertions passed: descendants, cycle, ordering, off-screen recovery, negative-origin monitor, forest roots, flatten, collapse, totals, ancestors, filter, formatting, container ports, shared ports, demo paths, debounce, sustained thresholds, new arrivals, port parsing, shortcut label, agent stalls, health targets, shared containers, ssh stats, gate hook, machine alerts, failed unit explanations, service history, own cost, links, palette, Claude Desktop usage, limit pace, settings backup; plus settings JSON, Unicode escapes, status line install/chain, Claude limits, update versions, release notes, appcast"
+      "31 native assertions passed: descendants, cycle, ordering, off-screen recovery, negative-origin monitor, forest roots, flatten, collapse, totals, ancestors, filter, formatting, container ports, shared ports, demo paths, debounce, sustained thresholds, new arrivals, port parsing, shortcut label, agent stalls, health targets, shared containers, ssh stats, gate hook, machine alerts, failed unit explanations, service history, own cost, links, palette, Claude Desktop usage, limit pace, settings backup, unused worktrees and branches; plus settings JSON, Unicode escapes, status line install/chain, Claude limits, update versions, release notes, appcast"
     )
     print(
       "token usage assertions passed: timestamps, formatting, Claude block dedupe, embedded entries, partial lines, long-line skip, fast/full parity, Codex repeats and forks"
@@ -521,4 +522,66 @@ func failedUnitTests() {
   precondition(journalEntry("Hint: You are currently not seeing messages") == nil)
   let missing = explainFailedUnit(unit: "gone.service", output: "Unit gone.service could not be found.\n" + FailedUnitCheck.journalMarker)
   precondition(missing.notFound)
+}
+
+func pruneTests() {
+  // Worktrees: merged, upstream gone or folder gone qualify; the checkout, the main tree, one in
+  // use, locked or with changes stays (the dirty option frees only the last).
+  let wt = WorktreeFacts(path: "/r/.claude/worktrees/a", branch: "a", merged: true)
+  precondition(worktreeVerdict(wt).removable && worktreeVerdict(wt).reasons == [.merged])
+  func with(_ f: (inout WorktreeFacts) -> Void) -> WorktreeFacts {
+    var w = wt
+    f(&w)
+    return w
+  }
+  precondition(worktreeVerdict(with { $0.main = true }).block == .main)
+  precondition(worktreeVerdict(with { $0.current = true }).block == .current)
+  precondition(worktreeVerdict(with { $0.inUse = "zsh (PID 9)" }).block == .inUse)
+  precondition(worktreeVerdict(with { $0.locked = true }).block == .locked)
+  precondition(worktreeVerdict(with { $0.merged = false }).block == .notMerged)
+  precondition(worktreeVerdict(with { $0.changes = nil }).block == .unknownChanges)
+  let dirty = with { $0.changes = 2 }
+  precondition(worktreeVerdict(dirty).block == .dirty && worktreeVerdict(dirty, allowDirty: true).removable)
+  precondition(!worktreeVerdict(with { $0.inUse = "x"; $0.changes = 2 }, allowDirty: true).removable)
+  precondition(worktreeVerdict(with { $0.merged = false; $0.gone = true }).reasons == [.upstreamGone])
+  precondition(worktreeVerdict(with { $0.merged = nil; $0.prunable = true; $0.changes = nil }).removable)
+  precondition(worktreeGroup(with { $0.main = true }) == .inUse && worktreeGroup(wt) == .removable)
+  precondition(worktreeGroup(dirty) == .other && worktreeGroup(with { $0.inUse = "x" }) == .inUse)
+
+  // Branches: merged ones checked out nowhere; never the current or the default branch.
+  let br = BranchFacts(name: "feat", merged: true)
+  precondition(branchVerdict(br, defaultBranch: "origin/main").removable)
+  precondition(branchVerdict(BranchFacts(name: "main", merged: true), defaultBranch: "origin/main").block == .defaultBranch)
+  precondition(branchVerdict(BranchFacts(name: "x", current: true, merged: true), defaultBranch: nil).block == .current)
+  precondition(branchVerdict(BranchFacts(name: "x", merged: false), defaultBranch: nil).block == .notMerged)
+  let held = BranchFacts(name: "a", worktree: "/r/.claude/worktrees/a", merged: true)
+  precondition(branchVerdict(held, defaultBranch: "main").block == .checkedOut)
+  let freed = branchVerdict(held, defaultBranch: "main", freed: ["/r/.claude/worktrees/a"])
+  precondition(freed.removable && freed.reasons.contains(.worktreeRemoved))
+  precondition(branchGroup(held, defaultBranch: "main") == .inUse && branchGroup(br, defaultBranch: "main") == .removable)
+  precondition(isDefaultBranch("main", default: "origin/main") && !isDefaultBranch("domain", default: "origin/main"))
+
+  // The sheet: a branch goes with its worktree only while that worktree is chosen; one held by a
+  // worktree that stays is not listed; dirty worktrees are never ticked for you.
+  let trees = [
+    WorktreeFacts(path: "/r", branch: "main", main: true, current: true),
+    wt,
+    WorktreeFacts(path: "/r/b", branch: "b", merged: true, changes: 1),
+    WorktreeFacts(path: "/r/c", branch: "c", merged: true, inUse: "node (PID 3)"),
+    WorktreeFacts(path: "/r/d", branch: "d", merged: false),
+  ]
+  let refs = [
+    BranchFacts(name: "main", current: true, merged: nil), held,
+    BranchFacts(name: "b", worktree: "/r/b", merged: true),
+    BranchFacts(name: "c", worktree: "/r/c", merged: true),
+    BranchFacts(name: "old", merged: true, gone: true), BranchFacts(name: "wip", merged: false),
+  ]
+  let all = pruneCandidates(worktrees: trees, branches: refs, defaultBranch: "main", allowDirty: false, chosenWorktrees: [wt.path])
+  precondition(all.map(\.key) == ["w:/r/.claude/worktrees/a", "w:/r/b", "w:/r/c", "b:a", "b:old"])
+  precondition(defaultPruneSelection(all, worktrees: trees) == ["w:/r/.claude/worktrees/a", "b:a", "b:old"])
+  let unchosen = pruneCandidates(worktrees: trees, branches: refs, defaultBranch: "main", allowDirty: false, chosenWorktrees: [])
+  precondition(unchosen.first { $0.target == "a" }?.verdict.block == .checkedOut)
+  let withDirty = pruneCandidates(worktrees: trees, branches: refs, defaultBranch: "main", allowDirty: true, chosenWorktrees: [wt.path, "/r/b"])
+  precondition(withDirty.contains { $0.target == "b" && $0.verdict.removable })
+  precondition(!defaultPruneSelection(withDirty, worktrees: trees).contains("w:/r/b"))
 }
