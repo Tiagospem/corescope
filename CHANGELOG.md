@@ -10,6 +10,8 @@ section as the GitHub release notes.
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-19
+
 ### Added
 - **Environment controllers** (all optional in `.corescope.yml`, older files unchanged; see
   [docs/ENVIRONMENT-CONTROLLER.md](docs/ENVIRONMENT-CONTROLLER.md)): profiles with
@@ -498,7 +500,8 @@ First public release.
   compact / standard / detailed layouts and in-panel controls.
 - English, Portuguese and Spanish; offline-only.
 
-[Unreleased]: https://github.com/Tiagospem/corescope/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/Tiagospem/corescope/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/Tiagospem/corescope/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/Tiagospem/corescope/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/Tiagospem/corescope/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/Tiagospem/corescope/compare/v0.7.0...v0.8.0
