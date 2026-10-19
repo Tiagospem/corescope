@@ -1,8 +1,9 @@
 //! Local databases at a glance: MySQL/MariaDB, PostgreSQL and Redis found among listening
-//! processes and containers, queried over their own wire protocols on 127.0.0.1. CoreScope never
-//! asks for, stores or reads passwords: it connects only where the server allows passwordless
-//! local access (MySQL `root` with no password, PostgreSQL trust for the current user, Redis
-//! without AUTH) and otherwise reports that a password is required. Read-only queries only.
+//! processes and containers (published or not), queried over their own wire protocols on
+//! 127.0.0.1 where the server allows passwordless local access. A container that is not
+//! published or wants a password is read inside it with its own credentials, and a server on the
+//! Mac that wants one with the credentials the user saved in the app (see `dbaccess`).
+//! Read-only queries only.
 use crate::{Process, containers};
 use serde::Serialize;
 use std::io::{Read, Write};
@@ -12,13 +13,24 @@ use std::time::Duration;
 const TIMEOUT: Duration = Duration::from_secs(3);
 const LONG_QUERY_SECONDS: u64 = 5;
 
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Default)]
 pub struct Endpoint {
     /// "mysql", "postgres" or "redis".
     pub kind: &'static str,
+    /// Host port when `published`; otherwise the port inside the container.
     pub port: u16,
     pub label: String,
     pub container: Option<String>,
+    /// Reachable from the Mac on 127.0.0.1:`port`. False for a container that only exposes
+    /// the port to its compose network: it is read from inside the container.
+    pub published: bool,
+    /// Compose project and service of a container.
+    pub project: Option<String>,
+    pub service: Option<String>,
+    /// A Redis password from the container's command line; handed to redis-cli inside the
+    /// container on stdin. Never serialized.
+    #[serde(skip)]
+    pub secret: Option<String>,
 }
 
 #[derive(Debug, Default, Serialize)]
@@ -47,6 +59,9 @@ pub struct Database {
     /// Per database (schema, or Redis db with key counts in `keys`).
     pub databases: Vec<Schema>,
     pub long_queries: Vec<LongQuery>,
+    /// How it was read: None over the wire on 127.0.0.1, "container" inside its container
+    /// with the container's own credentials, "password" with credentials saved in CoreScope.
+    pub via: Option<&'static str>,
 }
 #[derive(Debug, Serialize)]
 pub struct Schema {
@@ -56,6 +71,9 @@ pub struct Schema {
 }
 
 impl Database {
+    pub fn from_endpoint(endpoint: Endpoint) -> Self {
+        Database::new(endpoint)
+    }
     fn new(endpoint: Endpoint) -> Self {
         Database {
             endpoint,
@@ -68,6 +86,7 @@ impl Database {
             size: None,
             databases: vec![],
             long_queries: vec![],
+            via: None,
         }
     }
     fn failed(endpoint: Endpoint, e: Failure) -> Self {
@@ -134,13 +153,23 @@ fn default_port(kind: &str) -> u16 {
 /// Containers by image, database processes by name, then the well-known ports nobody claimed.
 pub fn detect(processes: &[Process], containers: &[containers::Container]) -> Vec<Endpoint> {
     let mut out: Vec<Endpoint> = vec![];
+    // Host ports are unique; a container without a published port is keyed by its name.
     let push = |e: Endpoint, out: &mut Vec<Endpoint>| {
-        if !out.iter().any(|o| o.port == e.port) {
+        let taken = if e.published {
+            out.iter().any(|o| o.published && o.port == e.port)
+        } else {
+            out.iter().any(|o| o.container == e.container)
+        };
+        if !taken {
             out.push(e);
         }
     };
     for c in containers.iter().filter(|c| c.state == "running") {
-        let Some(kind) = kind_of(&c.image) else {
+        // By image first, then the compose service or container name (custom images).
+        let Some(kind) = kind_of(&c.image)
+            .or_else(|| c.service.as_deref().and_then(kind_of))
+            .or_else(|| kind_of(&c.name))
+        else {
             continue;
         };
         let tcp: Vec<_> = c.ports.iter().filter(|p| p.proto == "tcp").collect();
@@ -148,17 +177,23 @@ pub fn detect(processes: &[Process], containers: &[containers::Container]) -> Ve
             .iter()
             .find(|p| p.container == default_port(kind))
             .or_else(|| tcp.first().filter(|_| tcp.len() == 1));
-        if let Some(p) = port {
-            push(
-                Endpoint {
-                    kind,
-                    port: p.host,
-                    label: c.name.clone(),
-                    container: Some(c.name.clone()),
+        push(
+            Endpoint {
+                kind,
+                port: port.map(|p| p.host).unwrap_or_else(|| default_port(kind)),
+                label: c.name.clone(),
+                container: Some(c.name.clone()),
+                published: port.is_some(),
+                project: c.project.clone(),
+                service: c.service.clone(),
+                secret: if kind == "redis" {
+                    c.requirepass.clone()
+                } else {
+                    None
                 },
-                &mut out,
-            );
-        }
+            },
+            &mut out,
+        );
     }
     for p in processes {
         let kind = match p.name.as_str() {
@@ -174,7 +209,8 @@ pub fn detect(processes: &[Process], containers: &[containers::Container]) -> Ve
                     kind,
                     port,
                     label: p.name.clone(),
-                    container: None,
+                    published: true,
+                    ..Default::default()
                 },
                 &mut out,
             );
@@ -193,13 +229,14 @@ pub fn detect(processes: &[Process], containers: &[containers::Container]) -> Ve
                     kind,
                     port,
                     label: p.name.clone(),
-                    container: None,
+                    published: true,
+                    ..Default::default()
                 },
                 &mut out,
             );
         }
     }
-    out.sort_by_key(|e| e.port);
+    out.sort_by_key(|e| (!e.published, e.port, e.label.clone()));
     out
 }
 
@@ -211,39 +248,77 @@ fn connect(port: u16) -> Result<TcpStream, Failure> {
     Ok(stream)
 }
 
-/// Every endpoint in parallel; each gives up after a few seconds.
+/// Every endpoint in parallel; each gives up after a few seconds. A published server is read
+/// over its wire protocol without a password first. A container that is not published, or that
+/// wants a password, is read inside the container with its own credentials; a server on the Mac
+/// that wants one is read with the credentials the user saved (`creds`, "kind:port").
 pub fn probe(endpoints: Vec<Endpoint>) -> Vec<Database> {
+    probe_with(endpoints, &crate::dbaccess::Credentials::new())
+}
+pub fn probe_with(endpoints: Vec<Endpoint>, creds: &crate::dbaccess::Credentials) -> Vec<Database> {
+    let home = crate::home();
     std::thread::scope(|s| {
         let handles: Vec<_> = endpoints
             .into_iter()
             .map(|e| {
+                let home = home.clone();
                 s.spawn(move || {
-                    let result = match e.kind {
-                        "mysql" => mysql::inspect(e.port),
-                        "postgres" => postgres::inspect(e.port),
-                        _ => redis::inspect(e.port),
+                    let wire = if e.published {
+                        match e.kind {
+                            "mysql" => mysql::inspect(e.port),
+                            "postgres" => postgres::inspect(e.port),
+                            _ => redis::inspect(e.port),
+                        }
+                    } else {
+                        Err(Failure::Other("Sem porta publicada".into()))
                     };
-                    match result {
+                    let failure = match wire {
                         Ok(mut d) => {
                             d.endpoint = e;
-                            d
+                            return d;
                         }
-                        Err(f) => Database::failed(e, f),
+                        Err(f) => f,
+                    };
+                    if let Some(c) = e.container.clone() {
+                        return match crate::dbaccess::inspect_in_container(&e, &c, &home) {
+                            Ok(d) => d,
+                            Err(message) if e.published && failure != Failure::Auth => {
+                                Database::failed(
+                                    e,
+                                    Failure::Other(format!("{}; {message}", other_text(&failure))),
+                                )
+                            }
+                            Err(message) => Database::failed(e, Failure::Other(message)),
+                        };
                     }
+                    if failure == Failure::Auth
+                        && let Some(c) = creds.get(&crate::dbaccess::key(e.kind, e.port))
+                    {
+                        return match crate::dbaccess::inspect_with_password(&e, c, &home) {
+                            Ok(d) => d,
+                            Err(message) => {
+                                let mut d = Database::failed(e, Failure::Auth);
+                                d.error = Some(message);
+                                d
+                            }
+                        };
+                    }
+                    Database::failed(e, failure)
                 })
             })
             .collect();
         handles.into_iter().filter_map(|h| h.join().ok()).collect()
     })
 }
+fn other_text(f: &Failure) -> String {
+    match f {
+        Failure::Auth => "Pede senha".into(),
+        Failure::Other(m) => m.clone(),
+    }
+}
 
 fn placeholder() -> Endpoint {
-    Endpoint {
-        kind: "",
-        port: 0,
-        label: String::new(),
-        container: None,
-    }
+    Endpoint::default()
 }
 fn clip(s: &str) -> String {
     let s = s.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -1081,6 +1156,7 @@ mod tests {
             cpu: None,
             memory: None,
             memory_limit: None,
+            requirepass: None,
         };
         let found = detect(&[orb, pg], &[container]);
         let summary: Vec<_> = found

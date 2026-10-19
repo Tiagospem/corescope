@@ -30,6 +30,7 @@ struct RepoInfo: Decodable, Equatable {
   let head: String?
   let detached: Bool
   let subfolder: String?
+  let remotes: [GitRemote]?
 }
 struct ProjectCheck: Decodable, Equatable {
   let folder: String
@@ -338,6 +339,7 @@ struct ProjectGitView: View {
         if let sub = git.subfolder { Badge(text: L("subpasta %@", sub), color: .secondary) }
         Spacer()
       }
+      if let remotes = git.remotes, !remotes.isEmpty { RemoteLinks(remotes: remotes) }
       if let main = git.main_repo {
         Text(L("Worktree do repositório %@", shown(main))).font(.caption).foregroundStyle(.secondary)
       } else if git.subfolder != nil, let root = git.root {

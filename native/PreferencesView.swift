@@ -155,6 +155,7 @@ struct PreferencesView: View {
           L("Desligadas por padrão e locais. No máximo uma notificação por processo (PID + início) por hora; processos protegidos ou de outros usuários nunca notificam. “Encerrar” envia SIGTERM pelo mesmo caminho do app, que revalida a identidade antes do sinal; nada é encerrado sem o seu clique.")
         ).font(.caption).foregroundStyle(.secondary)
       }
+      EditorSettingsSection()
       AISettingsSection()
       Section(L("Atalho de porta")) {
         Toggle(L("Atalho global para buscar porta"), isOn: $p.hotkeyEnabled)

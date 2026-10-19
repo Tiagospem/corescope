@@ -10,6 +10,23 @@ section as the GitHub release notes.
 
 ## [Unreleased]
 
+### Added
+- **Projects › choose the editor**: *Settings › Editor* sets what *Open* uses (the file's
+  default app until chosen, CoreScope's editor, or an installed IDE/editor among VS Code,
+  Cursor, Windsurf, Zed, PhpStorm and the JetBrains family, Sublime, Nova, Xcode…); IDEs open the
+  file inside its project folder.
+- **Projects › quick editor**: edit a file from its changes in CoreScope's own editor — line
+  numbers, syntax colors, find, ⌘S, external-change warning, unsaved-changes prompt.
+- **Projects › fetch, pull, push and publish** in the changes header, with git's output, and the
+  **remote** with a link to open it in the browser (credentials stripped from URLs), also on the
+  project card. Core `gitchanges::sync`, MCP `project_git_sync`.
+- **Databases in containers without a published port** (only inside their compose network) now
+  appear, grouped by compose project, matched by image, compose service or name.
+- **Databases with a password**: containers are read inside them with their own credentials
+  (`MYSQL_ROOT_PASSWORD`/`MARIADB_*`, `POSTGRES_USER`, `REDIS_PASSWORD`, Redis `--requirepass`
+  on stdin), so the password never leaves the container; servers on the Mac take a user and
+  password saved in the Keychain, handed to the installed client through its environment.
+
 ## [0.10.0] - 2026-10-19
 
 ### Added

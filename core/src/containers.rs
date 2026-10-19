@@ -43,6 +43,10 @@ pub struct Container {
     pub cpu: Option<f64>,
     pub memory: Option<f64>,
     pub memory_limit: Option<f64>,
+    /// A Redis password given on its command line (`--requirepass x`), for reading that local
+    /// Redis from inside its container. Never serialized, logged or shown.
+    #[serde(skip)]
+    pub requirepass: Option<String>,
 }
 #[derive(Serialize)]
 pub struct Engine {
@@ -235,10 +239,27 @@ pub fn parse_list(body: &[u8], engine: &'static str) -> Result<Vec<Container>, S
                 cpu: None,
                 memory: None,
                 memory_limit: None,
+                requirepass: c["Command"].as_str().and_then(requirepass),
                 id,
             })
         })
         .collect())
+}
+
+/// `--requirepass <x>` (or `--requirepass=<x>`) in a container's command line.
+pub fn requirepass(command: &str) -> Option<String> {
+    let mut words = command.split_whitespace();
+    while let Some(w) = words.next() {
+        if w == "--requirepass" {
+            return words
+                .next()
+                .map(|p| p.trim_matches(['"', '\'']).to_string());
+        }
+        if let Some(p) = w.strip_prefix("--requirepass=") {
+            return Some(p.trim_matches(['"', '\'']).to_string());
+        }
+    }
+    None
 }
 
 /// Keeps at most MAX_CONTAINERS per engine, running ones first so stopped
@@ -841,6 +862,19 @@ pub fn remove_volume(name: &str, engine: Option<&str>) -> Result<&'static str, V
 mod tests {
     use super::*;
     #[test]
+    fn redis_password_from_the_command_line() {
+        assert_eq!(
+            requirepass("docker-entrypoint.sh redis-server --requirepass s3cret").as_deref(),
+            Some("s3cret")
+        );
+        assert_eq!(
+            requirepass("redis-server --requirepass=abc").as_deref(),
+            Some("abc")
+        );
+        assert_eq!(requirepass("redis-server --appendonly yes"), None);
+    }
+
+    #[test]
     fn volumes_from_system_df() {
         let body = serde_json::json!({"Volumes": [
             {"Name": "shop_db", "UsageData": {"Size": 2048, "RefCount": 1}, "Labels": {"com.docker.compose.project": "shop"},
@@ -1047,6 +1081,7 @@ mod tests {
             cpu: None,
             memory: None,
             memory_limit: None,
+            requirepass: None,
         };
         let mut list: Vec<Container> = (0..MAX_CONTAINERS + 5).map(|i| item(i, "exited")).collect();
         list.push(item(999, "running"));

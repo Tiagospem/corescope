@@ -116,7 +116,8 @@ const DESTRUCTIVE: [&str; 17] = [
     "cancel_action",
 ];
 /// Tools that change state without destroying anything.
-const CHANGES: [&str; 16] = [
+const CHANGES: [&str; 17] = [
+    "project_git_sync",
     "generate_commit_message",
     "set_project",
     "agent_hooks",
@@ -821,6 +822,17 @@ fn core_tools() -> Vec<Value> {
             &["paths"],
         ),
         tool(
+            "project_git_sync",
+            "Talk to a project's remote: `fetch` (with --prune), `pull` (the user's own pull \
+             settings; a merge commit gets no editor), `push`, or `publish` (push the current \
+             branch and set its upstream, on origin when there is one). Uses the user's git \
+             credentials (SSH agent, keychain); nothing prompts. Returns git's output. Ask the \
+             user before pushing unless they asked for it.",
+            json!({"project": {"type": "string"}, "folder": {"type": "string"},
+                   "action": {"type": "string", "enum": ["fetch", "pull", "push", "publish"]}}),
+            &["action"],
+        ),
+        tool(
             "project_git_commit",
             "Commit what is staged in a project with the message (the user's hooks and signing \
              run). Returns git's output, including a failing hook's. Show the user the message \
@@ -976,7 +988,9 @@ fn core_tools() -> Vec<Value> {
             "list_databases",
             "Local MySQL/MariaDB, PostgreSQL and Redis servers (processes and containers): \
              version, size per database, connections, slow and long-running queries. \
-             Read-only; servers that need a password are reported as such (none is used).",
+             Read-only. Containers are included even without a published port; one that needs a \
+             password is read inside it with the container's own credentials; a server on the Mac \
+             that needs one is read with the password the user saved in the app, if any.",
             json!({}),
             &[],
         ),
@@ -1196,6 +1210,7 @@ fn call(params: &Value) -> Value {
         | "project_git_stage"
         | "project_git_commit"
         | "project_git_discard"
+        | "project_git_sync"
         | "project_branches"
         | "project_worktrees" => {
             let folder = match project_folder(args) {
@@ -1207,6 +1222,7 @@ fn call(params: &Value) -> Value {
                 "project_git_diff" => "diff",
                 "project_git_commit" => "commit",
                 "project_git_discard" => "discard",
+                "project_git_sync" => "sync",
                 "project_branches" => "branches",
                 "project_worktrees" if args["measure"].is_string() => {
                     let mut request = json!({"op": "worktree_size", "folder": folder,
