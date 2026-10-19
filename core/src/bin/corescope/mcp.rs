@@ -113,7 +113,7 @@ const DESTRUCTIVE: [&str; 14] = [
     "remove_machine",
 ];
 /// Tools that change state without destroying anything.
-const CHANGES: [&str; 15] = [
+const CHANGES: [&str; 16] = [
     "generate_commit_message",
     "set_project",
     "agent_hooks",
@@ -126,6 +126,7 @@ const CHANGES: [&str; 15] = [
     "create_profile",
     "start_profile",
     "add_service",
+    "pause_service",
     "add_machine",
     "set_setting",
     "scan_dev_space",
@@ -243,7 +244,12 @@ fn app_tools() -> Vec<(
         (
             "list_services",
             "services.list",
-            "Services health checks (CoreScope › Services): target, up/down, HTTP status or TCP result, latency.",
+            "Services health checks (CoreScope › Services), with group (project, or \"added in the app\"), \
+          target, HTTP status or TCP result, latency, uptime and status: up, answered_with_error, down \
+          (should be up and fails), not_running (from a project whose profile is not running and \
+          whose port nobody listens on: just switched off, not a failure and not probed until the \
+          profile starts or the port opens; start_profile brings it up), \
+          paused or not_checked_yet; explanation says why.",
             json!({}),
             vec![],
         ),
@@ -265,8 +271,19 @@ fn app_tools() -> Vec<(
         (
             "check_services",
             "services.check",
-            "Run every Services check now and return the results.",
+            "Run every Services check now (paused ones and not_running apps are skipped) and return \
+          the results, with the same status as list_services.",
             json!({}),
+            vec![],
+        ),
+        (
+            "pause_service",
+            "services.pause",
+            "Pause or resume Services checks: one service (name or target) or a whole project group \
+          (project name as list_services shows it, or \"app\" for checks added in the app). Paused \
+          checks are not probed, keep no history and send no alerts.",
+            json!({"name": {"type": "string"}, "project": {"type": "string"},
+                "paused": {"type": "boolean", "description": "false resumes (default true)"}}),
             vec![],
         ),
         (

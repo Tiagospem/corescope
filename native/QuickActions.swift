@@ -178,9 +178,11 @@ struct MenuProfilesAndServices: View {
         Text(L("Serviços").uppercased()).font(.system(size: 10, weight: .bold)).foregroundStyle(.secondary)
         ForEach(health.allChecks.prefix(14)) { c in
           let r = health.results[c.id]
-          Circle().fill(r?.level.color ?? Color.secondary.opacity(0.35)).frame(width: 8, height: 8)
-            .help("\(c.name): \(r?.detail ?? L("ainda não verificado"))")
-            .accessibilityLabel("\(c.name): \(r?.detail ?? L("ainda não verificado"))")
+          let state = health.state(c)
+          let text = state == .notRunning || state == .paused ? state.label : r?.detail ?? L("ainda não verificado")
+          Circle().fill(state.color.opacity(state == .up || state == .warn || state == .down ? 1 : 0.35)).frame(width: 8, height: 8)
+            .help("\(c.name): \(text)")
+            .accessibilityLabel("\(c.name): \(text)")
         }
         Spacer()
         Button {

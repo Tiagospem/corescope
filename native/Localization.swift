@@ -1455,4 +1455,27 @@ private let entries = """
   Gerar mensagem ¦ Generate message ¦ Generar mensaje
   Escreve a mensagem a partir do diff em stage (%@). Você revisa antes de commitar. ¦ Writes the message from the staged diff (%@). You review it before committing. ¦ Escribe el mensaje a partir del diff preparado (%@). Lo revisas antes del commit.
   Não deu para gerar a mensagem: %@ ¦ Couldn't generate the message: %@ ¦ No se pudo generar el mensaje: %@
+  Não está rodando ¦ Not running ¦ No está en marcha
+  não está rodando ¦ not running ¦ no está en marcha
+  pausado ¦ paused ¦ en pausa
+  %@ no ar ¦ %@ up ¦ %@ en línea
+  %@ com erro ¦ %@ with errors ¦ %@ con error
+  %@ fora do ar ¦ %@ down ¦ %@ caídos
+  %@ não rodando ¦ %@ not running ¦ %@ sin ejecutar
+  %@ pausados ¦ %@ paused ¦ %@ en pausa
+  %@ verificando ¦ %@ checking ¦ %@ comprobando
+  Adicionados no app ¦ Added in the app ¦ Añadidos en la app
+  Iniciar um perfil do projeto ¦ Start one of the project's profiles ¦ Iniciar un perfil del proyecto
+  Pausar as verificações deste grupo ¦ Pause this group's checks ¦ Pausar las comprobaciones de este grupo
+  Retomar as verificações deste grupo ¦ Resume this group's checks ¦ Reanudar las comprobaciones de este grupo
+  Pausado: não é verificado, não conta na disponibilidade e não gera alertas. ¦ Paused: not checked, not counted in uptime and no alerts. ¦ En pausa: no se comprueba, no cuenta en la disponibilidad y no genera alertas.
+  No ar: %@. ¦ Up: %@. ¦ En línea: %@.
+  Respondeu com erro (%@): o servidor está de pé, mas talvez o caminho esteja errado. ¦ Answered with an error (%@): the server is up, but the path may be wrong. ¦ Respondió con error (%@): el servidor está en marcha, pero quizá la ruta sea incorrecta.
+  Nada escuta na porta %@ e %@ não tem perfil: o app só está desligado. Não conta como falha nem gera alerta. ¦ Nothing listens on port %@ and %@ has no profile: the app is just switched off. It doesn't count as a failure or send an alert. ¦ Nada escucha en el puerto %@ y %@ no tiene perfil: la app solo está apagada. No cuenta como fallo ni genera alerta.
+  Nenhum perfil de %@ está rodando e nada escuta na porta %@: o app está desligado, então não é verificado nem gera alerta. A verificação volta quando o perfil iniciar ou a porta abrir. ¦ No profile of %@ is running and nothing listens on port %@: the app is switched off, so it is not checked and sends no alerts. Checking resumes when the profile starts or the port opens. ¦ Ningún perfil de %@ está en marcha y nada escucha en el puerto %@: la app está apagada, así que no se comprueba ni genera alertas. La comprobación vuelve cuando el perfil arranca o el puerto se abre.
+  Fora do ar (%@). Verificações adicionadas no app devem estar sempre no ar. ¦ Down (%@). Checks added in the app should always be up. ¦ Caído (%@). Las comprobaciones añadidas en la app deberían estar siempre en línea.
+  Fora do ar com o perfil do projeto rodando (%@). ¦ Down while the project's profile is running (%@). ¦ Caído con el perfil del proyecto en marcha (%@).
+  Algo escuta na porta %@, mas a verificação falhou (%@). ¦ Something listens on port %@, but the check failed (%@). ¦ Algo escucha en el puerto %@, pero la comprobación falló (%@).
+  Fora do ar (%@). ¦ Down (%@). ¦ Caído (%@).
+  Cinza: as verificações de um projeto acompanham o app dele. Com o perfil parado e nada escutando na porta, o app está desligado: não é verificado, não conta na disponibilidade nem gera alerta. Vermelho fica para o que deveria estar no ar. ¦ Gray: a project's checks follow its app. With the profile stopped and nothing listening on the port, the app is switched off: it is not checked, doesn't count against uptime and sends no alerts. Red is kept for what should be up. ¦ Gris: las comprobaciones de un proyecto siguen a su app. Con el perfil detenido y nada escuchando en el puerto, la app está apagada: no se comprueba, no cuenta en la disponibilidad ni genera alertas. El rojo queda para lo que debería estar en línea.
   """
