@@ -48,8 +48,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <key>CFBundleDevelopmentRegion</key><string>pt</string>
 <key>CFBundleLocalizations</key><array><string>pt</string><string>en</string><string>es</string></array>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>0.8.0</string>
-<key>CFBundleVersion</key><string>12</string>
+<key>CFBundleShortVersionString</key><string>0.8.1</string>
+<key>CFBundleVersion</key><string>13</string>
 <key>NSHumanReadableCopyright</key><string>© 2026 Tiago Padilha · MIT License</string>
 <key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
