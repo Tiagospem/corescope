@@ -230,6 +230,18 @@ enum ControlAPI {
           ["folder": f.folder, "file": f.file, "valid": f.error == nil, "error": f.error ?? NSNull()]
         }])
       }
+    case "projects.open_terminal":
+      var folder = args["folder"] as? String
+      if folder == nil, let key = args["project"] as? String,
+        let list = try? ProjectsTool.call(["op": "list"], as: [ProjectEntry].self).get()
+      {
+        folder = (list.first { $0.id == key } ?? list.first { $0.name.caseInsensitiveCompare(key) == .orderedSame })?.folder
+      }
+      guard let folder else { return reply(["error": "pass project (id or name from list_projects) or folder"]) }
+      DispatchQueue.main.async {
+        guard TerminalApp.open(folder) else { return reply(["error": "not a folder, or no terminal app installed: \(folder)"]) }
+        reply(["opened": folder, "terminal": TerminalApp.preferredName])
+      }
     case "logs.sources":
       LogsStore.shared.refresh {
         let sources = LogsStore.shared.sources(project: logScope(args))
@@ -872,6 +884,10 @@ enum AgentSettings {
     for (k, (path, _)) in numbers { out[k] = p[keyPath: path] }
     out["cleanup_folders"] = p.cleanupRoots
     out["panel_machine_hosts"] = p.panelMachineHosts
+    out["projects_editor"] = CodeEditor.preferred
+    out["projects_editor_choices"] = CodeEditor.choices.map { ["id": $0.id, "name": $0.name] }
+    out["projects_terminal"] = TerminalApp.preferred
+    out["projects_terminal_choices"] = TerminalApp.installed.map { ["id": $0.bundle, "name": $0.name] }
     return out
   }
   static func write(_ key: String, _ value: Any?) -> String? {
@@ -912,6 +928,12 @@ enum AgentSettings {
         return "not on the Machines page: \(unknown.joined(separator: ", ")); machines: \(known.joined(separator: ", "))"
       }
       p.panelMachineHosts = panelMachineHosts(selected: hosts, hosts: known)
+      return nil
+    }
+    if key == "projects_editor" || key == "projects_terminal" {
+      let ids = key == "projects_editor" ? CodeEditor.choices.map(\.id) : TerminalApp.installed.map(\.bundle)
+      guard let v = value as? String, ids.contains(v) else { return "\(key) takes one id from \(key)_choices: \(ids.joined(separator: ", "))" }
+      if key == "projects_editor" { CodeEditor.preferred = v } else { TerminalApp.preferred = v }
       return nil
     }
     return "unknown or protected setting; readable keys: \(read().keys.sorted().joined(separator: ", "))"

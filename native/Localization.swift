@@ -1731,4 +1731,9 @@ private let entries = """
   (opcional) ¦ (optional) ¦ (opcional)
   Senha ¦ Password ¦ Contraseña
   Salvar e ler ¦ Save and read ¦ Guardar y leer
+  Abrir no terminal (%@) ¦ Open in terminal (%@) ¦ Abrir en la terminal (%@)
+  Abrir no terminal ¦ Open in terminal ¦ Abrir en la terminal
+  Editor e terminal ¦ Editor and terminal ¦ Editor y terminal
+  Abrir pastas no terminal com ¦ Open folders in the terminal with ¦ Abrir carpetas en la terminal con
+  Usado pelo botão de terminal nos projetos, worktrees, processos e agentes. ¦ Used by the terminal button on projects, worktrees, processes and agents. ¦ Usado por el botón de terminal en proyectos, worktrees, procesos y agentes.
   """

@@ -116,8 +116,9 @@ const DESTRUCTIVE: [&str; 17] = [
     "cancel_action",
 ];
 /// Tools that change state without destroying anything.
-const CHANGES: [&str; 17] = [
+const CHANGES: [&str; 18] = [
     "project_git_sync",
+    "open_terminal",
     "generate_commit_message",
     "set_project",
     "agent_hooks",
@@ -523,16 +524,29 @@ fn app_tools() -> Vec<(
             "settings.get",
             "CoreScope settings agents may change: notification toggles, thresholds, cleanup folders, \
           what the floating panel shows (panel_agents, panel_machines, panel_machine_hosts), \
-          check_for_updates (daily update check against the GitHub release feed, off by default).",
+          check_for_updates (daily update check against the GitHub release feed, off by default), \
+          projects_editor (where a project's Open sends files) and projects_terminal (the terminal \
+          that opens folders), each with its *_choices.",
             json!({}),
             vec![],
         ),
         (
             "set_setting",
             "settings.set",
-            "Change one setting from get_settings (booleans, numbers in range, cleanup_folders as a list of paths, or panel_machine_hosts as a list of machines from list_machines).",
+            "Change one setting from get_settings (booleans, numbers in range, cleanup_folders as a list of paths, panel_machine_hosts as a list of machines from list_machines, or projects_editor / projects_terminal as an id from their *_choices).",
             json!({"key": {"type": "string"}, "value": {}}),
             vec!["key", "value"],
+        ),
+        (
+            "open_terminal",
+            "projects.open_terminal",
+            "Open a terminal window in a project's folder (or any folder, such as a worktree from \
+          project_worktrees), with the terminal the user chose in Settings (get_settings \
+          projects_terminal). Only opens the window; it runs nothing. For when the user asks to open \
+          a terminal there.",
+            json!({"project": {"type": "string", "description": "id or name from list_projects"},
+                   "folder": {"type": "string", "description": "absolute path, instead of project"}}),
+            vec![],
         ),
         (
             "list_stuck_agents",

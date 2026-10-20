@@ -440,6 +440,7 @@ private struct WorktreeRow: View {
           ProgressView().controlSize(.mini).help(L("Medindo o tamanho…"))
         }
         if !w.prunable {
+          OpenTerminalButton(folder: w.path, borderless: true)
           Button {
             NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: w.path)])
           } label: { Image(systemName: "folder") }.buttonStyle(.borderless).help(L("Mostrar no Finder")).accessibilityLabel(L("Mostrar no Finder"))

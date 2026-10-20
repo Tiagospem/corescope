@@ -444,16 +444,75 @@ enum CodeEditor {
   }
 }
 
-/// Settings › Editor.
+/// Where "Open in terminal" goes (projects, worktrees, processes, agents): Terminal until another
+/// installed terminal is chosen in Settings › Editor and terminal. Terminals that take a folder as
+/// a document open a window there; the others get their working-directory argument.
+enum TerminalApp {
+  static let systemTerminal = "com.apple.Terminal"
+  static let known: [(name: String, bundle: String, args: ((String) -> [String])?)] = [
+    ("Terminal", systemTerminal, nil), ("iTerm2", "com.googlecode.iterm2", nil), ("Warp", "dev.warp.Warp-Stable", nil),
+    ("Warp Preview", "dev.warp.Warp-Preview", nil), ("Ghostty", "com.mitchellh.ghostty", nil),
+    ("kitty", "net.kovidgoyal.kitty", { ["--directory", $0] }), ("Alacritty", "org.alacritty", { ["--working-directory", $0] }),
+    ("WezTerm", "com.github.wez.wezterm", { ["start", "--cwd", $0] }), ("Hyper", "co.zeit.hyper", nil), ("Tabby", "org.tabby", nil),
+  ]
+  static var installed: [(name: String, bundle: String, url: URL)] {
+    known.compactMap { t in NSWorkspace.shared.urlForApplication(withBundleIdentifier: t.bundle).map { (t.name, t.bundle, $0) } }
+  }
+  static var preferred: String {
+    get { UserDefaults.standard.string(forKey: "projectsTerminal") ?? systemTerminal }
+    set { UserDefaults.standard.set(newValue, forKey: "projectsTerminal") }
+  }
+  static var preferredName: String { installed.first { $0.bundle == preferred }?.name ?? "Terminal" }
+
+  /// Opens a terminal window in `folder`; false when the folder or the terminal is missing.
+  @discardableResult static func open(_ folder: String) -> Bool {
+    var isDir: ObjCBool = false
+    guard FileManager.default.fileExists(atPath: folder, isDirectory: &isDir), isDir.boolValue else { return false }
+    let apps = installed
+    guard let app = apps.first(where: { $0.bundle == preferred }) ?? apps.first(where: { $0.bundle == systemTerminal }) else { return false }
+    let config = NSWorkspace.OpenConfiguration()
+    if let args = known.first(where: { $0.bundle == app.bundle })?.args {
+      config.arguments = args(folder)
+      config.createsNewApplicationInstance = true
+      NSWorkspace.shared.openApplication(at: app.url, configuration: config)
+    } else {
+      NSWorkspace.shared.open([URL(fileURLWithPath: folder)], withApplicationAt: app.url, configuration: config)
+    }
+    return true
+  }
+}
+
+/// The terminal button beside "Show in Finder".
+struct OpenTerminalButton: View {
+  let folder: String
+  var borderless = false
+  var body: some View {
+    let button = Button {
+      TerminalApp.open(folder)
+    } label: { Image(systemName: "terminal") }
+      .help(L("Abrir no terminal (%@)", TerminalApp.preferredName))
+      .accessibilityLabel(L("Abrir no terminal"))
+    if borderless { button.buttonStyle(.borderless) } else { button.buttonStyle(HoverButtonStyle()) }
+  }
+}
+
+/// Settings › Editor and terminal.
 struct EditorSettingsSection: View {
   @ViewState private var choice = CodeEditor.preferred
+  @ViewState private var terminal = TerminalApp.preferred
   var body: some View {
-    Section(L("Editor")) {
+    Section(L("Editor e terminal")) {
       Picker(L("Abrir arquivos com"), selection: $choice) {
         ForEach(CodeEditor.choices, id: \.id) { Text($0.name).tag($0.id) }
       }
       .onChange(of: choice) { _, v in CodeEditor.preferred = v }
       Text(L("Usado por Abrir e Abrir no editor nas alterações dos projetos. IDEs (VS Code, Cursor, Zed, JetBrains…) abrem o arquivo dentro da pasta do projeto. O Editor do CoreScope é um editor rápido com números de linha, cores e ⌘S, para ajustes pontuais."))
+        .font(.caption).foregroundStyle(.secondary)
+      Picker(L("Abrir pastas no terminal com"), selection: $terminal) {
+        ForEach(TerminalApp.installed, id: \.bundle) { Text($0.name).tag($0.bundle) }
+      }
+      .onChange(of: terminal) { _, v in TerminalApp.preferred = v }
+      Text(L("Usado pelo botão de terminal nos projetos, worktrees, processos e agentes."))
         .font(.caption).foregroundStyle(.secondary)
     }
   }
@@ -551,6 +610,7 @@ struct ProjectChangesView: View {
           store.reload()
         } label: { Image(systemName: "arrow.clockwise") }.buttonStyle(HoverButtonStyle()).help(L("Atualizar"))
           .accessibilityLabel(L("Atualizar"))
+        OpenTerminalButton(folder: project.folder)
         Button {
           NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: project.folder)])
         } label: { Image(systemName: "folder") }.buttonStyle(HoverButtonStyle()).help(L("Mostrar no Finder"))

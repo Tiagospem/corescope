@@ -399,6 +399,7 @@ private struct ProjectCard: View {
               }
             }.controlSize(.small)
           }
+          OpenTerminalButton(folder: project.folder)
           Button {
             NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: project.folder)])
           } label: { Image(systemName: "folder") }.buttonStyle(HoverButtonStyle()).help(L("Mostrar no Finder"))

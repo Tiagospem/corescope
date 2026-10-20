@@ -11,10 +11,14 @@ section as the GitHub release notes.
 ## [Unreleased]
 
 ### Added
-- **Projects › choose the editor**: *Settings › Editor* sets what *Open* uses (the file's
-  default app until chosen, CoreScope's editor, or an installed IDE/editor among VS Code,
+- **Projects › choose the editor**: *Settings › Editor and terminal* sets what *Open* uses (the
+  file's default app until chosen, CoreScope's editor, or an installed IDE/editor among VS Code,
   Cursor, Windsurf, Zed, PhpStorm and the JetBrains family, Sublime, Nova, Xcode…); IDEs open the
   file inside its project folder.
+- **Open in terminal** on the project card, the changes header and each worktree, with the
+  terminal chosen in Settings (Terminal, iTerm2, Warp, Ghostty, kitty, Alacritty, WezTerm…); the
+  terminal buttons on Processes and Agents use it too. MCP `open_terminal`, and `projects_editor` /
+  `projects_terminal` in `get_settings` / `set_setting`.
 - **Projects › quick editor**: edit a file from its changes in CoreScope's own editor — line
   numbers, syntax colors, find, ⌘S, external-change warning, unsaved-changes prompt.
 - **Projects › fetch, pull, push and publish** in the changes header, with git's output, and the
