@@ -41,7 +41,7 @@ pub fn valid_name(name: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '$'))
 }
 /// Container names as Docker allows them.
-fn valid_container(name: &str) -> bool {
+pub fn valid_container(name: &str) -> bool {
     !name.is_empty()
         && name
             .chars()
@@ -74,7 +74,7 @@ fn host_tool(names: &[&str]) -> Option<PathBuf> {
 }
 
 /// Credentials inside a MySQL/MariaDB container, from its own environment.
-const MYSQL_ENV: &str = r#"if [ -n "$MYSQL_ROOT_PASSWORD$MARIADB_ROOT_PASSWORD" ] || [ -n "$MYSQL_ALLOW_EMPTY_PASSWORD$MARIADB_ALLOW_EMPTY_ROOT_PASSWORD" ]; then U=root; export MYSQL_PWD="${MYSQL_ROOT_PASSWORD:-$MARIADB_ROOT_PASSWORD}"; else U="${MYSQL_USER:-${MARIADB_USER:-root}}"; export MYSQL_PWD="${MYSQL_PASSWORD:-$MARIADB_PASSWORD}"; fi; "#;
+pub const MYSQL_ENV: &str = r#"if [ -n "$MYSQL_ROOT_PASSWORD$MARIADB_ROOT_PASSWORD" ] || [ -n "$MYSQL_ALLOW_EMPTY_PASSWORD$MARIADB_ALLOW_EMPTY_ROOT_PASSWORD" ]; then U=root; export MYSQL_PWD="${MYSQL_ROOT_PASSWORD:-$MARIADB_ROOT_PASSWORD}"; else U="${MYSQL_USER:-${MARIADB_USER:-root}}"; export MYSQL_PWD="${MYSQL_PASSWORD:-$MARIADB_PASSWORD}"; fi; "#;
 
 /// (program, args) that dumps `database` to stdout.
 fn dump_command(
@@ -406,6 +406,8 @@ mod tests {
             port: 3306,
             label: "db".into(),
             container: container.map(str::to_string),
+            published: true,
+            ..Default::default()
         }
     }
 

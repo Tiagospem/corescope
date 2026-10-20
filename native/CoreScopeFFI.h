@@ -19,6 +19,7 @@ char *cs_dev_space_verify(const char *path);
 char *cs_dev_space_docker(const char *socket, const char *kind);
 // Local MySQL/PostgreSQL/Redis, read-only and without passwords: [Database].
 char *cs_databases(void);
+char *cs_databases_with(const char *request);
 // .corescope.yml files found under {"roots":[...],"auto":bool}: [{folder,file,config,error}].
 char *cs_project_configs(const char *request);
 // Logs: {"op":"files"|"tail"|"errors"|"search", folders|source|sources, lines, limit, warnings, query}.

@@ -469,13 +469,8 @@ func copy(_ text: String) {
   NSPasteboard.general.clearContents()
   NSPasteboard.general.setString(text, forType: .string)
 }
-func openTerminal(at path: String) {
-  guard let terminal = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Terminal")
-  else { return }
-  NSWorkspace.shared.open(
-    [URL(fileURLWithPath: path)], withApplicationAt: terminal,
-    configuration: NSWorkspace.OpenConfiguration())
-}
+/// A terminal window in `path`, with the terminal chosen in Settings › Editor and terminal.
+func openTerminal(at path: String) { TerminalApp.open(path) }
 
 private struct SelectionBar: View {
   let items: [ProcessItem]

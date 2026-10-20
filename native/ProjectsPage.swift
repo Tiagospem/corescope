@@ -30,6 +30,7 @@ struct RepoInfo: Decodable, Equatable {
   let head: String?
   let detached: Bool
   let subfolder: String?
+  let remotes: [GitRemote]?
 }
 struct ProjectCheck: Decodable, Equatable {
   let folder: String
@@ -74,6 +75,8 @@ final class ProjectsStore: ObservableObject {
   static let shared = ProjectsStore()
   @Published private(set) var projects: [ProjectEntry] = []
   @Published private(set) var checks: [String: ProjectCheck] = [:]
+  /// The list was read at least once (until then the page shows a spinner, not "no projects").
+  @Published private(set) var loaded = false
   @Published var message: String?
   /// The project whose changes are on screen (id).
   @Published var opened: String?
@@ -89,6 +92,11 @@ final class ProjectsStore: ObservableObject {
       let cost = CostMeter.begin()
       defer { CostMeter.end("projects-git", cost) }
       let list = (try? ProjectsTool.call(["op": "list"], as: [ProjectEntry].self).get()) ?? []
+      // The cards first; their git state follows below.
+      DispatchQueue.main.async {
+        if list != self.projects { self.projects = list }
+        if !self.loaded { self.loaded = true }
+      }
       var checks: [String: ProjectCheck] = [:]
       var summaries: [String: GitSummary] = [:]
       for p in list {
@@ -200,7 +208,9 @@ struct ProjectsView: View {
           }
         }
         if let message = store.message { Text(message).font(.caption).foregroundStyle(.orange) }
-        if store.projects.isEmpty {
+        if !store.loaded {
+          ProgressView().controlSize(.small).frame(maxWidth: .infinity)
+        } else if store.projects.isEmpty {
           Card {
             EmptyNote(text: L("Nenhum projeto ainda. Adicione a pasta de um repositório: o CoreScope lê o .corescope.yml (ou oferece criar um) e o git dela, sem abrir uma IDE."))
           }
@@ -338,6 +348,7 @@ struct ProjectGitView: View {
         if let sub = git.subfolder { Badge(text: L("subpasta %@", sub), color: .secondary) }
         Spacer()
       }
+      if let remotes = git.remotes, !remotes.isEmpty { RemoteLinks(remotes: remotes) }
       if let main = git.main_repo {
         Text(L("Worktree do repositório %@", shown(main))).font(.caption).foregroundStyle(.secondary)
       } else if git.subfolder != nil, let root = git.root {
@@ -397,6 +408,7 @@ private struct ProjectCard: View {
               }
             }.controlSize(.small)
           }
+          OpenTerminalButton(folder: project.folder)
           Button {
             NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: project.folder)])
           } label: { Image(systemName: "folder") }.buttonStyle(HoverButtonStyle()).help(L("Mostrar no Finder"))

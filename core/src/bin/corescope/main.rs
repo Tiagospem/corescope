@@ -43,7 +43,7 @@ USAGE:
   corescope db snapshots | db restore ID   list snapshots / put a database back (asks first)
   corescope db redis PORT [--db N]      Redis memory by key prefix and keys without TTL (sampled)
   corescope db                          local MySQL/PostgreSQL/Redis: size, connections, slow
-                                        and long-running queries (no passwords used or read)
+                                        and long-running queries (containers read inside, read-only)
   corescope happened TIME [--minutes N] what the Mac was doing around TIME (14:05, 2:05 pm,
                                         yesterday 9:30, 2026-10-17 14:05): CPU, power, memory,
                                         swap, thermal and who dominated (needs History on)
@@ -1654,7 +1654,7 @@ fn print(json_out: bool, value: Value) -> i32 {
                         size,
                         num(&r["slow_queries"])
                     ),
-                    Some("auth") => "needs a password (CoreScope does not use passwords)".into(),
+                    Some("auth") => "needs a password (enter it on the Databases page; containers are read inside)".into(),
                     _ => english(r["error"].as_str().unwrap_or("error")),
                 }
             );

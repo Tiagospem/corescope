@@ -61,6 +61,8 @@ pub struct LastCommit {
 pub struct Status {
     /// The working tree's top folder (paths below are relative to it).
     pub root: String,
+    /// Remotes with their browser links (credentials stripped).
+    pub remotes: Vec<git::Remote>,
     pub branch: Branch,
     pub last_commit: Option<LastCommit>,
     pub files: Vec<FileChange>,
@@ -267,6 +269,9 @@ pub fn status(folder: &Path) -> Result<Status, String> {
         });
     let count = |f: &dyn Fn(&FileChange) -> bool| files.iter().filter(|x| f(x)).count();
     Ok(Status {
+        remotes: git::read(root, &["remote", "-v"])
+            .map(|t| git::parse_remotes(&t))
+            .unwrap_or_default(),
         root: root.to_string_lossy().into_owned(),
         staged: count(&|f| f.staged()),
         modified: count(&|f| !f.conflict && !f.untracked && matches!(f.worktree, 'M' | 'T')),
@@ -893,6 +898,51 @@ pub fn discard(folder: &Path, paths: &[String]) -> Result<(), String> {
     args.extend(valid_paths(paths)?);
     write(&root, &args, 60).map(|_| ())
 }
+/// Talks to the remote: `fetch` (with --prune), `pull` (the user's own pull settings, merge
+/// commits without an editor) or `push` (`publish` sets the upstream: `push -u <remote> HEAD`,
+/// origin when there is one). Returns git's output. Credentials come from the user's git setup
+/// (SSH agent, osxkeychain); nothing prompts, and a call that would wait for input fails.
+pub fn sync(folder: &Path, action: &str) -> Result<String, String> {
+    let root = root_of(folder)?;
+    let remote;
+    let args: Vec<&str> = match action {
+        "fetch" => vec!["fetch", "--prune"],
+        "pull" => vec!["pull", "--no-edit"],
+        "push" => vec!["push"],
+        "publish" => {
+            let remotes = git::read(&root, &["remote"]).unwrap_or_default();
+            let names: Vec<&str> = remotes
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .collect();
+            remote = names
+                .iter()
+                .find(|n| **n == "origin")
+                .or(names.first())
+                .map(|n| n.to_string())
+                .ok_or("this repository has no remote")?;
+            vec!["push", "-u", remote.as_str(), "HEAD"]
+        }
+        _ => return Err("action must be fetch, pull, push or publish".into()),
+    };
+    let out = git::run(&root, &args, false, Duration::from_secs(300))?;
+    let text = format!("{}{}", out.stdout, out.stderr).trim().to_string();
+    if out.ok() {
+        Ok(if text.is_empty() {
+            "Already up to date.".into()
+        } else {
+            text
+        })
+    } else if text.contains("has no upstream branch") {
+        Err(format!(
+            "This branch has no upstream yet: publish it first.\n{text}"
+        ))
+    } else {
+        Err(explain(&out))
+    }
+}
+
 /// Commits what is staged with the message; hooks and signing run as configured. Returns git's
 /// output (hook output included).
 pub fn commit(folder: &Path, message: &str) -> Result<String, String> {
@@ -976,6 +1026,71 @@ mod tests {
         );
         assert!(valid_paths(&["a/b.rs".into()]).is_ok());
         assert_eq!(bytecount(b"a\nb\nc"), 3);
+    }
+
+    #[test]
+    fn fetch_pull_push_against_a_local_remote() {
+        let repo = crate::git::tests::scratch("sync");
+        let dir = repo.parent().unwrap().to_path_buf();
+        let g = |at: &Path, args: &[&str]| {
+            let o = git::run(
+                at,
+                &[
+                    &[
+                        "-c",
+                        "user.name=t",
+                        "-c",
+                        "user.email=t@t",
+                        "-c",
+                        "commit.gpgsign=false",
+                    ],
+                    args,
+                ]
+                .concat(),
+                false,
+                Duration::from_secs(30),
+            )
+            .unwrap();
+            assert!(o.ok(), "{args:?}: {}", o.message());
+        };
+        let bare = dir.join("remote.git");
+        g(
+            &dir,
+            &["init", "-q", "--bare", "-b", "main", bare.to_str().unwrap()],
+        );
+        g(&repo, &["remote", "add", "origin", bare.to_str().unwrap()]);
+        assert!(sync(&repo, "publish").is_ok());
+        assert_eq!(
+            status(&repo).unwrap().branch.upstream.as_deref(),
+            Some("origin/main")
+        );
+        // A second clone pushes a commit; the first fetches, sees it behind, pulls.
+        let other = dir.join("other");
+        g(
+            &dir,
+            &[
+                "clone",
+                "-q",
+                bare.to_str().unwrap(),
+                other.to_str().unwrap(),
+            ],
+        );
+        std::fs::write(other.join("b.txt"), "b\n").unwrap();
+        g(&other, &["add", "b.txt"]);
+        g(&other, &["commit", "-qm", "from other"]);
+        g(&other, &["push", "-q"]);
+        sync(&repo, "fetch").unwrap();
+        assert_eq!(status(&repo).unwrap().branch.behind, Some(1));
+        sync(&repo, "pull").unwrap();
+        assert!(repo.join("b.txt").exists());
+        std::fs::write(repo.join("c.txt"), "c\n").unwrap();
+        stage(&repo, &["c.txt".into()]).unwrap();
+        g(&repo, &["commit", "-qm", "local"]);
+        assert_eq!(status(&repo).unwrap().branch.ahead, Some(1));
+        sync(&repo, "push").unwrap();
+        assert_eq!(status(&repo).unwrap().branch.ahead, Some(0));
+        assert!(sync(&repo, "rebase").is_err());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

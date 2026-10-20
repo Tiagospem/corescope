@@ -40,11 +40,13 @@ struct RenderedLine: Identifiable {
   let text: AttributedString
   let mark: DiffMark
 }
-/// A file's diff ready to draw. `gaps[i]` is how many unchanged lines come before hunk i.
+/// A file's diff ready to draw. `gaps[i]` is how many unchanged lines come before hunk i;
+/// `columns` is the widest line (a tab counts as 4).
 struct RenderedFile: Identifiable {
   let data: FileDiffData
   let hunks: [[RenderedLine]]
   let gaps: [Int]
+  let columns: Int
   var id: String { data.path }
 }
 
@@ -68,7 +70,8 @@ enum DiffRenderer {
           mark: marks[i])
       }
     }
-    return RenderedFile(data: file, hunks: hunks, gaps: gaps)
+    let columns = file.hunks.flatMap(\.lines).map { $0.text.reduce(0) { $0 + ($1 == "\t" ? 4 : 1) } }.max() ?? 0
+    return RenderedFile(data: file, hunks: hunks, gaps: gaps, columns: Demo.enabled ? min(columns, 40) : columns)
   }
 
   /// A run of changed lines with both removals and additions is "modified" (yellow).
@@ -134,8 +137,47 @@ enum SyntaxHighlighter {
   private static func isDigit(_ c: UInt32) -> Bool { c >= 48 && c <= 57 }
   private static func isUpper(_ c: UInt32) -> Bool { c >= 65 && c <= 90 }
 
+  enum TokenKind { case keyword, string, comment, number, type, variable }
+  /// A colored stretch of a line, in unicode-scalar offsets.
+  struct Token: Equatable {
+    let from: Int
+    let to: Int
+    let kind: TokenKind
+  }
+  static func color(_ kind: TokenKind) -> Color {
+    switch kind {
+    case .keyword: keyword
+    case .string: string
+    case .comment: comment
+    case .number: number
+    case .type: type
+    case .variable: variable
+    }
+  }
+  /// The same palette for AppKit text (the quick editor).
+  static func nsColor(_ kind: TokenKind) -> NSColor {
+    switch kind {
+    case .keyword: NSColor(red: 0.78, green: 0.47, blue: 0.87, alpha: 1)
+    case .string: NSColor(red: 0.45, green: 0.66, blue: 0.32, alpha: 1)
+    case .comment: .secondaryLabelColor
+    case .number: NSColor(red: 0.82, green: 0.52, blue: 0.27, alpha: 1)
+    case .type: NSColor(red: 0.78, green: 0.6, blue: 0.2, alpha: 1)
+    case .variable: NSColor(red: 0.88, green: 0.42, blue: 0.46, alpha: 1)
+    }
+  }
+
   static func highlight(_ line: String, _ lang: Language) -> AttributedString {
     var out = AttributedString(line)
+    for t in tokens(line, lang) {
+      let start = out.unicodeScalars.index(out.startIndex, offsetBy: t.from)
+      let end = out.unicodeScalars.index(out.startIndex, offsetBy: t.to)
+      out[start..<end].foregroundColor = color(t.kind)
+    }
+    return out
+  }
+
+  static func tokens(_ line: String, _ lang: Language) -> [Token] {
+    var out: [Token] = []
     guard lang != .plain, !line.isEmpty else { return out }
     // Code points as numbers: plain integer comparisons keep the type checker fast.
     let chars: [UInt32] = line.unicodeScalars.map(\.value)
@@ -144,11 +186,7 @@ enum SyntaxHighlighter {
     let dquote: UInt32 = 34, squote: UInt32 = 39, backtick: UInt32 = 96, backslash: UInt32 = 92
     let dollar: UInt32 = 36, at: UInt32 = 64, dot: UInt32 = 46, space: UInt32 = 32
     let colon: UInt32 = 58, equals: UInt32 = 61, lbrace: UInt32 = 123, rbrace: UInt32 = 125
-    func paint(_ from: Int, _ to: Int, _ color: Color) {
-      let start = out.unicodeScalars.index(out.startIndex, offsetBy: from)
-      let end = out.unicodeScalars.index(out.startIndex, offsetBy: to)
-      out[start..<end].foregroundColor = color
-    }
+    func paint(_ from: Int, _ to: Int, _ kind: TokenKind) { out.append(Token(from: from, to: to, kind: kind)) }
     let hashComments = lang == .python || lang == .ruby || lang == .shell || lang == .data || lang == .php
     let slashComments = lang != .data && lang != .markup
     var i = 0
@@ -156,14 +194,14 @@ enum SyntaxHighlighter {
       let c = chars[i]
       let next: UInt32 = i + 1 < n ? chars[i + 1] : 0
       if (c == slash && next == slash && slashComments) || (c == hash && hashComments) || (lang == .markup && c == lt && next == bang) {
-        paint(i, n, comment)
+        paint(i, n, .comment)
         return out
       }
       if c == slash && next == star {
         var j = i + 2
         while j + 1 < n && !(chars[j] == star && chars[j + 1] == slash) { j += 1 }
         j = min(n, j + 2)
-        paint(i, j, comment)
+        paint(i, j, .comment)
         i = j
         continue
       }
@@ -174,21 +212,21 @@ enum SyntaxHighlighter {
           j += 1
         }
         j = min(n, j + 1)
-        paint(i, j, string)
+        paint(i, j, .string)
         i = j
         continue
       }
       if c == dollar && (lang == .php || lang == .shell) && (isWord(next) || next == lbrace) {
         var j = i + 1
         while j < n && (isWord(chars[j]) || chars[j] == lbrace || chars[j] == rbrace) { j += 1 }
-        paint(i, j, variable)
+        paint(i, j, .variable)
         i = j
         continue
       }
       if isDigit(c) && (i == 0 || !isWord(chars[i - 1])) {
         var j = i
         while j < n && (isWord(chars[j]) || chars[j] == dot) { j += 1 }
-        paint(i, j, number)
+        paint(i, j, .number)
         i = j
         continue
       }
@@ -199,11 +237,11 @@ enum SyntaxHighlighter {
         if lang == .data {
           var k = j
           while k < n && chars[k] == space { k += 1 }
-          if k < n && (chars[k] == colon || chars[k] == equals) { paint(i, j, keyword) }
+          if k < n && (chars[k] == colon || chars[k] == equals) { paint(i, j, .keyword) }
         } else if keywords.contains(word) {
-          paint(i, j, keyword)
+          paint(i, j, .keyword)
         } else if isUpper(c) && j - i > 1 {
-          paint(i, j, type)
+          paint(i, j, .type)
         }
         i = j
         continue
@@ -226,8 +264,11 @@ struct ZedDiffView: View {
   let toggleStage: (String, Bool) -> Void
   let expand: (String) -> Void
   let open: (String) -> Void
+  let edit: (String) -> Void
   @ViewState private var collapsed: Set<String> = []
   @ViewState private var currentHunk = 0
+  /// How far the diff is scrolled sideways: file headers follow it so their buttons stay in view.
+  @ViewState private var scrollX: CGFloat = 0
 
   private var hunkIDs: [String] {
     (files ?? []).filter { !collapsed.contains($0.id) }.flatMap { f in f.hunks.indices.map { "\(f.id)#\($0)" } }
@@ -246,14 +287,19 @@ struct ZedDiffView: View {
                   Section {
                     if !collapsed.contains(file.id) { fileBody(file) }
                   } header: {
-                    header(file)
+                    header(file).frame(width: geo.size.width, alignment: .leading).offset(x: scrollX)
                   }
                 }
               }
-              // Top-left: a 2D scroll view centers content it measures as shorter than itself.
-              .frame(minWidth: geo.size.width, minHeight: geo.size.height, alignment: .topLeading)
+              // A lazy stack only measures the rows on screen, so the 2D scroll view gets the
+              // widest line's width explicitly; top-left because it centers shorter content.
+              .frame(width: max(geo.size.width, contentWidth(files)), alignment: .topLeading)
+              .frame(minHeight: geo.size.height, alignment: .topLeading)
               .textSelection(.enabled)
+              .background(GeometryReader { g in Color.clear.preference(key: DiffScrollX.self, value: -g.frame(in: .named("diff")).minX) })
             }
+            .coordinateSpace(name: "diff")
+            .onPreferenceChange(DiffScrollX.self) { x in if scrollX != max(0, x) { scrollX = max(0, x) } }
           }
         }
       }
@@ -263,6 +309,13 @@ struct ZedDiffView: View {
     } else {
       ProgressView().controlSize(.small).frame(maxWidth: .infinity, maxHeight: .infinity)
     }
+  }
+
+  private static let charWidth = ("M" as NSString).size(withAttributes: [.font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)]).width
+  /// Gutter (bar, number, padding) plus the widest expanded file's text and its trailing padding.
+  private func contentWidth(_ files: [RenderedFile]) -> CGFloat {
+    let columns = files.filter { !collapsed.contains($0.id) }.map(\.columns).max() ?? 0
+    return 3 + 46 + 12 + CGFloat(columns) * Self.charWidth + 24 + 8
   }
 
   private func toolbar(_ files: [RenderedFile], _ proxy: ScrollViewProxy) -> some View {
@@ -317,14 +370,19 @@ struct ZedDiffView: View {
       Spacer(minLength: 12)
       Text(verbatim: "+\(file.data.added)").font(.caption.monospacedDigit()).foregroundStyle(.green)
       Text(verbatim: "−\(file.data.removed)").font(.caption.monospacedDigit()).foregroundStyle(.red)
+      if !file.data.deleted && !file.data.binary {
+        Button {
+          edit(file.data.path)
+        } label: { Image(systemName: "pencil") }.controlSize(.small).help(L("Editar aqui (editor do CoreScope)"))
+          .accessibilityLabel(L("Editar aqui"))
+      }
       if !file.data.deleted {
-        Button(L("Abrir")) { open(file.data.path) }.controlSize(.small)
+        Button(L("Abrir")) { open(file.data.path) }.controlSize(.small).help(L("Abrir com %@ (Ajustes › Editor)", CodeEditor.preferredName))
       }
     }
     .padding(.horizontal, 10).padding(.vertical, 6)
     .background(.bar)
     .overlay(alignment: .bottom) { Divider() }
-    .frame(maxWidth: 900, alignment: .leading)
   }
   private func nameColor(_ f: FileDiffData) -> Color {
     f.new_file ? .green : f.deleted ? .red : Color(red: 0.9, green: 0.75, blue: 0.3)
@@ -366,6 +424,11 @@ struct ZedDiffView: View {
   private func note(_ text: String) -> some View {
     Text(text).font(.caption).foregroundStyle(.secondary).padding(.horizontal, 18).padding(.vertical, 8)
   }
+}
+
+private struct DiffScrollX: PreferenceKey {
+  static var defaultValue: CGFloat = 0
+  static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }
 
 private struct DiffLineRow: View {

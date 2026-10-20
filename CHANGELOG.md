@@ -10,6 +10,34 @@ section as the GitHub release notes.
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-20
+
+### Added
+- **Projects › choose the editor**: *Settings › Editor and terminal* sets what *Open* uses (the
+  file's default app until chosen, CoreScope's editor, or an installed IDE/editor among VS Code,
+  Cursor, Windsurf, Zed, PhpStorm and the JetBrains family, Sublime, Nova, Xcode…); IDEs open the
+  file inside its project folder.
+- **Open in terminal** on the project card, the changes header and each worktree, with the
+  terminal chosen in Settings (Terminal, iTerm2, Warp, Ghostty, kitty, Alacritty, WezTerm…); the
+  terminal buttons on Processes and Agents use it too. MCP `open_terminal`, and `projects_editor` /
+  `projects_terminal` in `get_settings` / `set_setting`.
+- **Projects › quick editor**: edit a file from its changes in CoreScope's own editor — line
+  numbers, syntax colors, find, ⌘S, external-change warning, unsaved-changes prompt.
+- **Projects › fetch, pull, push and publish** in the changes header, with git's output, and the
+  **remote** with a link to open it in the browser (credentials stripped from URLs), also on the
+  project card. Core `gitchanges::sync`, MCP `project_git_sync`.
+- **Databases in containers without a published port** (only inside their compose network) now
+  appear, grouped by compose project, matched by image, compose service or name.
+- **Databases with a password**: containers are read inside them with their own credentials
+  (`MYSQL_ROOT_PASSWORD`/`MARIADB_*`, `POSTGRES_USER`, `REDIS_PASSWORD`, Redis `--requirepass`
+  on stdin), so the password never leaves the container; servers on the Mac take a user and
+  password saved in the Keychain, handed to the installed client through its environment.
+
+### Fixed
+- **Projects › diff**: long lines scroll sideways again (the lazy diff list now gets the widest
+  line's width), and each file's header (counts, edit, *Open*) stays in view while scrolled.
+- **Projects** no longer flashes "No projects yet" while the list is first read.
+
 ## [0.10.0] - 2026-10-19
 
 ### Added
@@ -504,7 +532,8 @@ First public release.
   compact / standard / detailed layouts and in-panel controls.
 - English, Portuguese and Spanish; offline-only.
 
-[Unreleased]: https://github.com/Tiagospem/corescope/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/Tiagospem/corescope/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/Tiagospem/corescope/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/Tiagospem/corescope/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/Tiagospem/corescope/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/Tiagospem/corescope/compare/v0.8.0...v0.8.1

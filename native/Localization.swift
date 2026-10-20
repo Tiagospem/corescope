@@ -1677,4 +1677,63 @@ private let entries = """
   fechar ¦ close ¦ cerrar
   parados: %@ ¦ stopped: %@ ¦ detenidos: %@
   Docker desligado: nada deste ambiente está rodando. ¦ Docker is off: nothing in this environment is running. ¦ Docker apagado: nada de este entorno está en marcha.
+  Não dá para editar aqui ¦ Can't edit this here ¦ No se puede editar aquí
+  Abrir no app padrão ¦ Open in the default app ¦ Abrir en la app predeterminada
+  O arquivo não existe mais. ¦ The file no longer exists. ¦ El archivo ya no existe.
+  Arquivo grande demais para o editor rápido (%@). ¦ File too large for the quick editor (%@). ¦ Archivo demasiado grande para el editor rápido (%@).
+  Não foi possível ler o arquivo. ¦ Couldn't read the file. ¦ No se pudo leer el archivo.
+  Parece um arquivo binário. ¦ It looks like a binary file. ¦ Parece un archivo binario.
+  O arquivo não está em UTF-8. ¦ The file isn't UTF-8. ¦ El archivo no está en UTF-8.
+  O arquivo mudou no disco ¦ The file changed on disk ¦ El archivo cambió en el disco
+  Outro programa salvou %@ depois que você abriu. Sobrescrever com a sua versão? ¦ Another program saved %@ after you opened it. Overwrite it with your version? ¦ Otro programa guardó %@ después de que lo abrieras. ¿Sobrescribir con tu versión?
+  Sobrescrever ¦ Overwrite ¦ Sobrescribir
+  Salvo ¦ Saved ¦ Guardado
+  Salvar as alterações em %@? ¦ Save the changes to %@? ¦ ¿Guardar los cambios en %@?
+  Alterações não salvas ¦ Unsaved changes ¦ Cambios sin guardar
+  Abrir no editor externo ¦ Open in external editor ¦ Abrir en el editor externo
+  Linha %@, coluna %@ ¦ Line %@, column %@ ¦ Línea %@, columna %@
+  App padrão do arquivo (macOS) ¦ The file's default app (macOS) ¦ App predeterminada del archivo (macOS)
+  Editor do CoreScope ¦ CoreScope editor ¦ Editor de CoreScope
+  Editor ¦ Editor ¦ Editor
+  Abrir arquivos com ¦ Open files with ¦ Abrir archivos con
+  Usado por Abrir e Abrir no editor nas alterações dos projetos. IDEs (VS Code, Cursor, Zed, JetBrains…) abrem o arquivo dentro da pasta do projeto. O Editor do CoreScope é um editor rápido com números de linha, cores e ⌘S, para ajustes pontuais. ¦ Used by Open and Open in editor in a project's changes. IDEs (VS Code, Cursor, Zed, JetBrains…) open the file inside the project folder. The CoreScope editor is a quick editor with line numbers, colors and ⌘S, for small edits. ¦ Lo usan Abrir y Abrir en el editor en los cambios de los proyectos. Los IDE (VS Code, Cursor, Zed, JetBrains…) abren el archivo dentro de la carpeta del proyecto. El editor de CoreScope es un editor rápido con números de línea, colores y ⌘S, para ajustes puntuales.
+  Buscar do remoto (git fetch): atualiza à frente/atrás sem mexer nos seus arquivos ¦ Fetch from the remote (git fetch): updates ahead/behind without touching your files ¦ Traer del remoto (git fetch): actualiza adelante/atrás sin tocar tus archivos
+  Buscar do remoto ¦ Fetch from the remote ¦ Traer del remoto
+  Pull %@ ¦ Pull %@ ¦ Pull %@
+  Pull ¦ Pull ¦ Pull
+  Traz os commits do remoto (git pull, com as configurações do seu git) ¦ Brings in the remote's commits (git pull, with your git settings) ¦ Trae los commits del remoto (git pull, con la configuración de tu git)
+  Push %@ ¦ Push %@ ¦ Push %@
+  Push ¦ Push ¦ Push
+  Envia seus commits para o remoto (git push) ¦ Sends your commits to the remote (git push) ¦ Envía tus commits al remoto (git push)
+  Publicar branch ¦ Publish branch ¦ Publicar rama
+  Envia esta branch para o remoto e passa a acompanhá-la (git push -u) ¦ Pushes this branch to the remote and tracks it (git push -u) ¦ Envía esta rama al remoto y la sigue (git push -u)
+  Buscando… ¦ Fetching… ¦ Trayendo…
+  Trazendo… ¦ Pulling… ¦ Bajando…
+  Enviando… ¦ Pushing… ¦ Enviando…
+  Editar aqui ¦ Edit here ¦ Editar aquí
+  Abrir %@ no navegador ¦ Open %@ in the browser ¦ Abrir %@ en el navegador
+  Editar aqui (editor do CoreScope) ¦ Edit here (CoreScope editor) ¦ Editar aquí (editor de CoreScope)
+  Abrir com %@ (Ajustes › Editor) ¦ Open with %@ (Settings › Editor) ¦ Abrir con %@ (Ajustes › Editor)
+  Neste Mac ¦ On this Mac ¦ En este Mac
+  Consultas só de leitura. Sem senha, pelo protocolo de cada banco em 127.0.0.1. Bancos em contêiner (com ou sem porta publicada) que pedem senha são lidos dentro do próprio contêiner, com as credenciais dele (MYSQL_ROOT_PASSWORD, POSTGRES_USER, REDIS_PASSWORD ou --requirepass): a senha não sai do contêiner. Para um servidor rodando direto no Mac, informe usuário e senha: ficam só no Keychain e vão para o cliente instalado (mysql, psql, redis-cli) pelo ambiente, nunca na linha de comando. ¦ Read-only queries. Without a password, over each database's protocol on 127.0.0.1. Container databases (published port or not) that want a password are read inside the container with its own credentials (MYSQL_ROOT_PASSWORD, POSTGRES_USER, REDIS_PASSWORD or --requirepass): the password stays in the container. For a server running directly on the Mac, enter a user and password: they stay in the Keychain only and reach the installed client (mysql, psql, redis-cli) through its environment, never on the command line. ¦ Consultas solo de lectura. Sin contraseña, por el protocolo de cada base en 127.0.0.1. Las bases en contenedor (con o sin puerto publicado) que piden contraseña se leen dentro del propio contenedor, con sus credenciales (MYSQL_ROOT_PASSWORD, POSTGRES_USER, REDIS_PASSWORD o --requirepass): la contraseña no sale del contenedor. Para un servidor que corre directamente en el Mac, indica usuario y contraseña: quedan solo en el Llavero y llegan al cliente instalado (mysql, psql, redis-cli) por el entorno, nunca en la línea de comandos.
+  Lido dentro do contêiner, com as credenciais dele (a senha não sai do contêiner). ¦ Read inside the container with its own credentials (the password stays in the container). ¦ Leído dentro del contenedor, con sus credenciales (la contraseña no sale del contenedor).
+  Lido com o usuário e a senha salvos no Keychain. ¦ Read with the user and password saved in the Keychain. ¦ Leído con el usuario y la contraseña guardados en el Llavero.
+  Esquecer senha ¦ Forget password ¦ Olvidar contraseña
+  sem porta no Mac ¦ no port on the Mac ¦ sin puerto en el Mac
+  A porta %@ só existe na rede do compose; o CoreScope lê este banco de dentro do contêiner. ¦ Port %@ only exists inside the compose network; CoreScope reads this database from inside the container. ¦ El puerto %@ solo existe en la red del compose; CoreScope lee esta base desde dentro del contenedor.
+  Este servidor pede senha. ¦ This server wants a password. ¦ Este servidor pide contraseña.
+  Pede senha: %@ ¦ Wants a password: %@ ¦ Pide contraseña: %@
+  Trocar senha… ¦ Change password… ¦ Cambiar contraseña…
+  Informar senha… ¦ Enter password… ¦ Indicar contraseña…
+  Senha de %@ ¦ Password for %@ ¦ Contraseña de %@
+  Fica só no Keychain do macOS. A cada leitura vai para o cliente instalado (mysql, psql ou redis-cli) pelo ambiente, nunca pela linha de comando, e as consultas são só de leitura. ¦ It stays in the macOS Keychain only. Each read hands it to the installed client (mysql, psql or redis-cli) through its environment, never on the command line, and the queries are read-only. ¦ Queda solo en el Llavero de macOS. En cada lectura llega al cliente instalado (mysql, psql o redis-cli) por el entorno, nunca por la línea de comandos, y las consultas son solo de lectura.
+  Usuário ¦ User ¦ Usuario
+  (opcional) ¦ (optional) ¦ (opcional)
+  Senha ¦ Password ¦ Contraseña
+  Salvar e ler ¦ Save and read ¦ Guardar y leer
+  Abrir no terminal (%@) ¦ Open in terminal (%@) ¦ Abrir en la terminal (%@)
+  Abrir no terminal ¦ Open in terminal ¦ Abrir en la terminal
+  Editor e terminal ¦ Editor and terminal ¦ Editor y terminal
+  Abrir pastas no terminal com ¦ Open folders in the terminal with ¦ Abrir carpetas en la terminal con
+  Usado pelo botão de terminal nos projetos, worktrees, processos e agentes. ¦ Used by the terminal button on projects, worktrees, processes and agents. ¦ Usado por el botón de terminal en proyectos, worktrees, procesos y agentes.
   """

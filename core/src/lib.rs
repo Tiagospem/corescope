@@ -4,6 +4,7 @@ pub mod capacity;
 pub mod cleanplan;
 pub mod containers;
 pub mod databases;
+pub mod dbaccess;
 pub mod dbsnapshot;
 pub mod devspace;
 pub mod diskgrowth;
@@ -1720,18 +1721,39 @@ pub unsafe extern "C" fn cs_dev_space_docker(
 }
 
 /// Local databases (MySQL/MariaDB, PostgreSQL, Redis) found among processes and containers,
-/// queried read-only where the server allows passwordless local access.
+/// queried read-only: over the wire where passwordless, inside the container with its own
+/// credentials, or with credentials the user saved.
 #[unsafe(no_mangle)]
 pub extern "C" fn cs_databases() -> *mut c_char {
+    response(|| json(Ok(read_databases(&dbaccess::Credentials::new())?)))
+}
+fn read_databases(creds: &dbaccess::Credentials) -> Result<Vec<databases::Database>, String> {
+    let containers = CONTAINERS
+        .get_or_init(|| Mutex::new(containers::Reader::default()))
+        .lock()
+        .map_err(|_| "Leitor de contêineres indisponível")?
+        .read(false)
+        .containers;
+    let endpoints = databases::detect(&processes_now(), &containers);
+    Ok(databases::probe_with(endpoints, creds))
+}
+/// `cs_databases` with `{"credentials": {"mysql:3306": {"user": "...", "password": "..."}}}`:
+/// passwords the user saved in the app (Keychain), used for this read only and never kept.
+///
+/// # Safety
+/// `request` is a valid NUL-terminated UTF-8 JSON pointer for the duration of this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cs_databases_with(request: *const c_char) -> *mut c_char {
     response(|| {
-        let containers = CONTAINERS
-            .get_or_init(|| Mutex::new(containers::Reader::default()))
-            .lock()
-            .map_err(|_| "Leitor de contêineres indisponível")?
-            .read(false)
-            .containers;
-        let endpoints = databases::detect(&processes_now(), &containers);
-        json(Ok(databases::probe(endpoints)))
+        if request.is_null() {
+            return Err("Consulta ausente".into());
+        }
+        let v: serde_json::Value =
+            serde_json::from_slice(unsafe { CStr::from_ptr(request) }.to_bytes())
+                .map_err(|e| e.to_string())?;
+        let creds: dbaccess::Credentials =
+            serde_json::from_value(v["credentials"].clone()).unwrap_or_default();
+        json(Ok(read_databases(&creds)?))
     })
 }
 
@@ -1888,6 +1910,10 @@ pub fn projects_tool(v: &serde_json::Value) -> Result<serde_json::Value, String>
         "init" => Ok(json!(git::init(&folder()?)?)),
         "status" => Ok(json!(gitchanges::status(&folder()?)?)),
         "summary" => Ok(json!(gitchanges::summary(&folder()?)?)),
+        "sync" => {
+            let action = v["action"].as_str().ok_or("action is required")?;
+            Ok(json!({"output": gitchanges::sync(&folder()?, action)?}))
+        }
         "commit_context" => {
             let max = v["max_bytes"].as_u64().unwrap_or(24 * 1024) as usize;
             Ok(json!(gitchanges::commit_context(&folder()?, max)?))

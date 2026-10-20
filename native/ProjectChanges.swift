@@ -16,6 +16,14 @@ struct GitFileChange: Decodable, Equatable {
   let binary: Bool
   var staged: Bool { !conflict && index != "." && index != "?" }
   var unstaged: Bool { untracked || (!conflict && worktree != ".") }
+  /// The file is there to edit (not deleted, not binary).
+  var editable: Bool { worktree != "D" && !binary }
+}
+struct GitRemote: Decodable, Equatable, Identifiable {
+  let name: String
+  let url: String
+  let web_url: String?
+  var id: String { name }
 }
 struct GitBranchState: Decodable, Equatable {
   let head: String?
@@ -32,6 +40,7 @@ struct GitLastCommit: Decodable, Equatable {
 }
 struct GitStatus: Decodable, Equatable {
   let root: String
+  let remotes: [GitRemote]?
   let branch: GitBranchState
   let last_commit: GitLastCommit?
   let files: [GitFileChange]
@@ -227,6 +236,30 @@ final class ProjectChangesStore: ObservableObject {
     if tracked.isEmpty { reload() } else { run(["op": "discard", "paths": tracked]) }
   }
 
+  struct SyncResult: Equatable {
+    let ok: Bool
+    let text: String
+  }
+  /// The remote operation running now ("fetch", "pull", "push", "publish").
+  @Published private(set) var syncing: String?
+  @Published var syncResult: SyncResult?
+  func sync(_ action: String) {
+    guard syncing == nil else { return }
+    syncing = action
+    syncResult = nil
+    queue.async {
+      let r = ProjectsTool.call(["op": "sync", "folder": self.folder, "action": action], as: GitCommitOutput.self)
+      DispatchQueue.main.async {
+        self.syncing = nil
+        switch r {
+        case .success(let o): self.syncResult = SyncResult(ok: true, text: o.output)
+        case .failure(let e): self.syncResult = SyncResult(ok: false, text: e.message)
+        }
+        self.reload()
+      }
+    }
+  }
+
   func commit(_ message: String, done: @escaping (Bool) -> Void) {
     busy = true
     commitOutput = nil
@@ -356,30 +389,131 @@ final class FileWatcher {
   }
 }
 
-/// Editors that open a file (first one installed is the default; the choice is remembered).
+/// Where "Open" sends a file: the editor chosen in Settings › Editor (the system's default app
+/// for the file until one is chosen), CoreScope's own quick editor, or a pick from the menu.
 enum CodeEditor {
+  static let builtin = "corescope.builtin"
+  static let systemDefault = "default"
   static let known: [(name: String, bundle: String)] = [
-    ("Zed", "dev.zed.Zed"), ("Cursor", "com.todesktop.230313mzl4w4u92"), ("Visual Studio Code", "com.microsoft.VSCode"),
-    ("PhpStorm", "com.jetbrains.PhpStorm"), ("WebStorm", "com.jetbrains.WebStorm"), ("IntelliJ IDEA", "com.jetbrains.intellij"),
-    ("RustRover", "com.jetbrains.rustrover"), ("Sublime Text", "com.sublimetext.4"), ("Xcode", "com.apple.dt.Xcode"),
-    ("Nova", "com.panic.Nova"), ("BBEdit", "com.barebones.bbedit"),
+    ("Visual Studio Code", "com.microsoft.VSCode"), ("VS Code Insiders", "com.microsoft.VSCodeInsiders"),
+    ("VSCodium", "com.vscodium"), ("Cursor", "com.todesktop.230313mzl4w4u92"), ("Windsurf", "com.exafunction.windsurf"),
+    ("Zed", "dev.zed.Zed"), ("Zed Preview", "dev.zed.Zed-Preview"), ("PhpStorm", "com.jetbrains.PhpStorm"),
+    ("WebStorm", "com.jetbrains.WebStorm"), ("IntelliJ IDEA", "com.jetbrains.intellij"),
+    ("IntelliJ IDEA CE", "com.jetbrains.intellij.ce"), ("GoLand", "com.jetbrains.goland"), ("PyCharm", "com.jetbrains.pycharm"),
+    ("PyCharm CE", "com.jetbrains.pycharm.ce"), ("RustRover", "com.jetbrains.rustrover"), ("RubyMine", "com.jetbrains.rubymine"),
+    ("Rider", "com.jetbrains.rider"), ("CLion", "com.jetbrains.CLion"), ("Fleet", "com.jetbrains.fleet"),
+    ("Android Studio", "com.google.android.studio"), ("Sublime Text", "com.sublimetext.4"), ("Nova", "com.panic.Nova"),
+    ("BBEdit", "com.barebones.bbedit"), ("TextMate", "com.macromates.TextMate"), ("Xcode", "com.apple.dt.Xcode"),
+    ("TextEdit", "com.apple.TextEdit"),
+  ]
+  /// Editors that open a folder as a project, so the file is opened inside its project.
+  private static let projectEditors: Set<String> = [
+    "com.microsoft.VSCode", "com.microsoft.VSCodeInsiders", "com.vscodium", "com.todesktop.230313mzl4w4u92",
+    "com.exafunction.windsurf", "dev.zed.Zed", "dev.zed.Zed-Preview", "com.jetbrains.PhpStorm", "com.jetbrains.WebStorm",
+    "com.jetbrains.intellij", "com.jetbrains.intellij.ce", "com.jetbrains.goland", "com.jetbrains.pycharm",
+    "com.jetbrains.pycharm.ce", "com.jetbrains.rustrover", "com.jetbrains.rubymine", "com.jetbrains.rider",
+    "com.jetbrains.CLion", "com.jetbrains.fleet", "com.google.android.studio", "com.sublimetext.4", "com.panic.Nova",
   ]
   static var installed: [(name: String, bundle: String, url: URL)] {
     known.compactMap { e in NSWorkspace.shared.urlForApplication(withBundleIdentifier: e.bundle).map { (e.name, e.bundle, $0) } }
   }
-  static var preferred: String? {
-    get { UserDefaults.standard.string(forKey: "projectsEditor") }
+  /// Settings › Editor choices: the system default, CoreScope's editor, then the installed ones.
+  static var choices: [(id: String, name: String)] {
+    [(systemDefault, L("App padrão do arquivo (macOS)")), (builtin, L("Editor do CoreScope"))] + installed.map { ($0.bundle, $0.name) }
+  }
+  static var preferred: String {
+    get { UserDefaults.standard.string(forKey: "projectsEditor") ?? systemDefault }
     set { UserDefaults.standard.set(newValue, forKey: "projectsEditor") }
   }
-  static func open(_ file: URL, with bundle: String? = nil) {
-    let apps = installed
+  static var preferredName: String { choices.first { $0.id == preferred }?.name ?? L("App padrão do arquivo (macOS)") }
+
+  /// Opens `file` with `bundle`, or the preferred editor. `root` is the project folder, opened
+  /// along with the file by IDEs; `external` skips CoreScope's own editor.
+  static func open(_ file: URL, root: URL? = nil, with bundle: String? = nil, external: Bool = false) {
     let pick = bundle ?? preferred
-    if let app = apps.first(where: { $0.bundle == pick }) ?? (pick == "default" ? nil : apps.first) {
-      if bundle != nil { preferred = bundle }
-      NSWorkspace.shared.open([file], withApplicationAt: app.url, configuration: NSWorkspace.OpenConfiguration())
-    } else {
-      if bundle != nil { preferred = bundle }
+    if pick == builtin && !external {
+      QuickEditor.open(file)
+      return
+    }
+    guard let app = installed.first(where: { $0.bundle == pick }) else {
       NSWorkspace.shared.open(file)
+      return
+    }
+    let urls = root.flatMap { projectEditors.contains(app.bundle) ? [$0, file] : nil } ?? [file]
+    NSWorkspace.shared.open(urls, withApplicationAt: app.url, configuration: NSWorkspace.OpenConfiguration())
+  }
+}
+
+/// Where "Open in terminal" goes (projects, worktrees, processes, agents): Terminal until another
+/// installed terminal is chosen in Settings › Editor and terminal. Terminals that take a folder as
+/// a document open a window there; the others get their working-directory argument.
+enum TerminalApp {
+  static let systemTerminal = "com.apple.Terminal"
+  static let known: [(name: String, bundle: String, args: ((String) -> [String])?)] = [
+    ("Terminal", systemTerminal, nil), ("iTerm2", "com.googlecode.iterm2", nil), ("Warp", "dev.warp.Warp-Stable", nil),
+    ("Warp Preview", "dev.warp.Warp-Preview", nil), ("Ghostty", "com.mitchellh.ghostty", nil),
+    ("kitty", "net.kovidgoyal.kitty", { ["--directory", $0] }), ("Alacritty", "org.alacritty", { ["--working-directory", $0] }),
+    ("WezTerm", "com.github.wez.wezterm", { ["start", "--cwd", $0] }), ("Hyper", "co.zeit.hyper", nil), ("Tabby", "org.tabby", nil),
+  ]
+  static var installed: [(name: String, bundle: String, url: URL)] {
+    known.compactMap { t in NSWorkspace.shared.urlForApplication(withBundleIdentifier: t.bundle).map { (t.name, t.bundle, $0) } }
+  }
+  static var preferred: String {
+    get { UserDefaults.standard.string(forKey: "projectsTerminal") ?? systemTerminal }
+    set { UserDefaults.standard.set(newValue, forKey: "projectsTerminal") }
+  }
+  static var preferredName: String { installed.first { $0.bundle == preferred }?.name ?? "Terminal" }
+
+  /// Opens a terminal window in `folder`; false when the folder or the terminal is missing.
+  @discardableResult static func open(_ folder: String) -> Bool {
+    var isDir: ObjCBool = false
+    guard FileManager.default.fileExists(atPath: folder, isDirectory: &isDir), isDir.boolValue else { return false }
+    let apps = installed
+    guard let app = apps.first(where: { $0.bundle == preferred }) ?? apps.first(where: { $0.bundle == systemTerminal }) else { return false }
+    let config = NSWorkspace.OpenConfiguration()
+    if let args = known.first(where: { $0.bundle == app.bundle })?.args {
+      config.arguments = args(folder)
+      config.createsNewApplicationInstance = true
+      NSWorkspace.shared.openApplication(at: app.url, configuration: config)
+    } else {
+      NSWorkspace.shared.open([URL(fileURLWithPath: folder)], withApplicationAt: app.url, configuration: config)
+    }
+    return true
+  }
+}
+
+/// The terminal button beside "Show in Finder".
+struct OpenTerminalButton: View {
+  let folder: String
+  var borderless = false
+  var body: some View {
+    let button = Button {
+      TerminalApp.open(folder)
+    } label: { Image(systemName: "terminal") }
+      .help(L("Abrir no terminal (%@)", TerminalApp.preferredName))
+      .accessibilityLabel(L("Abrir no terminal"))
+    if borderless { button.buttonStyle(.borderless) } else { button.buttonStyle(HoverButtonStyle()) }
+  }
+}
+
+/// Settings › Editor and terminal.
+struct EditorSettingsSection: View {
+  @ViewState private var choice = CodeEditor.preferred
+  @ViewState private var terminal = TerminalApp.preferred
+  var body: some View {
+    Section(L("Editor e terminal")) {
+      Picker(L("Abrir arquivos com"), selection: $choice) {
+        ForEach(CodeEditor.choices, id: \.id) { Text($0.name).tag($0.id) }
+      }
+      .onChange(of: choice) { _, v in CodeEditor.preferred = v }
+      Text(L("Usado por Abrir e Abrir no editor nas alterações dos projetos. IDEs (VS Code, Cursor, Zed, JetBrains…) abrem o arquivo dentro da pasta do projeto. O Editor do CoreScope é um editor rápido com números de linha, cores e ⌘S, para ajustes pontuais."))
+        .font(.caption).foregroundStyle(.secondary)
+      Picker(L("Abrir pastas no terminal com"), selection: $terminal) {
+        ForEach(TerminalApp.installed, id: \.bundle) { Text($0.name).tag($0.bundle) }
+      }
+      .onChange(of: terminal) { _, v in TerminalApp.preferred = v }
+      Text(L("Usado pelo botão de terminal nos projetos, worktrees, processos e agentes."))
+        .font(.caption).foregroundStyle(.secondary)
     }
   }
 }
@@ -419,6 +553,7 @@ struct ProjectChangesView: View {
       header.padding(.horizontal, 20).padding(.vertical, 12)
       Divider()
       if let error = store.error { banner(error, symbol: "exclamationmark.triangle.fill", color: .red) }
+      if let r = store.syncResult { syncBanner(r) }
       if store.status?.locked == true {
         banner(L("Outro processo git está usando este repositório (index.lock). Espere ele terminar ou remova o lock antigo."), symbol: "lock.fill", color: .orange)
       }
@@ -434,7 +569,8 @@ struct ProjectChangesView: View {
           files: store.diffFiles, empty: L("Nada para mostrar."), loading: store.diffLoading,
           stagedState: stagedState, toggleStage: { path, on in on ? store.stage([path]) : store.unstage([path]) },
           expand: { store.expand($0) },
-          open: { path in if let root = store.root { CodeEditor.open(URL(fileURLWithPath: root).appendingPathComponent(path)) } })
+          open: { path in if let root = store.root { CodeEditor.open(URL(fileURLWithPath: root).appendingPathComponent(path), root: URL(fileURLWithPath: root)) } },
+          edit: { path in if let root = store.root { QuickEditor.open(URL(fileURLWithPath: root).appendingPathComponent(path)) } })
           .frame(maxWidth: .infinity, maxHeight: .infinity)
       }
       .frame(maxHeight: .infinity)
@@ -474,6 +610,7 @@ struct ProjectChangesView: View {
           store.reload()
         } label: { Image(systemName: "arrow.clockwise") }.buttonStyle(HoverButtonStyle()).help(L("Atualizar"))
           .accessibilityLabel(L("Atualizar"))
+        OpenTerminalButton(folder: project.folder)
         Button {
           NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: project.folder)])
         } label: { Image(systemName: "folder") }.buttonStyle(HoverButtonStyle()).help(L("Mostrar no Finder"))
@@ -491,7 +628,9 @@ struct ProjectChangesView: View {
             Badge(text: L("sem upstream"), color: .secondary)
           }
           Spacer()
+          syncButtons(s)
         }
+        if let remotes = s.remotes, !remotes.isEmpty { RemoteLinks(remotes: remotes) }
         if let c = s.last_commit {
           HStack(spacing: 6) {
             Text(c.short).font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary)
@@ -505,6 +644,64 @@ struct ProjectChangesView: View {
       } else {
         Text(shownPath(project.folder)).font(.caption).foregroundStyle(.secondary)
       }
+    }
+  }
+
+  /// Fetch, pull and push (or publish a branch with no upstream), next to ahead/behind.
+  @ViewBuilder private func syncButtons(_ s: GitStatus) -> some View {
+    let hasRemote = !(s.remotes ?? []).isEmpty
+    if hasRemote {
+      HStack(spacing: 6) {
+        if let action = store.syncing {
+          ProgressView().controlSize(.small)
+          Text(syncLabel(action)).font(.caption).foregroundStyle(.secondary)
+        }
+        Button {
+          store.sync("fetch")
+        } label: { Image(systemName: "arrow.triangle.2.circlepath") }
+          .help(L("Buscar do remoto (git fetch): atualiza à frente/atrás sem mexer nos seus arquivos"))
+          .accessibilityLabel(L("Buscar do remoto"))
+        if s.branch.upstream != nil {
+          Button {
+            store.sync("pull")
+          } label: {
+            Label((s.branch.behind ?? 0) > 0 ? L("Pull %@", "\(s.branch.behind ?? 0)") : L("Pull"), systemImage: "arrow.down")
+          }
+          .help(L("Traz os commits do remoto (git pull, com as configurações do seu git)"))
+          Button {
+            store.sync("push")
+          } label: {
+            Label((s.branch.ahead ?? 0) > 0 ? L("Push %@", "\(s.branch.ahead ?? 0)") : L("Push"), systemImage: "arrow.up")
+          }
+          .help(L("Envia seus commits para o remoto (git push)"))
+          .disabled((s.branch.ahead ?? 0) == 0)
+        } else if s.branch.head != nil {
+          Button {
+            store.sync("publish")
+          } label: { Label(L("Publicar branch"), systemImage: "arrow.up.circle") }
+            .help(L("Envia esta branch para o remoto e passa a acompanhá-la (git push -u)"))
+        }
+      }
+      .controlSize(.small)
+      .disabled(store.syncing != nil || store.busy)
+    }
+  }
+  private func syncBanner(_ r: ProjectChangesStore.SyncResult) -> some View {
+    HStack(alignment: .top, spacing: 8) {
+      Image(systemName: r.ok ? "checkmark.circle.fill" : "xmark.octagon.fill").foregroundStyle(r.ok ? Color.green : .red)
+      Text(r.text).font(.system(.caption, design: .monospaced)).textSelection(.enabled).lineLimit(6)
+      Spacer()
+      Button {
+        store.syncResult = nil
+      } label: { Image(systemName: "xmark") }.buttonStyle(.borderless).accessibilityLabel(L("Fechar"))
+    }
+    .padding(.horizontal, 20).padding(.vertical, 8).background((r.ok ? Color.green : Color.red).opacity(0.08))
+  }
+  private func syncLabel(_ action: String) -> String {
+    switch action {
+    case "fetch": L("Buscando…")
+    case "pull": L("Trazendo…")
+    default: L("Enviando…")
     }
   }
 
@@ -615,10 +812,13 @@ struct ProjectChangesView: View {
     Divider()
     if let root = store.root {
       let url = URL(fileURLWithPath: root).appendingPathComponent(row.file.path)
+      if row.file.editable {
+        Button(L("Editar aqui")) { QuickEditor.open(url) }
+      }
       Menu(L("Abrir no editor")) {
-        ForEach(CodeEditor.installed, id: \.bundle) { e in Button(e.name) { CodeEditor.open(url, with: e.bundle) } }
+        ForEach(CodeEditor.installed, id: \.bundle) { e in Button(e.name) { CodeEditor.open(url, root: URL(fileURLWithPath: root), with: e.bundle) } }
         Divider()
-        Button(L("App padrão do arquivo")) { CodeEditor.open(url, with: "default") }
+        Button(L("App padrão do arquivo")) { CodeEditor.open(url, with: CodeEditor.systemDefault) }
       }
       Button(L("Mostrar no Finder")) { NSWorkspace.shared.activateFileViewerSelecting([url]) }
       Button(L("Copiar caminho")) {
@@ -789,4 +989,35 @@ private struct ChangeRowView: View {
 private struct ConsentItem: Identifiable {
   let context: CommitContextData
   var id: String { context.repo + String(context.diff.count) }
+}
+
+/// The repository's remotes: name and host/path, a click opens the page in the browser.
+struct RemoteLinks: View {
+  let remotes: [GitRemote]
+  var body: some View {
+    HStack(spacing: 10) {
+      ForEach(remotes) { r in
+        if let web = r.web_url, let url = URL(string: web) {
+          Button {
+            NSWorkspace.shared.open(url)
+          } label: {
+            HStack(spacing: 4) {
+              Image(systemName: "link").font(.caption2)
+              Text(r.name).font(.caption.weight(.medium))
+              Text(Demo.enabled ? "github.com/acme/app" : web.replacingOccurrences(of: "https://", with: "")).font(.caption)
+              Image(systemName: "arrow.up.right.square").font(.caption2)
+            }
+          }
+          .buttonStyle(.link)
+          .help(L("Abrir %@ no navegador", Demo.enabled ? "origin" : web))
+        } else {
+          HStack(spacing: 4) {
+            Image(systemName: "link").font(.caption2)
+            Text(r.name).font(.caption.weight(.medium))
+            Text(Demo.enabled ? "…" : r.url).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+          }
+        }
+      }
+    }
+  }
 }
