@@ -10,6 +10,8 @@ section as the GitHub release notes.
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-20
+
 ### Added
 - **Projects › choose the editor**: *Settings › Editor and terminal* sets what *Open* uses (the
   file's default app until chosen, CoreScope's editor, or an installed IDE/editor among VS Code,
@@ -30,6 +32,11 @@ section as the GitHub release notes.
   (`MYSQL_ROOT_PASSWORD`/`MARIADB_*`, `POSTGRES_USER`, `REDIS_PASSWORD`, Redis `--requirepass`
   on stdin), so the password never leaves the container; servers on the Mac take a user and
   password saved in the Keychain, handed to the installed client through its environment.
+
+### Fixed
+- **Projects › diff**: long lines scroll sideways again (the lazy diff list now gets the widest
+  line's width), and each file's header (counts, edit, *Open*) stays in view while scrolled.
+- **Projects** no longer flashes "No projects yet" while the list is first read.
 
 ## [0.10.0] - 2026-10-19
 
@@ -525,7 +532,8 @@ First public release.
   compact / standard / detailed layouts and in-panel controls.
 - English, Portuguese and Spanish; offline-only.
 
-[Unreleased]: https://github.com/Tiagospem/corescope/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/Tiagospem/corescope/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/Tiagospem/corescope/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/Tiagospem/corescope/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/Tiagospem/corescope/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/Tiagospem/corescope/compare/v0.8.0...v0.8.1
