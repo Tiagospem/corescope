@@ -1736,4 +1736,16 @@ private let entries = """
   Editor e terminal ¦ Editor and terminal ¦ Editor y terminal
   Abrir pastas no terminal com ¦ Open folders in the terminal with ¦ Abrir carpetas en la terminal con
   Usado pelo botão de terminal nos projetos, worktrees, processos e agentes. ¦ Used by the terminal button on projects, worktrees, processes and agents. ¦ Usado por el botón de terminal en proyectos, worktrees, procesos y agentes.
+  Terminal integrado nos projetos (experimental) ¦ Integrated terminal in projects (experimental) ¦ Terminal integrada en los proyectos (experimental)
+  Um shell de login na pasta do projeto, abaixo das alterações. Ele continua rodando com o painel oculto e termina ao fechar o painel ou a janela do projeto, ou ao sair do CoreScope; antes, o CoreScope pergunta se algo estiver rodando nele. ¦ A login shell in the project's folder, below the changes. It keeps running while the pane is hidden and ends when you close the pane or the project window, or quit CoreScope; CoreScope asks first if something is running in it. ¦ Un shell de inicio de sesión en la carpeta del proyecto, debajo de los cambios. Sigue en marcha con el panel oculto y termina al cerrar el panel o la ventana del proyecto, o al salir de CoreScope; antes, CoreScope pregunta si algo se está ejecutando en él.
+  Terminal integrado ¦ Integrated terminal ¦ Terminal integrada
+  lê e desenha a saída dos shells abertos; nada com o painel oculto além de ler o que chega ¦ reads and draws the open shells' output; with the pane hidden, only reads what arrives ¦ lee y dibuja la salida de los shells abiertos; con el panel oculto, solo lee lo que llega
+  Mostrar o terminal integrado ¦ Show the integrated terminal ¦ Mostrar la terminal integrada
+  Ocultar o terminal integrado ¦ Hide the integrated terminal ¦ Ocultar la terminal integrada
+  Ocultar o terminal (ele continua rodando) ¦ Hide the terminal (it keeps running) ¦ Ocultar la terminal (sigue en marcha)
+  Ocultar o terminal ¦ Hide the terminal ¦ Ocultar la terminal
+  Encerrar o terminal ¦ Close the terminal ¦ Cerrar la terminal
+  Encerrar o terminal? ¦ Close the terminal? ¦ ¿Cerrar la terminal?
+  Sair do CoreScope? ¦ Quit CoreScope? ¦ ¿Salir de CoreScope?
+  Encerrar o terminal integrado também encerra o que roda nele: %@. ¦ Closing the integrated terminal also ends what runs in it: %@. ¦ Cerrar la terminal integrada también termina lo que se ejecuta en ella: %@.
   """

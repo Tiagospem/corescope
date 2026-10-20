@@ -11,6 +11,10 @@ final class CostMeter {
   /// Cumulative CPU seconds of the app and of its finished children (ssh, git, docker, codex).
   private var own: [(at: Double, seconds: Double)] = []
   private var children: [(at: Double, seconds: Double)] = []
+  /// CPU of reaped integrated-terminal shells (and what they ran), left out of `children`: the
+  /// user's own commands are not CoreScope's cost.
+  private var excludedChildren = 0.0
+  private var lastChildren = CostMeter.usage(RUSAGE_CHILDREN)
 
   /// Runs `work` and bills the CPU time this thread spent on it to `feature`.
   @discardableResult
@@ -22,6 +26,10 @@ final class CostMeter {
   /// For work that is easier to bracket: `let t = CostMeter.begin(); defer { CostMeter.end("x", t) }`.
   static func begin() -> Double { threadCPU() }
   static func end(_ feature: String, _ start: Double) { shared.record(feature, threadCPU() - start) }
+  /// For work too fine-grained to record each time (the integrated terminal reads output a few
+  /// bytes at a time): the caller adds up thread CPU and hands it over in one record.
+  static func add(_ feature: String, seconds: Double) { shared.record(feature, seconds) }
+  static func threadNow() -> Double { threadCPU() }
   private func record(_ feature: String, _ seconds: Double) {
     let now = Date().timeIntervalSince1970
     // The first minute (first scans, token history, caches) is startup, not the steady cost.
@@ -34,9 +42,19 @@ final class CostMeter {
     spent[feature] = list
     guard feature == "collector" else { return }
     own.append((now, Self.usage(RUSAGE_SELF)))
-    children.append((now, Self.usage(RUSAGE_CHILDREN)))
+    lastChildren = Self.usage(RUSAGE_CHILDREN)
+    children.append((now, lastChildren - excludedChildren))
     own.removeAll { now - $0.at > Self.window + 30 }
     children.removeAll { now - $0.at > Self.window + 30 }
+  }
+  /// Called right after an integrated shell is reaped: its CPU, and its jobs', joined
+  /// RUSAGE_CHILDREN in one step. Children reaped since the last sample go with it (seconds).
+  func excludeReapedShell() {
+    lock.lock()
+    defer { lock.unlock() }
+    let now = Self.usage(RUSAGE_CHILDREN)
+    excludedChildren += max(0, now - lastChildren)
+    lastChildren = now
   }
   /// Average share of one core per feature over the last five minutes (or since launch).
   func features() -> [String: Double] {
@@ -64,7 +82,7 @@ final class CostMeter {
     clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts)
     return Double(ts.tv_sec) + Double(ts.tv_nsec) / 1e9
   }
-  private static func usage(_ who: Int32) -> Double {
+  fileprivate static func usage(_ who: Int32) -> Double {
     var u = rusage()
     getrusage(who, &u)
     return Double(u.ru_utime.tv_sec + u.ru_stime.tv_sec) + Double(u.ru_utime.tv_usec + u.ru_stime.tv_usec) / 1e6
@@ -113,15 +131,18 @@ struct SelfCost {
   var windowOpen = false
   /// CPU is judged on the 5-minute average only (one busy sample, a scan or a page opening, is not
   /// a pattern): over 2 % of a core in the background, 6 % with the window open, or 500 MB.
+  /// The integrated terminal's output is the user's own command: listed, never judged.
   var tooMuch: Bool {
     let limit: Double = windowOpen ? 6 : 2
-    return (appAverage.map { $0 + (childrenAverage ?? 0) + helpers.cpu > limit } ?? false)
+    let terminal = features.first { $0.id == "terminal" }?.cpu ?? 0
+    return (appAverage.map { $0 - terminal + (childrenAverage ?? 0) + helpers.cpu > limit } ?? false)
       || totalMemory > 500 * 1_048_576
   }
 
   static func current() -> SelfCost {
     var cost = SelfCost()
     let own = getpid()
+    let shells = Set(ProjectShells.shared.shells.values.map(\.pid))
     if let s = Monitor.shared.snapshot {
       func add(_ part: inout Part, _ p: ProcessItem) {
         part.count += 1
@@ -134,7 +155,7 @@ struct SelfCost {
           add(&cost.app, p)
         } else if isCoreScopeHelper(path: p.path) {
           add(&cost.helpers, p)
-        } else if p.ppid == own {
+        } else if p.ppid == own && !shells.contains(p.pid) {
           add(&cost.children, p)
         }
       }
@@ -195,6 +216,9 @@ struct SelfCost {
       f("economy", L("Modo economia"), on: p.economyMode, L("só na bateria, a cada coleta")),
       f("updates", L("Procurar atualizações"), on: p.checkForUpdates, L("um pedido ao GitHub por dia, no máximo")),
       f("mcp", L("Acesso do MCP ao app"), on: p.mcpAppAccess, L("socket local parado até um agente pedir algo")),
+      f(
+        "terminal", L("Terminal integrado"), on: !ProjectShells.shared.shells.isEmpty,
+        L("lê e desenha a saída dos shells abertos; nada com o painel oculto além de ler o que chega"), measured: "terminal"),
     ]
   }
 

@@ -66,7 +66,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     DispatchQueue.main.async { Preferences.shared.applyActivationPolicy() }
     MemoryRelief.start()
   }
+  /// Like Terminal: quitting asks first while an integrated terminal runs a command.
+  func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+    ProjectShells.shared.confirmQuit() ? .terminateNow : .terminateCancel
+  }
   func applicationWillTerminate(_ notification: Notification) {
+    ProjectShells.shared.hangUpAll()
     // Keeps the minute in progress instead of dropping it on quit.
     if Preferences.shared.historyEnabled { HistoryStore.flush() }
     ControlServer.shared.stop()

@@ -500,6 +500,7 @@ struct OpenTerminalButton: View {
 struct EditorSettingsSection: View {
   @ViewState private var choice = CodeEditor.preferred
   @ViewState private var terminal = TerminalApp.preferred
+  @AppStorage(IntegratedTerminal.key) private var integrated = false
   var body: some View {
     Section(L("Editor e terminal")) {
       Picker(L("Abrir arquivos com"), selection: $choice) {
@@ -513,6 +514,9 @@ struct EditorSettingsSection: View {
       }
       .onChange(of: terminal) { _, v in TerminalApp.preferred = v }
       Text(L("Usado pelo botão de terminal nos projetos, worktrees, processos e agentes."))
+        .font(.caption).foregroundStyle(.secondary)
+      Toggle(L("Terminal integrado nos projetos (experimental)"), isOn: $integrated)
+      Text(L("Um shell de login na pasta do projeto, abaixo das alterações. Ele continua rodando com o painel oculto e termina ao fechar o painel ou a janela do projeto, ou ao sair do CoreScope; antes, o CoreScope pergunta se algo estiver rodando nele."))
         .font(.caption).foregroundStyle(.secondary)
     }
   }
@@ -538,6 +542,8 @@ struct ProjectChangesView: View {
   @ObservedObject private var ai = AISettings.shared
   @ViewState private var generating = false
   @ViewState private var consent: CommitContextData?
+  @AppStorage(IntegratedTerminal.key) private var terminalEnabled = false
+  @ObservedObject private var shells = ProjectShells.shared
 
   /// In a window of its own (from the floating panel or menu bar) there is no "back".
   let inWindow: Bool
@@ -557,23 +563,14 @@ struct ProjectChangesView: View {
       if store.status?.locked == true {
         banner(L("Outro processo git está usando este repositório (index.lock). Espere ele terminar ou remova o lock antigo."), symbol: "lock.fill", color: .orange)
       }
-      HStack(spacing: 0) {
-        VStack(spacing: 0) {
-          list
-          Divider()
-          commitBox.padding(12)
+      if shells.shown.contains(project.folder) {
+        VSplitView {
+          changes.frame(minHeight: 220)
+          ProjectTerminalPane(folder: project.folder).frame(minHeight: 120, idealHeight: 260)
         }
-        .frame(width: 400)
-        Divider()
-        ZedDiffView(
-          files: store.diffFiles, empty: L("Nada para mostrar."), loading: store.diffLoading,
-          stagedState: stagedState, toggleStage: { path, on in on ? store.stage([path]) : store.unstage([path]) },
-          expand: { store.expand($0) },
-          open: { path in if let root = store.root { CodeEditor.open(URL(fileURLWithPath: root).appendingPathComponent(path), root: URL(fileURLWithPath: root)) } },
-          edit: { path in if let root = store.root { QuickEditor.open(URL(fileURLWithPath: root).appendingPathComponent(path)) } })
-          .frame(maxWidth: .infinity, maxHeight: .infinity)
+      } else {
+        changes
       }
-      .frame(maxHeight: .infinity)
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     .onAppear { store.start() }
@@ -599,6 +596,27 @@ struct ProjectChangesView: View {
     }
   }
 
+  /// The changes list, commit box and diff.
+  private var changes: some View {
+    HStack(spacing: 0) {
+      VStack(spacing: 0) {
+        list
+        Divider()
+        commitBox.padding(12)
+      }
+      .frame(width: 400)
+      Divider()
+      ZedDiffView(
+        files: store.diffFiles, empty: L("Nada para mostrar."), loading: store.diffLoading,
+        stagedState: stagedState, toggleStage: { path, on in on ? store.stage([path]) : store.unstage([path]) },
+        expand: { store.expand($0) },
+        open: { path in if let root = store.root { CodeEditor.open(URL(fileURLWithPath: root).appendingPathComponent(path), root: URL(fileURLWithPath: root)) } },
+        edit: { path in if let root = store.root { QuickEditor.open(URL(fileURLWithPath: root).appendingPathComponent(path)) } })
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+    .frame(maxHeight: .infinity)
+  }
+
   private var header: some View {
     VStack(alignment: .leading, spacing: 6) {
       HStack(spacing: 8) {
@@ -610,6 +628,7 @@ struct ProjectChangesView: View {
           store.reload()
         } label: { Image(systemName: "arrow.clockwise") }.buttonStyle(HoverButtonStyle()).help(L("Atualizar"))
           .accessibilityLabel(L("Atualizar"))
+        if terminalEnabled || shells.shells[project.folder] != nil { IntegratedTerminalButton(folder: project.folder) }
         OpenTerminalButton(folder: project.folder)
         Button {
           NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: project.folder)])

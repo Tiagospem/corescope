@@ -242,6 +242,11 @@ enum ControlAPI {
         guard TerminalApp.open(folder) else { return reply(["error": "not a folder, or no terminal app installed: \(folder)"]) }
         reply(["opened": folder, "terminal": TerminalApp.preferredName])
       }
+    case "projects.terminals":
+      let list = (try? ProjectsTool.call(["op": "list"], as: [ProjectEntry].self).get()) ?? []
+      DispatchQueue.main.async {
+        reply(["enabled": IntegratedTerminal.enabled, "terminals": ProjectShells.shared.describe(projects: list)])
+      }
     case "logs.sources":
       LogsStore.shared.refresh {
         let sources = LogsStore.shared.sources(project: logScope(args))
@@ -888,6 +893,7 @@ enum AgentSettings {
     out["projects_editor_choices"] = CodeEditor.choices.map { ["id": $0.id, "name": $0.name] }
     out["projects_terminal"] = TerminalApp.preferred
     out["projects_terminal_choices"] = TerminalApp.installed.map { ["id": $0.bundle, "name": $0.name] }
+    out["projects_integrated_terminal"] = IntegratedTerminal.enabled
     return out
   }
   static func write(_ key: String, _ value: Any?) -> String? {
@@ -928,6 +934,11 @@ enum AgentSettings {
         return "not on the Machines page: \(unknown.joined(separator: ", ")); machines: \(known.joined(separator: ", "))"
       }
       p.panelMachineHosts = panelMachineHosts(selected: hosts, hosts: known)
+      return nil
+    }
+    if key == "projects_integrated_terminal" {
+      guard let v = value as? Bool else { return "projects_integrated_terminal takes true or false" }
+      IntegratedTerminal.enabled = v
       return nil
     }
     if key == "projects_editor" || key == "projects_terminal" {

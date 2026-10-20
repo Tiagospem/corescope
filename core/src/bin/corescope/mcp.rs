@@ -526,7 +526,8 @@ fn app_tools() -> Vec<(
           what the floating panel shows (panel_agents, panel_machines, panel_machine_hosts), \
           check_for_updates (daily update check against the GitHub release feed, off by default), \
           projects_editor (where a project's Open sends files) and projects_terminal (the terminal \
-          that opens folders), each with its *_choices.",
+          that opens folders), each with its *_choices, and projects_integrated_terminal (the \
+          experimental terminal pane in projects, off by default).",
             json!({}),
             vec![],
         ),
@@ -546,6 +547,16 @@ fn app_tools() -> Vec<(
           a terminal there.",
             json!({"project": {"type": "string", "description": "id or name from list_projects"},
                    "folder": {"type": "string", "description": "absolute path, instead of project"}}),
+            vec![],
+        ),
+        (
+            "list_terminals",
+            "projects.terminals",
+            "The shells open in CoreScope's integrated terminal (projects, Settings › Editor and \
+          terminal, off by default; `enabled` says whether it is on): project folder, shell and \
+          PID, title, current directory, whether its pane is shown, and the commands running in it. \
+          Read-only.",
+            json!({}),
             vec![],
         ),
         (

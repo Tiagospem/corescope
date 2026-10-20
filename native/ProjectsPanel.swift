@@ -162,9 +162,11 @@ struct PanelProjectRow: View {
 }
 
 /// The changes view of a project in a window of its own (from the floating panel or the menu
-/// bar), without the main window. One window per project; closing it stops its watcher.
+/// bar), without the main window. One window per project; closing it stops its watcher and
+/// ends the project's integrated terminal (asking first while it runs something).
 enum ProjectChangesWindows {
   private static var windows: [String: NSPanel] = [:]
+  private static var folders: [String: String] = [:]
   private static let delegate = CloseDelegate()
 
   static func show(_ project: ProjectEntry) {
@@ -193,6 +195,7 @@ enum ProjectChangesWindows {
     panel.setFrameAutosaveName("project-changes")
     if panel.frame.origin == .zero { panel.center() }
     windows[project.id] = panel
+    folders[project.id] = project.folder
     panel.makeKeyAndOrderFront(nil)
     NSApp.activate(ignoringOtherApps: true)
   }
@@ -202,9 +205,16 @@ enum ProjectChangesWindows {
     // Dropping the hosting view ends the view's onDisappear, which stops its watcher.
     window.contentView = nil
     windows[id] = nil
+    folders[id] = nil
+  }
+
+  fileprivate static func shouldClose(_ window: NSWindow) -> Bool {
+    guard let id = windows.first(where: { $0.value === window })?.key, let folder = folders[id] else { return true }
+    return ProjectShells.shared.close(folder)
   }
 
   private final class CloseDelegate: NSObject, NSWindowDelegate {
+    func windowShouldClose(_ sender: NSWindow) -> Bool { ProjectChangesWindows.shouldClose(sender) }
     func windowWillClose(_ notification: Notification) {
       if let window = notification.object as? NSWindow { ProjectChangesWindows.closed(window) }
     }

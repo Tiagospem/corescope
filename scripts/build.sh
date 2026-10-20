@@ -27,10 +27,12 @@ done
 # archive and the appcast itself must be signed by the matching private key (a CI secret).
 SPARKLE=$(./scripts/sparkle.sh)
 UPDATE_PUBLIC_KEY="bxj8UTY/IIWBqAcQxflL60mwUToQ3Tc3PJPLkI5QluI="
+# SwiftTerm (MIT) draws the integrated terminal in projects; built once per arch, then linked.
+SWIFTTERM=$(ARCHS="$ARCHS" ./scripts/swiftterm.sh)
 APPS=() CLIS=()
 for arch in $ARCHS; do
   lib="core/target/$(rust_target "$arch")/release"
-  swiftc -O -swift-version 5 -target "$arch-apple-macosx14.0" -import-objc-header native/CoreScopeFFI.h native/*.swift "$lib/libcorescope.a" -lsqlite3 -framework SwiftUI -framework AppKit -framework IOKit -framework CoreFoundation -framework ServiceManagement -framework UserNotifications -framework Carbon -F "$SPARKLE" -framework Sparkle -Xlinker -rpath -Xlinker @executable_path/../Frameworks -o "build/CoreScope-$arch"
+  swiftc -O -swift-version 5 -target "$arch-apple-macosx14.0" -import-objc-header native/CoreScopeFFI.h -I "$SWIFTTERM/$arch" native/*.swift "$lib/libcorescope.a" "$SWIFTTERM/$arch/libSwiftTerm.a" -lsqlite3 -framework SwiftUI -framework AppKit -framework IOKit -framework CoreFoundation -framework ServiceManagement -framework UserNotifications -framework Carbon -F "$SPARKLE" -framework Sparkle -Xlinker -rpath -Xlinker @executable_path/../Frameworks -o "build/CoreScope-$arch"
   APPS+=("build/CoreScope-$arch")
   CLIS+=("$lib/corescope")
 done
@@ -77,6 +79,8 @@ rm -rf "$FW/XPCServices" "$FW/Versions/B/XPCServices"
 codesign --force --sign - --options runtime "$FW/Versions/B/Autoupdate"
 codesign --force --sign - --options runtime "$FW/Versions/B/Updater.app"
 codesign --force --sign - --options runtime "$FW"
+mkdir -p "$APP/Contents/Resources/Licenses"
+cp "$SWIFTTERM/src/LICENSE" "$APP/Contents/Resources/Licenses/SwiftTerm.txt"
 # Command-line tool (corescope ports, kill-port, agents, mcp…), signed before the app.
 mkdir -p "$APP/Contents/Resources/bin"
 lipo -create "${CLIS[@]}" -output "$APP/Contents/Resources/bin/corescope"

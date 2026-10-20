@@ -348,6 +348,8 @@ pub fn host(name: &str, path: &str) -> Option<(&'static str, &'static str)> {
         ("Alacritty", "Alacritty"),
         ("Hyper", "Hyper"),
         ("Tabby", "Tabby"),
+        // CoreScope's integrated terminal (projects): its shells are CoreScope's children.
+        ("CoreScope", "CoreScope"),
     ] {
         if app_main(path, bundle) {
             return Some((label, "terminal"));
@@ -2376,6 +2378,25 @@ mod tests {
         assert!(m.value.is_none());
     }
     #[test]
+    fn integrated_terminal_shells_come_from_corescope() {
+        let mut app = process_fixture();
+        (app.pid, app.name) = (100, "CoreScope".into());
+        app.path = "/Applications/CoreScope.app/Contents/MacOS/CoreScope".into();
+        let mut shell = process_fixture();
+        (shell.pid, shell.ppid, shell.name, shell.path) =
+            (200, 100, "zsh".into(), "/bin/zsh".into());
+        let mut server = process_fixture();
+        (server.pid, server.ppid) = (300, 200);
+        let mut list = vec![app, shell, server];
+        assign_origins(&mut list);
+        for p in &list[1..] {
+            let o = p.origin.as_ref().expect("origin");
+            assert_eq!((o.label, o.kind, o.pid), ("CoreScope", "terminal", 100));
+            // A live parent chain is never orphan evidence.
+            assert!(orphan_reason(p.ppid, None, 3600., &p.path, &["runtime"]).is_none());
+        }
+    }
+    #[test]
     fn orphan_requires_dev_runtime_without_parent() {
         let node = tags("node", "/opt/homebrew/bin/node", false);
         assert!(orphan_reason(1, None, 600., "/opt/homebrew/bin/node", &node).is_some());
@@ -2444,6 +2465,15 @@ mod tests {
             Some("terminal")
         );
         assert!(host("node", "/opt/homebrew/bin/node").is_none());
+        let app = "/Applications/CoreScope.app/Contents/MacOS/CoreScope";
+        assert_eq!(host("CoreScope", app), Some(("CoreScope", "terminal")));
+        assert!(
+            host(
+                "corescope",
+                "/Applications/CoreScope.app/Contents/Resources/bin/corescope"
+            )
+            .is_none()
+        );
         // Codex desktop (inside ChatGPT.app): main app and bundled backend are the desktop host;
         // framework helpers named "Codex (…)" are nothing; a standalone codex is a CLI session.
         let fw = "/Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/Versions/1/Helpers/Codex (Service).app/Contents/MacOS/Codex (Service)";
