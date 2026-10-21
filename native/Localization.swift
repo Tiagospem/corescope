@@ -1736,4 +1736,18 @@ private let entries = """
   Editor e terminal ¦ Editor and terminal ¦ Editor y terminal
   Abrir pastas no terminal com ¦ Open folders in the terminal with ¦ Abrir carpetas en la terminal con
   Usado pelo botão de terminal nos projetos, worktrees, processos e agentes. ¦ Used by the terminal button on projects, worktrees, processes and agents. ¦ Usado por el botón de terminal en proyectos, worktrees, procesos y agentes.
+  Ver saída ¦ Show output ¦ Ver salida
+  A saída da última execução deste ambiente ¦ The output of this environment's last run ¦ La salida de la última ejecución de este entorno
+  Nenhuma saída registrada para este ambiente. ¦ No output recorded for this environment. ¦ No hay salida registrada para este entorno.
+  Ver a saída ¦ Show the output ¦ Ver la salida
+  Execuções recentes ¦ Recent runs ¦ Ejecuciones recientes
+  Saída de cada início, parada e ação (as últimas %@ de cada) ¦ Output of every start, stop and action (the last %@ of each) ¦ Salida de cada inicio, parada y acción (las últimas %@ de cada una)
+  Nenhuma execução ainda. ¦ No runs yet. ¦ Aún no hay ejecuciones.
+  rodando desde %@ ¦ running since %@ ¦ en ejecución desde %@
+  ok ¦ ok ¦ ok
+  saída %@ ¦ exit %@ ¦ salida %@
+  sem resultado ¦ no result ¦ sin resultado
+  ao vivo ¦ live ¦ en vivo
+  Abrir no Console ¦ Open in Console ¦ Abrir en Consola
+  Mostrando o último 1 MB; o arquivo completo está no Finder. ¦ Showing the last 1 MB; the full file is in Finder. ¦ Mostrando el último 1 MB; el archivo completo está en el Finder.
   """

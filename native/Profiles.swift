@@ -410,6 +410,7 @@ final class ProfileStore: ObservableObject {
     }
     try? FileManager.default.createDirectory(at: Self.logs, withIntermediateDirectories: true)
     let log = logURL(profile, command)
+    RunLogs.rotate(log)
     guard FileManager.default.createFile(atPath: log.path, contents: Data("$ \(command.command)\n".utf8)) else {
       return .failure(CleanupError(L("Não foi possível criar o log")))
     }
@@ -440,6 +441,7 @@ final class ProfileStore: ObservableObject {
       var status: Int32 = 0
       while waitpid(pid, &status, 0) < 0 && errno == EINTR {}
       let code = (status & 0x7f) == 0 ? (status >> 8) & 0xff : 128 + (status & 0x7f)
+      RunLogs.noteExit(log, code)
       let exit = CommandExit(status: code, at: Date())
       DispatchQueue.main.async {
         self?.exits[command.id] = exit
@@ -814,10 +816,10 @@ private struct ProfileCard: View {
       case .idle: EmptyView()
       }
       Button {
-        NSWorkspace.shared.open(store.logURL(profile, command))
+        LogViewer.open(store.logURL(profile, command), title: "\(profile.name) · \(command.name)")
       } label: {
         Image(systemName: "doc.text.magnifyingglass")
-      }.buttonStyle(.borderless).help(L("Abrir log"))
+      }.buttonStyle(.borderless).help(L("Ver a saída"))
         .disabled(!FileManager.default.fileExists(atPath: store.logURL(profile, command).path))
     }
   }

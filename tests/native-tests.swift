@@ -337,8 +337,11 @@ import Foundation
     precondition(quickScore("xyz", "Abrir Portas") == nil && quickScore("", "Abrir") == nil)
     precondition(looksLikeTime("14:05") && looksLikeTime("2:05 pm") && looksLikeTime("14h05") && looksLikeTime("ontem 9:30"))
     precondition(!looksLikeTime("8000") && !looksLikeTime("redis") && !looksLikeTime("14"))
+    precondition(cleanLogText("\u{1B}[32m✓ built\u{1B}[0m\r\nok") == "✓ built\nok", "ANSI colors and CRLF")
+    precondition(cleanLogText("10%\r50%\r100%\ndone") == "100%\ndone", "progress kept at its last state")
+    precondition(logExitCode("x\n[CoreScope] exit 1\n") == 1 && logExitCode("[CoreScope] exit 0") == 0 && logExitCode("exit 3") == nil)
     print(
-      "32 native assertions passed: descendants, cycle, ordering, off-screen recovery, negative-origin monitor, forest roots, flatten, collapse, totals, ancestors, filter, formatting, container ports, shared ports, demo paths, debounce, sustained thresholds, new arrivals, port parsing, shortcut label, agent stalls, health targets, service states, shared containers, ssh stats, gate hook, machine alerts, failed unit explanations, service history, own cost, links, palette, Claude Desktop usage, limit pace, settings backup, performance audit, docker volumes, unused worktrees and branches, environment controller (bound checks, status, controller health, artifacts); plus settings JSON, Unicode escapes, status line install/chain, Claude limits, Claude /usage text, update versions, release notes, appcast"
+      "32 native assertions passed: descendants, cycle, ordering, off-screen recovery, negative-origin monitor, forest roots, flatten, collapse, totals, ancestors, filter, formatting, container ports, shared ports, demo paths, debounce, sustained thresholds, new arrivals, port parsing, shortcut label, agent stalls, health targets, service states, shared containers, ssh stats, gate hook, machine alerts, failed unit explanations, service history, own cost, links, palette, Claude Desktop usage, limit pace, settings backup, performance audit, docker volumes, unused worktrees and branches, environment controller (bound checks, status, controller health, artifacts), run logs; plus settings JSON, Unicode escapes, status line install/chain, Claude limits, Claude /usage text, update versions, release notes, appcast"
     )
     print(
       "token usage assertions passed: timestamps, formatting, Claude block dedupe, embedded entries, partial lines, long-line skip, fast/full parity, Codex repeats and forks"

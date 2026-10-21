@@ -432,6 +432,7 @@ final class ActionStore: ObservableObject {
     }
     try? FileManager.default.createDirectory(at: ProfileStore.logs, withIntermediateDirectories: true)
     let log = Self.logURL(action)
+    RunLogs.rotate(log)
     guard FileManager.default.createFile(atPath: log.path, contents: Data("$ \(action.spec.run)\n".utf8)) else {
       return L("Não foi possível criar o log")
     }
@@ -470,6 +471,7 @@ final class ActionStore: ObservableObject {
     }
     Thread.detachNewThread { [weak self] in
       let code = reaper.wait(pid)
+      RunLogs.noteExit(log, code)
       let tail = Self.tail(log)
       DispatchQueue.main.async { self?.finished(action, pid: pid, code: code, tail: tail, timeout: timeout) }
     }
@@ -707,6 +709,8 @@ struct EnvironmentCard: View {
         Divider().opacity(0.5)
         groupActions(title: L("Ambiente inteiro"), key: "\(file.file)#general", list: general)
       }
+      Divider().opacity(0.5)
+      runsSection()
     }
     .sheet(item: $confirming) { action in
       ActionConfirmSheet(action: action, preview: preview) { hash in
@@ -769,8 +773,20 @@ struct EnvironmentCard: View {
         ).font(.caption).foregroundStyle(.orange).lineLimit(2)
       }
       if let first = s.errors.first {
-        Label(first, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange).lineLimit(2)
-          .help(s.errors.joined(separator: "\n\n"))
+        HStack(spacing: 8) {
+          Label(first, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange).lineLimit(2)
+            .help(s.errors.joined(separator: "\n\n"))
+          // Looked up on click: the card redraws often and the error stays.
+          Button(L("Ver saída")) {
+            if let run = RunLogs.history(source: file.file).first {
+              LogViewer.open(run.url, title: "\(file.project) · \(run.title)")
+            } else {
+              Monitor.shared.feedback = ActionFeedback(message: L("Nenhuma saída registrada para este ambiente."), failed: true)
+            }
+          }
+          .buttonStyle(.link).font(.caption)
+          .help(L("A saída da última execução deste ambiente"))
+        }
       }
     }
   }
@@ -888,6 +904,59 @@ struct EnvironmentCard: View {
       if open { ForEach(shared, id: \.name) { c in componentRow(c, stale: !fresh) }.padding(.leading, 26) }
     }
   }
+  /// The last runs of this environment's modes and actions, each opening its log. Read only while
+  /// open (one listing of the logs folder).
+  @ViewBuilder private func runsSection() -> some View {
+    let key = "\(file.file)#runs"
+    let open = folds.isOpen(key)
+    VStack(alignment: .leading, spacing: 6) {
+      HStack(spacing: 8) {
+        foldButton(key, open: open)
+        Image(systemName: "clock.arrow.circlepath").font(.caption).foregroundStyle(.secondary).frame(width: 8)
+        VStack(alignment: .leading, spacing: 1) {
+          Text(L("Execuções recentes")).font(.callout.weight(.semibold))
+          Text(L("Saída de cada início, parada e ação (as últimas %@ de cada)", "\(RunLogs.keep)")).font(.caption).foregroundStyle(.secondary)
+        }
+        Spacer()
+        if open {
+          Button(L("Mostrar no Finder")) { NSWorkspace.shared.open(ProfileStore.logs) }.buttonStyle(.link).font(.caption)
+        }
+      }
+      if open {
+        let runs = RunLogs.history(source: file.file).prefix(20)
+        if runs.isEmpty {
+          Text(L("Nenhuma execução ainda.")).font(.caption).foregroundStyle(.secondary).padding(.leading, 26)
+        }
+        ForEach(Array(runs)) { run in runRow(run).padding(.leading, 26) }
+      }
+    }
+  }
+  private func runRow(_ run: RunLogs.Entry) -> some View {
+    let (symbol, color): (String, Color) =
+      run.running ? ("circle.dotted", .blue)
+      : run.exit == 0 ? ("checkmark.circle", .green) : run.exit != nil ? ("xmark.circle", .red) : ("circle", .secondary)
+    return Button {
+      LogViewer.open(run.url, title: "\(file.project) · \(run.title)")
+    } label: {
+      HStack(spacing: 8) {
+        Image(systemName: symbol).font(.caption).foregroundStyle(color).frame(width: 14)
+        Image(systemName: run.action ? "bolt" : "play").font(.caption2).foregroundStyle(.secondary).frame(width: 10)
+        Text(run.title).font(.callout).lineLimit(1)
+        Spacer(minLength: 6)
+        Text(runDetail(run)).font(.caption).foregroundStyle(run.exit.map { $0 != 0 } == true ? Color.red : .secondary).lineLimit(1)
+        Image(systemName: "doc.text.magnifyingglass").font(.caption).foregroundStyle(.secondary)
+      }.contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .help(L("Ver a saída"))
+  }
+  private func runDetail(_ run: RunLogs.Entry) -> String {
+    let when = run.started.formatted(date: .abbreviated, time: .shortened)
+    if run.running { return L("rodando desde %@", when) }
+    let took = formatDuration(run.ended.timeIntervalSince(run.started))
+    let result = run.exit.map { $0 == 0 ? L("ok") : L("saída %@", "\($0)") } ?? L("sem resultado")
+    return "\(result) · \(when) · \(took)"
+  }
   private func groupActions(title: String, key: String, list: [ProjectAction]) -> some View {
     let open = folds.isOpen(key)
     return VStack(alignment: .leading, spacing: 6) {
@@ -989,10 +1058,10 @@ struct EnvironmentCard: View {
           }.buttonStyle(.borderless).help(L("Mostrar %@ no Finder", (artifact as NSString).lastPathComponent))
         }
         Button {
-          NSWorkspace.shared.open(URL(fileURLWithPath: run.log))
+          LogViewer.open(URL(fileURLWithPath: run.log), title: "\(a.project) · \(title)")
         } label: {
           Image(systemName: "doc.text.magnifyingglass")
-        }.buttonStyle(.borderless).help(L("Abrir log"))
+        }.buttonStyle(.borderless).help(L("Ver a saída"))
       }
       if run?.outcome == .running {
         Button {

@@ -10,6 +10,12 @@ section as the GitHub release notes.
 
 ## [Unreleased]
 
+### Added
+- **Environment › recent runs**: every mode start/stop and action keeps its last 5 logs (with the
+  exit code appended). The environment card lists them, *Show output* next to a status error opens
+  the latest one, and logs open in a window that follows the run, marks errors and finds with ⌘F.
+  Action logs are on the Logs page too. MCP `environment_runs`.
+
 ## [0.11.0] - 2026-10-20
 
 ### Added

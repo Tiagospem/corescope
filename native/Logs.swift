@@ -83,6 +83,14 @@ final class LogsStore: ObservableObject {
         extra.append(LogSource(kind: "container", name: name, project: project, target: name))
       }
     }
+    // Environment actions' output, under their project.
+    for a in ActionStore.shared.actions {
+      let url = ActionStore.logURL(a)
+      if FileManager.default.fileExists(atPath: url.path) {
+        let project = projects.first { $0.folder == a.folder }?.name ?? a.project
+        extra.append(LogSource(kind: "file", name: "\(a.project) · \(a.group.isEmpty ? a.name : "\(a.group) · \(a.name)")", project: project, target: url.path))
+      }
+    }
     // Other containers, under their compose project.
     for c in ContainerStore.shared.report?.containers ?? [] where c.running && !extra.contains(where: { $0.target == c.name }) {
       extra.append(LogSource(kind: "container", name: c.name, project: c.project ?? L("Contêineres"), target: c.name))

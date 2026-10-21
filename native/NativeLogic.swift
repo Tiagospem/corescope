@@ -1000,6 +1000,20 @@ func actionArtifact(_ output: String, folder: String) -> String? {
   return path.hasPrefix("/") ? path : (folder as NSString).appendingPathComponent(path)
 }
 
+/// Log text as people read it: no ANSI colors, progress lines rewritten in place (`\r`) kept at
+/// their last state.
+func cleanLogText(_ raw: String) -> String {
+  let noAnsi = raw.replacingOccurrences(of: "\u{1B}\\[[0-9;?]*[ -/]*[@-~]", with: "", options: .regularExpression)
+  return noAnsi.replacingOccurrences(of: "\r\n", with: "\n").split(separator: "\n", omittingEmptySubsequences: false)
+    .map { line in line.split(separator: "\r", omittingEmptySubsequences: false).last.map(String.init) ?? "" }
+    .joined(separator: "\n")
+}
+/// The exit code CoreScope appended to a run's log (`[CoreScope] exit N`), from its last lines.
+func logExitCode(_ tail: String) -> Int32? {
+  guard let line = tail.components(separatedBy: "\n").last(where: { $0.hasPrefix("[CoreScope] exit ") }) else { return nil }
+  return Int32(line.dropFirst("[CoreScope] exit ".count).trimmingCharacters(in: .whitespaces))
+}
+
 /// Per-group summary, worst first, without empty states: [(.down, 2), (.up, 4)].
 func serviceSummary(_ states: [ServiceState]) -> [(state: ServiceState, count: Int)] {
   ServiceState.allCases.compactMap { s in
