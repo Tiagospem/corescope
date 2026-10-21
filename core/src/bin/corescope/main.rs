@@ -1081,10 +1081,35 @@ pub fn wait_for_room(
                               "blockers": blockers, "reading": reading});
             }
         }
-        // Never past the limit: the last check lands on it.
+        // Never past the limit: the last check lands on it. A second at a time, so "Run now" in
+        // the app (a file named after this process) is seen at once.
         let left = limit.saturating_sub(started.elapsed());
-        std::thread::sleep(Duration::from_secs(10).min(left.max(Duration::from_millis(200))));
+        let pause = Duration::from_secs(10).min(left.max(Duration::from_millis(200)));
+        let until = std::time::Instant::now() + pause;
+        while std::time::Instant::now() < until {
+            if skip_requested() {
+                say("the user chose to run it now");
+                return json!({"ready": true, "skipped": true, "waited_seconds": started.elapsed().as_secs(), "reading": reading});
+            }
+            std::thread::sleep(
+                Duration::from_secs(1)
+                    .min(until.saturating_duration_since(std::time::Instant::now())),
+            );
+        }
     }
+}
+/// The app asked this wait to stop waiting: `~/Library/Application Support/CoreScope/skip-wait/<pid>`.
+fn skip_requested() -> bool {
+    let home: std::path::PathBuf = std::env::var_os("HOME").map(Into::into).unwrap_or_default();
+    let file = home.join(format!(
+        "Library/Application Support/CoreScope/skip-wait/{}",
+        std::process::id()
+    ));
+    if file.exists() {
+        let _ = std::fs::remove_file(file);
+        return true;
+    }
+    false
 }
 
 /// Claude Code PreToolUse hook. Reads the tool call on stdin; for a heavy Bash command in a project

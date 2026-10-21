@@ -10,6 +10,18 @@ pub struct Reading {
     pub cpu: f64,
     /// "normal", "warning" or "critical"; None when unknown (treated as normal).
     pub memory: Option<String>,
+    /// Memory the kernel considers available, percent (kern.memorystatus_level).
+    pub available: Option<f64>,
+}
+
+/// The pressure that counts: the kernel's "warning" lingers long after memory frees up (and
+/// shows while half of it is available), so it counts only with 35% or less available;
+/// "critical" always counts.
+pub fn effective_memory(kernel: Option<&str>, available: Option<f64>) -> Option<String> {
+    match (kernel, available) {
+        (Some("warning"), Some(a)) if a > 35. => Some("normal".into()),
+        (k, _) => k.map(String::from),
+    }
 }
 
 fn rank(level: &str) -> u8 {
@@ -32,16 +44,28 @@ pub fn blockers(spec: &CapacitySpec, r: &Reading) -> Vec<String> {
     if let Some(m) = &r.memory
         && rank(m) > rank(&spec.memory)
     {
-        out.push(format!("memory pressure {m} (limit {})", spec.memory));
+        let available = r
+            .available
+            .map(|a| format!(", {a:.0}% available"))
+            .unwrap_or_default();
+        out.push(format!(
+            "memory pressure {m}{available} (limit {})",
+            spec.memory
+        ));
     }
     out
 }
 
 /// CPU from a snapshot (sampled twice, so it is a real average) and the kernel's memory pressure.
 pub fn reading(snapshot: &crate::Snapshot) -> Reading {
+    let available = snapshot
+        .pressure_percent
+        .value
+        .map(|p| (100. - p).clamp(0., 100.));
     Reading {
         cpu: snapshot.cpu.value.unwrap_or(0.),
-        memory: crate::os::pressure_level().map(String::from),
+        memory: effective_memory(crate::os::pressure_level(), available),
+        available,
     }
 }
 
@@ -135,6 +159,26 @@ mod tests {
     }
 
     #[test]
+    fn kernel_warning_counts_only_with_little_memory_available() {
+        assert_eq!(
+            effective_memory(Some("warning"), Some(52.)).as_deref(),
+            Some("normal")
+        );
+        assert_eq!(
+            effective_memory(Some("warning"), Some(30.)).as_deref(),
+            Some("warning")
+        );
+        assert_eq!(
+            effective_memory(Some("warning"), None).as_deref(),
+            Some("warning")
+        );
+        assert_eq!(
+            effective_memory(Some("critical"), Some(60.)).as_deref(),
+            Some("critical")
+        );
+        assert_eq!(effective_memory(None, Some(10.)), None);
+    }
+    #[test]
     fn blocks_on_cpu_and_memory() {
         let spec = CapacitySpec {
             cpu_below: 70.,
@@ -146,7 +190,8 @@ mod tests {
                 &spec,
                 &Reading {
                     cpu: 40.,
-                    memory: Some("normal".into())
+                    memory: Some("normal".into()),
+                    available: None,
                 }
             )
             .is_empty()
@@ -156,7 +201,8 @@ mod tests {
                 &spec,
                 &Reading {
                     cpu: 85.,
-                    memory: None
+                    memory: None,
+                    available: None,
                 }
             )
             .len(),
@@ -167,6 +213,7 @@ mod tests {
             &Reading {
                 cpu: 90.,
                 memory: Some("warning".into()),
+                available: None,
             },
         );
         assert_eq!(both.len(), 2, "{both:?}");
@@ -179,7 +226,8 @@ mod tests {
                 &relaxed,
                 &Reading {
                     cpu: 10.,
-                    memory: Some("warning".into())
+                    memory: Some("warning".into()),
+                    available: None,
                 }
             )
             .is_empty()
@@ -189,7 +237,8 @@ mod tests {
                 &relaxed,
                 &Reading {
                     cpu: 10.,
-                    memory: Some("critical".into())
+                    memory: Some("critical".into()),
+                    available: None,
                 }
             )
             .is_empty()

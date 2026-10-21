@@ -10,6 +10,12 @@ section as the GitHub release notes.
 
 ## [Unreleased]
 
+### Fixed
+- **Heavy actions waiting for a busy Mac that was not busy**: the kernel's memory-pressure
+  "warning" lingers while half the memory is free; it now counts only with 35% or less available
+  ("critical" always counts). A waiting action says so on its chip and row (*waiting for room:*
+  and why) and *Run now* skips the wait.
+
 ## [0.12.0] - 2026-10-21
 
 ### Added

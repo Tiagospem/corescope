@@ -540,6 +540,29 @@ final class ActionStore: ObservableObject {
       runs[id]?.endedAt = Date()
     }
   }
+  /// A heavy action waiting for room (`corescope wait`): why, from the last line of its log.
+  func waiting(_ action: ProjectAction) -> String? {
+    guard let run = runs[action.id], run.outcome == .running,
+      let handle = try? FileHandle(forReadingFrom: URL(fileURLWithPath: run.log))
+    else { return nil }
+    defer { try? handle.close() }
+    let size = handle.seekToEndOfFile()
+    handle.seek(toFileOffset: size > 2048 ? size - 2048 : 0)
+    let text = String(decoding: handle.readDataToEndOfFile(), as: UTF8.self)
+    guard let last = text.split(separator: "\n").last(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) else { return nil }
+    let prefix = "corescope: waiting for room: "
+    return last.hasPrefix(prefix) ? String(last.dropFirst(prefix.count)) : nil
+  }
+  /// Stops the wait of a heavy action so its command runs now (the wait sees a file named after it).
+  func runNow(_ action: ProjectAction) {
+    guard let run = runs[action.id], let s = Monitor.shared.snapshot else { return }
+    let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/CoreScope/skip-wait")
+    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    for p in s.processes where p.sid == run.pid && p.name == "corescope" && p.uid == s.current_uid {
+      FileManager.default.createFile(atPath: dir.appendingPathComponent("\(p.pid)").path, contents: nil)
+    }
+    note(URL(fileURLWithPath: run.log), L("rodar agora, sem esperar folga (pedido no app)"))
+  }
   static func tail(_ log: URL) -> String {
     guard let handle = try? FileHandle(forReadingFrom: log) else { return "" }
     defer { try? handle.close() }
@@ -1006,6 +1029,7 @@ struct EnvironmentCard: View {
   private func actionChip(_ a: ProjectAction) -> some View {
     let run = actions.runs[a.id]
     let running = run?.outcome == .running
+    let waiting = actions.waiting(a)
     let failed = run.map { [ActionRun.Outcome.failed, .timedOut, .interrupted, .cancelled].contains($0.outcome) } ?? false
     let key = "chip#\(a.id)"
     let hot = hovered == key
@@ -1018,7 +1042,9 @@ struct EnvironmentCard: View {
       }
     } label: {
       HStack(spacing: 5) {
-        if running {
+        if waiting != nil {
+          Image(systemName: "hourglass").font(.system(size: 9, weight: .bold)).foregroundStyle(.orange)
+        } else if running {
           ProgressView().controlSize(.mini).scaleEffect(0.7).frame(width: 10, height: 10)
         } else {
           Image(systemName: a.confirm ? "exclamationmark.shield.fill" : "play.fill").font(.system(size: 8, weight: .bold))
@@ -1040,7 +1066,11 @@ struct EnvironmentCard: View {
       if inside { hovered = key } else if hovered == key { hovered = nil }
     }
     .help(
-      [running ? L("Rodando: clique para ver a saída") : L("Executar %@: %@", a.name, a.spec.run), a.spec.description, run.map(runText)]
+      [
+        waiting.map { L("Esperando folga: %@ (menu: Rodar agora)", $0) }
+          ?? (running ? L("Rodando: clique para ver a saída") : L("Executar %@: %@", a.name, a.spec.run)),
+        a.spec.description, run.map(runText),
+      ]
         .compactMap { $0 }.joined(separator: "\n"))
     .accessibilityLabel(running ? L("%@ rodando", a.name) : L("Executar %@", a.name))
     .contextMenu {
@@ -1052,6 +1082,9 @@ struct EnvironmentCard: View {
             NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: artifact)])
           }
         }
+      }
+      if waiting != nil {
+        Button(L("Rodar agora, sem esperar folga")) { actions.runNow(a) }
       }
       if running {
         Button(L("Cancelar %@", a.name)) {
@@ -1127,9 +1160,15 @@ struct EnvironmentCard: View {
       Text(title).font(.callout).lineLimit(1)
       Text(a.spec.description ?? a.spec.run).font(.caption).foregroundStyle(.tertiary).lineLimit(1).truncationMode(.tail)
       Spacer(minLength: 6)
-      if let run {
+      if let reason = actions.waiting(a) {
+        Label(L("esperando folga: %@", reason), systemImage: "hourglass").font(.caption).foregroundStyle(.orange).lineLimit(1)
+          .help(L("Ação pesada: espera a máquina ter folga (agents.wait_for_capacity do .corescope.yml). Rodar agora ignora a espera."))
+        Button(L("Rodar agora")) { actions.runNow(a) }.controlSize(.small)
+      } else if let run {
         Text(runText(run)).font(.caption).foregroundStyle(run.outcome == .succeeded || run.outcome == .running ? Color.secondary : .red)
           .lineLimit(1)
+      }
+      if let run {
         if let artifact = run.artifact, run.outcome == .succeeded {
           Button {
             NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: artifact)])
