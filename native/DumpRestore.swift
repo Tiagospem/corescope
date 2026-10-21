@@ -84,6 +84,30 @@ struct DumpOutcome: Decodable, Equatable {
   let left_out: Double
   let snapshot: String?
   let tables_in_database: Double?
+  let connections_closed: Double?
+  let hooks: [String]?
+  let after_restore_error: String?
+}
+/// What the project's .corescope.yml says about a database (`dump_defaults`).
+struct DumpDefaults: Decodable, Equatable {
+  let project: String?
+  let skip_data: [String]?
+  let before_restore: [String]?
+  let after_restore: [String]?
+}
+/// A past restore (`dump_history`).
+struct DumpRecord: Decodable, Identifiable, Equatable {
+  let id: String
+  let state: String
+  let file: String
+  let target: String?
+  let started: Double
+  let ended: Double?
+  let error: String?
+  let log_file: String?
+  let database_touched: Bool
+  /// Failed or cancelled after the target was dropped or created.
+  var leftIncomplete: Bool { (state == "failed" || state == "cancelled") && database_touched }
 }
 
 /// Dump restores of the Databases page: which card a job belongs to, the sheet on screen, and
@@ -95,7 +119,36 @@ final class DumpRestoreStore: ObservableObject {
   /// The latest restore per card (database id → job id).
   @Published private(set) var latest: [String: String] = [:]
   @Published private(set) var jobs: [String: DumpJob] = [:]
+  /// Past restores per card (database id), newest first.
+  @Published private(set) var history: [String: [DumpRecord]] = [:]
   private var timer: Timer?
+
+  func loadHistory(_ db: DatabaseItem) {
+    var request: [String: Any] = ["op": "dump_history"]
+    if let c = db.container { request["container"] = c } else { request["port"] = db.port }
+    DispatchQueue.global(qos: .utility).async {
+      let list = (try? DBTool.decode(request, as: [DumpRecord].self).get()) ?? []
+      DispatchQueue.main.async { if self.history[db.id] != list { self.history[db.id] = list } }
+    }
+  }
+  /// Databases whose latest restore stopped half-way (the target may be incomplete).
+  func incomplete(_ db: DatabaseItem) -> Set<String> {
+    var seen = Set<String>()
+    var out = Set<String>()
+    for r in history[db.id] ?? [] {
+      guard let t = r.target, !seen.contains(t) else { continue }
+      seen.insert(t)
+      if r.leftIncomplete { out.insert(t) }
+    }
+    return out
+  }
+  /// Tables the user restored without data last time into this database.
+  static func rememberedSkips(_ db: DatabaseItem, _ target: String) -> Set<String> {
+    Set(UserDefaults.standard.stringArray(forKey: "dumpSkip|\(db.id)|\(target)") ?? [])
+  }
+  static func remember(_ skips: [String], _ db: DatabaseItem, _ target: String) {
+    UserDefaults.standard.set(skips, forKey: "dumpSkip|\(db.id)|\(target)")
+  }
 
   func present(_ db: DatabaseItem, preselect: String? = nil) { presenting = (db.id, preselect) }
   func adopt(_ job: String, for db: String) {
@@ -119,7 +172,10 @@ final class DumpRestoreStore: ObservableObject {
         if next != self.jobs {
           let finished = next.values.contains { job in job.kind == "restore" && !job.running && self.jobs[job.id]?.running == true }
           self.jobs = next
-          if finished { DatabaseStore.shared.refresh() }
+          if finished {
+            DatabaseStore.shared.refresh()
+            for item in DatabaseStore.shared.items ?? [] where self.latest[item.id] != nil { self.loadHistory(item) }
+          }
         }
         if next.values.contains(where: \.running) || self.presenting != nil {
           self.timer = Timer.scheduledTimer(withTimeInterval: self.presenting != nil ? 0.5 : 1, repeats: false) { [weak self] _ in self?.poll() }
@@ -158,6 +214,10 @@ struct DumpRestoreSheet: View {
   @ViewState private var search = ""
   @ViewState private var confirming = false
   @ViewState private var startError: String?
+  @ViewState private var defaults: DumpDefaults?
+  @ViewState private var sessions: Int?
+  @ViewState private var runHooks = true
+  @ViewState private var killConnections = true
 
   private var restoreJob: DumpJob? { store.job(store.latest[db.id]).flatMap { $0.kind == "restore" ? $0 : nil } }
   private var names: [String] {
@@ -300,7 +360,24 @@ struct DumpRestoreSheet: View {
           }
         }
         if let nameProblem { Text(nameProblem).font(.caption).foregroundStyle(.orange) }
+        if replace, let n = sessions, n > 0 {
+          Toggle(L("Encerrar as %@ conexões abertas neste banco antes (app, workers, IDE)", "\(n)"), isOn: $killConnections)
+            .font(.caption)
+            .help(L("Sem isso, o DROP espera até 30 s pelas conexões e falha se continuarem."))
+        }
+        if let d = defaults, !(d.before_restore ?? []).isEmpty || !(d.after_restore ?? []).isEmpty {
+          VStack(alignment: .leading, spacing: 3) {
+            Toggle(L("Rodar os comandos de %@ (.corescope.yml)", d.project ?? L("projeto")), isOn: $runHooks).font(.caption)
+            ForEach(d.before_restore ?? [], id: \.self) { c in
+              Text(L("antes: %@", c)).font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary).lineLimit(1)
+            }
+            ForEach(d.after_restore ?? [], id: \.self) { c in
+              Text(L("depois: %@", c)).font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary).lineLimit(1)
+            }
+          }
+        }
       }
+      .task(id: "\(replace)|\(targetName)") { await loadTarget(targetName, analysis: a) }
       // Which tables bring their data.
       VStack(alignment: .leading, spacing: 6) {
         HStack(spacing: 8) {
@@ -406,8 +483,14 @@ struct DumpRestoreSheet: View {
             outcome.tables_without_data.isEmpty ? nil : L("%@ tabelas sem dados (%@ linhas)", "\(outcome.tables_without_data.count)", compactNumber(outcome.rows_skipped)),
             outcome.definers_replaced > 0 ? L("%@ DEFINER → CURRENT_USER", "\(Int(outcome.definers_replaced))") : nil,
             outcome.snapshot.map { L("snapshot antes: %@", $0) },
+            (outcome.connections_closed ?? 0) > 0 ? L("%@ conexões encerradas", "\(Int(outcome.connections_closed ?? 0))") : nil,
+            (outcome.hooks ?? []).isEmpty ? nil : L("%@ comandos do projeto", "\((outcome.hooks ?? []).count)"),
           ].compactMap { $0 }.joined(separator: " · ")
         ).font(.callout).fixedSize(horizontal: false, vertical: true)
+      }
+      if let err = outcome?.after_restore_error {
+        Label(L("Os dados foram restaurados, mas o after_restore falhou: %@", err), systemImage: "exclamationmark.triangle")
+          .font(.callout).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
       }
       if let error = job.error, !job.running {
         Text(error).font(.callout).foregroundStyle(.red).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
@@ -497,7 +580,9 @@ struct DumpRestoreSheet: View {
       "op": "dump_restore", "file": a.file, "target": target, "mode": replace ? "replace" : "create",
       "skip_data": a.tables.map(\.name).filter { !withData.contains($0) }, "drop_triggers": dropTriggers,
       "drop_owners": dropOwners, "snapshot_first": replace && snapshotFirst,
+      "run_hooks": runHooks, "kill_connections": killConnections,
     ]
+    DumpRestoreStore.remember(a.tables.map(\.name).filter { !withData.contains($0) }, db, target)
     if let c = db.container { request["container"] = c } else { request["port"] = db.port }
     if db.container == nil, let cred = DBCredentials.all()[db.credentialKey] {
       request["user"] = cred["user"]
@@ -515,6 +600,36 @@ struct DumpRestoreSheet: View {
         }
       }
     }
+  }
+  /// The project's defaults and the open sessions for the chosen target; the tables it (or
+  /// the last restore here) brings without data are unticked.
+  private func loadTarget(_ target: String, analysis a: DumpAnalysis) async {
+    guard !target.isEmpty, nameError(target) == nil || !replace else {
+      defaults = nil
+      sessions = nil
+      return
+    }
+    var base: [String: Any] = ["target": target, "database": target]
+    if let c = db.container { base["container"] = c } else { base["port"] = db.port }
+    if db.container == nil, let cred = DBCredentials.all()[db.credentialKey] {
+      base["user"] = cred["user"]
+      base["password"] = cred["password"]
+    }
+    let check = replace
+    let result: (DumpDefaults?, Int?) = await withCheckedContinuation { done in
+      DispatchQueue.global(qos: .userInitiated).async {
+        let d = try? DBTool.decode(base.merging(["op": "dump_defaults"]) { $1 }, as: DumpDefaults.self).get()
+        var n: Int?
+        if check, case .success(let v) = DBTool.call(base.merging(["op": "db_sessions"]) { $1 }) {
+          n = ((v as? [String: Any])?["sessions"] as? NSNumber)?.intValue
+        }
+        done.resume(returning: (d, n))
+      }
+    }
+    defaults = result.0
+    sessions = result.1
+    let skip = DumpRestoreStore.rememberedSkips(db, target).union(result.0?.skip_data ?? [])
+    if !skip.isEmpty { withData = Set(a.tables.map(\.name)).subtracting(skip) }
   }
   private func nameError(_ name: String) -> String? {
     if name.isEmpty { return replace ? L("Escolha o banco a substituir.") : L("Dê um nome ao banco novo.") }
@@ -537,6 +652,8 @@ struct DumpRestoreSheet: View {
     case "analyzing": return L("Lendo o dump…")
     case "snapshot": return L("Snapshot antes de substituir…")
     case "preparing": return L("Preparando o banco…")
+    case "before": return L("Rodando before_restore…")
+    case "after": return L("Rodando after_restore…")
     case "importing": return L("Importando…")
     case "finishing": return L("Tudo enviado; o servidor está terminando…")
     case "checking": return L("Conferindo…")
@@ -577,6 +694,48 @@ struct DumpRestoreBanner: View {
         }
         Spacer()
         Button(L("Ver")) { store.present(db) }.controlSize(.small)
+      }
+    }
+  }
+}
+
+/// A card's past restores: what went where, when, how it ended, and its log.
+struct DumpHistorySection: View {
+  let db: DatabaseItem
+  @ObservedObject var store = DumpRestoreStore.shared
+  @ViewState private var open = false
+  var body: some View {
+    let list = store.history[db.id] ?? []
+    if !list.isEmpty {
+      VStack(alignment: .leading, spacing: 4) {
+        Button {
+          withAnimation(.easeOut(duration: 0.15)) { open.toggle() }
+        } label: {
+          HStack(spacing: 6) {
+            Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold)).rotationEffect(.degrees(open ? 90 : 0))
+              .foregroundStyle(.secondary).frame(width: 10)
+            Label(L("Restaurações"), systemImage: "clock.arrow.circlepath").font(.caption.weight(.semibold))
+            Text("\(list.count)").font(.caption).foregroundStyle(.secondary)
+          }.contentShape(Rectangle())
+        }.buttonStyle(.plain)
+        if open {
+          ForEach(list.prefix(8)) { r in
+            HStack(spacing: 8) {
+              Image(systemName: r.state == "succeeded" ? "checkmark.circle" : r.state == "running" ? "circle.dotted" : "xmark.circle")
+                .foregroundStyle(r.state == "succeeded" ? Color.green : r.state == "running" ? .blue : .red).font(.caption)
+              Text(r.target ?? "—").font(.callout).frame(width: 160, alignment: .leading).lineLimit(1)
+              Text((r.file as NSString).lastPathComponent).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+              Spacer()
+              Text(Date(timeIntervalSince1970: r.started).formatted(date: .abbreviated, time: .shortened)).font(.caption).foregroundStyle(.secondary)
+              if let log = r.log_file {
+                Button {
+                  LogViewer.open(URL(fileURLWithPath: log), title: L("Restauração em %@", r.target ?? ""))
+                } label: { Image(systemName: "doc.text.magnifyingglass") }.buttonStyle(.borderless).help(L("Ver log"))
+              }
+            }
+            .help(r.error ?? "")
+          }
+        }
       }
     }
   }

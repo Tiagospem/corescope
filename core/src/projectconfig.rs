@@ -35,6 +35,67 @@ pub struct ProjectConfig {
     pub logs: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agents: Option<AgentsSpec>,
+    /// The project's databases, by name: what the change monitor hides by default, which tables
+    /// a dump restore brings without data, and commands (any stack) run in the project folder
+    /// before and after a restore.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub databases: BTreeMap<String, DatabaseSpec>,
+}
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct DatabaseSpec {
+    /// The server: a container name or a host port. Without it, any local server with a
+    /// database of this name.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "optional_string_or_number"
+    )]
+    pub server: Option<String>,
+    /// Tables the change monitor hides by default (the app can show them again).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ignore_changes: Vec<String>,
+    /// Tables a restore creates empty by default.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub skip_data: Vec<String>,
+    /// Shell commands run in the project folder before the database is dropped (stop workers…).
+    #[serde(
+        default,
+        skip_serializing_if = "Vec::is_empty",
+        deserialize_with = "one_or_many"
+    )]
+    pub before_restore: Vec<String>,
+    /// Shell commands run after a successful restore (migrations, cache, fixtures…).
+    #[serde(
+        default,
+        skip_serializing_if = "Vec::is_empty",
+        deserialize_with = "one_or_many"
+    )]
+    pub after_restore: Vec<String>,
+}
+fn optional_string_or_number<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Option<String>, D::Error> {
+    string_or_number(d).map(Some)
+}
+/// A command or a list of commands.
+fn one_or_many<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<String>, D::Error> {
+    match Value::deserialize(d)? {
+        Value::String(s) => Ok(vec![s]),
+        Value::Array(items) => items
+            .into_iter()
+            .map(|v| match v {
+                Value::String(s) => Ok(s),
+                other => Err(serde::de::Error::custom(format!(
+                    "expected a command, found {other}"
+                ))),
+            })
+            .collect(),
+        Value::Null => Ok(vec![]),
+        other => Err(serde::de::Error::custom(format!(
+            "expected a command or a list of commands, found {other}"
+        ))),
+    }
 }
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -271,6 +332,29 @@ impl ProjectConfig {
     /// Structural checks serde cannot express. Returns the problems, empty when valid.
     pub fn problems(&self) -> Vec<String> {
         let mut out = vec![];
+        for (name, db) in &self.databases {
+            let ok = |n: &str| {
+                !n.is_empty()
+                    && n.len() <= 64
+                    && n.bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'.')
+            };
+            if !ok(name) {
+                out.push(format!(
+                    "databases.{name}: a database name has letters, digits and _"
+                ));
+            }
+            for t in db.ignore_changes.iter().chain(&db.skip_data) {
+                if !ok(t) {
+                    out.push(format!("databases.{name}: invalid table name {t:?}"));
+                }
+            }
+            for c in db.before_restore.iter().chain(&db.after_restore) {
+                if c.trim().is_empty() {
+                    out.push(format!("databases.{name}: an empty command"));
+                }
+            }
+        }
         for (name, p) in &self.profiles {
             if p.commands.is_empty() && p.containers.is_empty() {
                 out.push(format!("profile {name}: needs commands or containers"));
@@ -856,6 +940,18 @@ agents:
     heavy_commands: ["php artisan test", 'npm run build']
 "#;
 
+    #[test]
+    fn databases_section() {
+        let c = parse("databases:\n  eco_revamp:\n    server: leilotech-mysql-1\n    ignore_changes: [audits, jobs]\n    skip_data: [audits]\n    before_restore: bin/eco optional revamp horizon off\n    after_restore:\n      - bin/eco migrate revamp\n      - bin/eco optional revamp horizon on\n  other:\n    server: 5432\n").unwrap();
+        let db = &c.databases["eco_revamp"];
+        assert_eq!(db.server.as_deref(), Some("leilotech-mysql-1"));
+        assert_eq!(db.ignore_changes, ["audits", "jobs"]);
+        assert_eq!(db.before_restore, ["bin/eco optional revamp horizon off"]);
+        assert_eq!(db.after_restore.len(), 2);
+        assert_eq!(c.databases["other"].server.as_deref(), Some("5432"));
+        assert!(parse("databases:\n  bad name:\n    skip_data: [a]\n").is_err());
+        assert!(parse("databases:\n  x:\n    unknown: 1\n").is_err());
+    }
     #[test]
     fn parses_the_documented_shape() {
         let c = parse(SAMPLE).unwrap();

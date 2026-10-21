@@ -1824,4 +1824,56 @@ private let entries = """
   snapshot antes: %@ ¦ snapshot first: %@ ¦ snapshot antes: %@
   tabela %@ ¦ table %@ ¦ tabla %@
   Tudo enviado; o servidor está terminando… ¦ Everything sent; the server is finishing… ¦ Todo enviado; el servidor está terminando…
+  %@ comandos do projeto ¦ %@ project commands ¦ %@ comandos del proyecto
+  %@ conexões encerradas ¦ %@ connections closed ¦ %@ conexiones cerradas
+  %@ em %@ ¦ %@ on %@ ¦ %@ en %@
+  %@ grandes (só linhas novas) ¦ %@ large (new rows only) ¦ %@ grandes (solo filas nuevas)
+  %@ ignoradas ¦ %@ ignored ¦ %@ ignoradas
+  A última restauração neste banco parou no meio: restaure de novo, ou volte o snapshot. ¦ The last restore into this database stopped half-way: restore again, or put its snapshot back. ¦ La última restauración en esta base se detuvo a medias: restaura de nuevo, o vuelve el snapshot.
+  ALTERADO ¦ UPDATED ¦ MODIFICADO
+  APAGADO ¦ DELETED ¦ BORRADO
+  Antes ¦ Before ¦ Antes
+  CRIADO ¦ CREATED ¦ CREADO
+  Coluna ¦ Column ¦ Columna
+  Comparar com %@ ¦ Compare with %@ ¦ Comparar con %@
+  Comparação com %@: %@ diferenças ¦ Compared with %@: %@ differences ¦ Comparación con %@: %@ diferencias
+  Copiar como JSON ¦ Copy as JSON ¦ Copiar como JSON
+  Depois ¦ After ¦ Después
+  Encerrar as %@ conexões abertas neste banco antes (app, workers, IDE) ¦ Close the %@ open connections to this database first (app, workers, IDE) ¦ Cerrar antes las %@ conexiones abiertas a esta base (app, workers, IDE)
+  Escolha uma alteração para ver os valores. ¦ Choose a change to see its values. ¦ Elige un cambio para ver sus valores.
+  Esquece as alterações mostradas; o monitor continua. ¦ Forgets the changes shown; the monitor keeps going. ¦ Olvida los cambios mostrados; el monitor sigue.
+  Filtrar ¦ Filter ¦ Filtrar
+  Filtrar tabela ou chave ¦ Filter table or key ¦ Filtrar tabla o clave
+  Ignoradas (%@) ¦ Ignored (%@) ¦ Ignoradas (%@)
+  Ignorar a tabela %@ ¦ Ignore the table %@ ¦ Ignorar la tabla %@
+  Lendo as tabelas… ¦ Reading the tables… ¦ Leyendo las tablas…
+  MUDOU ¦ CHANGED ¦ CAMBIÓ
+  Monitorar alterações ¦ Watch changes ¦ Vigilar cambios
+  Monitorar alterações em %@: linhas criadas, alteradas e apagadas enquanto você usa o app ¦ Watch changes in %@: rows created, updated and deleted while you use the app ¦ Vigilar cambios en %@: filas creadas, modificadas y borradas mientras usas la app
+  Monitorar alterações… ¦ Watch changes… ¦ Vigilar cambios…
+  Nada mudou desde o snapshot. ¦ Nothing changed since the snapshot. ¦ Nada cambió desde el snapshot.
+  Nenhum snapshot salvo ¦ No saved snapshot ¦ Ningún snapshot guardado
+  Não são lidas nem mostradas. As marcadas como padrão vêm do .corescope.yml (databases.<banco>.ignore_changes). ¦ Not read nor shown. The ones marked default come from .corescope.yml (databases.<name>.ignore_changes). ¦ No se leen ni se muestran. Las marcadas por defecto vienen del .corescope.yml (databases.<base>.ignore_changes).
+  Os dados foram restaurados, mas o after_restore falhou: %@ ¦ The data was restored, but after_restore failed: %@ ¦ Los datos se restauraron, pero after_restore falló: %@
+  Padrão do projeto ¦ Project default ¦ Por defecto del proyecto
+  Restauração em %@ ¦ Restore into %@ ¦ Restauración en %@
+  Restaurações ¦ Restores ¦ Restauraciones
+  Rodando after_restore… ¦ Running after_restore… ¦ Ejecutando after_restore…
+  Rodando before_restore… ¦ Running before_restore… ¦ Ejecutando before_restore…
+  Rodar os comandos de %@ (.corescope.yml) ¦ Run %@'s commands (.corescope.yml) ¦ Ejecutar los comandos de %@ (.corescope.yml)
+  Salvar o estado atual ¦ Save the current state ¦ Guardar el estado actual
+  Sem isso, o DROP espera até 30 s pelas conexões e falha se continuarem. ¦ Without it, the DROP waits up to 30 s for those connections and fails if they stay. ¦ Sin esto, el DROP espera hasta 30 s por las conexiones y falla si siguen.
+  Snapshot ¦ Snapshot ¦ Snapshot
+  Snapshot salvo: compare depois em Comparar com… ¦ Snapshot saved: compare later with Compare with… ¦ Snapshot guardado: compara después con Comparar con…
+  Tabelas ignoradas ¦ Ignored tables ¦ Tablas ignoradas
+  Use o app (um cadastro, um pedido…): as linhas criadas, alteradas e apagadas aparecem aqui. ¦ Use the app (a sign-up, an order…): rows created, updated and deleted show up here. ¦ Usa la app (un registro, un pedido…): las filas creadas, modificadas y borradas aparecen aquí.
+  Valor ¦ Value ¦ Valor
+  Voltar ao vivo ¦ Back to live ¦ Volver al vivo
+  antes: %@ ¦ before: %@ ¦ antes: %@
+  depois: %@ ¦ after: %@ ¦ después: %@
+  desde %@ ¦ since %@ ¦ desde %@
+  incompleto ¦ incomplete ¦ incompleta
+  padrão ¦ default ¦ por defecto
+  projeto ¦ project ¦ proyecto
+  Limpar lista ¦ Clear list ¦ Vaciar lista
   """

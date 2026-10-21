@@ -217,8 +217,10 @@ private struct DatabaseCard: View {
         Divider()
         DumpRestoreBanner(db: db)
         DatabaseSnapshotsSection(db: db)
+        DumpHistorySection(db: db)
       }
     }
+    .onAppear { if db.kind != "redis" { restores.loadHistory(db) } }
     .sheet(
       isPresented: Binding(get: { restores.presenting?.db == db.id }, set: { if !$0 { restores.presenting = nil } })
     ) {
@@ -253,15 +255,29 @@ private struct DatabaseCard: View {
       VStack(alignment: .leading, spacing: 5) {
         ForEach(top, id: \.self) { s in
           HStack(spacing: 8) {
-            Text(s.name).font(.callout).lineLimit(1).frame(width: 220, alignment: .leading)
+            HStack(spacing: 4) {
+              Text(s.name).font(.callout).lineLimit(1)
+              if restores.incomplete(db).contains(s.name) {
+                Badge(text: L("incompleto"), color: .orange)
+                  .help(L("A última restauração neste banco parou no meio: restaure de novo, ou volte o snapshot."))
+              }
+            }.frame(width: 220, alignment: .leading)
               .contextMenu {
                 if db.kind != "redis" && (db.status == "ok" || db.container != nil) {
+                  Button(L("Monitorar alterações…")) { DBWatchWindow.open(db, database: s.name) }
                   Button(L("Restaurar dump aqui…")) { DumpRestoreStore.shared.present(db, preselect: s.name) }
                 }
               }
             MeterBar(fraction: (s.bytes ?? s.keys ?? 0) / largest, color: Tint.brand.opacity(0.7)).frame(height: 5)
             Text(s.keys.map { L("%@ chaves", "\(Int($0))") } ?? s.bytes.map(diskBytes) ?? "—")
               .font(.caption).foregroundStyle(.secondary).monospacedDigit().frame(width: 90, alignment: .trailing)
+            if db.kind != "redis" && (db.status == "ok" || db.container != nil) {
+              Button {
+                DBWatchWindow.open(db, database: s.name)
+              } label: { Image(systemName: "eye") }
+                .buttonStyle(HoverButtonStyle(size: 20)).help(L("Monitorar alterações em %@: linhas criadas, alteradas e apagadas enquanto você usa o app", s.name))
+                .accessibilityLabel(L("Monitorar alterações"))
+            }
             if db.kind == "redis", db.hostReachable, db.via == nil, let n = Int(s.name.dropFirst(2)) {
               Button(L("Analisar")) { analyzing = n }.controlSize(.small)
                 .help(L("Chaves por prefixo, memória e chaves sem TTL (amostra)"))

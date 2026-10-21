@@ -11,6 +11,17 @@ section as the GitHub release notes.
 ## [Unreleased]
 
 ### Added
+- **Databases › watch changes**: a window per database that lists, while you use the app, rows
+  created (all values), updated (before/after, changed columns) and deleted, per table and
+  moment; ignore noisy tables (defaults from `.corescope.yml`, togglable in the window), clear,
+  snapshot and compare. No triggers or binlog: kept rows compared when the server says a table
+  was written (MySQL/MariaDB information_schema, PostgreSQL pg_stat). MCP `db_watch_*`.
+- **`.corescope.yml` `databases:`** — per database: `server`, `ignore_changes`, `skip_data`,
+  `before_restore` / `after_restore` commands (any stack).
+- **Restore a dump, safer**: other sessions on a replaced database are closed (or waited for
+  30 s), `before_restore` / `after_restore` run around it, the tables without data default to
+  the project's list and the last choice, a marker table flags an incomplete restore (*incomplete*
+  on the card), progress is read from the server, and each server has a restore history.
 - **Databases › restore a dump**: a mysqldump / mariadb-dump / pg_dump (plain) dump, `.sql` or
   `.sql.gz`, into an existing database (replaced after a snapshot) or a new one. It is analysed first
   — tables with exact row counts and sizes, views, triggers, routines, definers; truncated,

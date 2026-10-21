@@ -5,6 +5,7 @@ pub mod cleanplan;
 pub mod containers;
 pub mod databases;
 pub mod dbaccess;
+pub mod dbmonitor;
 pub mod dbsnapshot;
 pub mod devspace;
 pub mod diskgrowth;
@@ -1894,6 +1895,68 @@ pub fn db_tool(v: &serde_json::Value) -> Result<serde_json::Value, String> {
             .map(|s| json!(s))
             .ok_or_else(|| "no such job".to_string()),
         "dump_jobs" => Ok(json!(dumprestore::all())),
+        // Watching a database for changes.
+        "watch_start" => {
+            let e = database_endpoint(v["container"].as_str(), port)
+                .ok_or("no local MySQL/PostgreSQL with that container or port")?;
+            let req: dbmonitor::WatchRequest =
+                serde_json::from_value(v.clone()).map_err(|e| format!("invalid request: {e}"))?;
+            Ok(json!({"watch": dbmonitor::start(req, e, home.clone())?}))
+        }
+        "watch_status" => dbmonitor::status(
+            v["watch"].as_str().unwrap_or(""),
+            v["since"].as_u64().unwrap_or(0),
+        )
+        .map(|s| json!(s))
+        .ok_or_else(|| "no such watch".to_string()),
+        "watches" => Ok(json!(dbmonitor::list())),
+        "watch_stop" => Ok(json!({"stopped": dbmonitor::stop(v["watch"].as_str().unwrap_or(""))})),
+        "watch_clear" => {
+            Ok(json!({"cleared": dbmonitor::clear(v["watch"].as_str().unwrap_or(""))}))
+        }
+        "watch_ignore" => {
+            let tables: Vec<String> =
+                serde_json::from_value(v["tables"].clone()).unwrap_or_default();
+            dbmonitor::set_ignore(v["watch"].as_str().unwrap_or(""), tables)
+                .map(|l| json!({"ignored": l}))
+                .ok_or_else(|| "no such watch".to_string())
+        }
+        "watch_save" => dbmonitor::save(v["watch"].as_str().unwrap_or(""), v["name"].as_str()),
+        "watch_snapshots" => Ok(json!(dbmonitor::snapshots(&home, v["database"].as_str()))),
+        "watch_compare" => {
+            let file = v["file"].as_str().ok_or("file is required")?;
+            Ok(
+                json!({"changes": dbmonitor::compare(v["watch"].as_str().unwrap_or(""), std::path::Path::new(file))?}),
+            )
+        }
+        "dump_history" => Ok(json!(dumprestore::history(
+            &home,
+            v["container"].as_str(),
+            port
+        ))),
+        // What the project says about a database (.corescope.yml `databases`), for the restore
+        // sheet: default tables without data and the commands around a restore.
+        "dump_defaults" => {
+            let target = v["target"].as_str().ok_or("target is required")?;
+            let e = database_endpoint(v["container"].as_str(), port)
+                .ok_or("no local MySQL/PostgreSQL with that container or port")?;
+            Ok(match dumprestore::database_spec(target, &e, &home) {
+                Some((folder, project, spec)) => {
+                    json!({"project": project, "folder": folder, "skip_data": spec.skip_data,
+                    "ignore_changes": spec.ignore_changes, "before_restore": spec.before_restore, "after_restore": spec.after_restore})
+                }
+                None => json!({}),
+            })
+        }
+        // Sessions using a database (the restore closes them before dropping it).
+        "db_sessions" => {
+            let e = database_endpoint(v["container"].as_str(), port)
+                .ok_or("no local MySQL/PostgreSQL with that container or port")?;
+            let database = v["database"].as_str().ok_or("database is required")?;
+            Ok(
+                json!({"sessions": dumprestore::sessions(&e, database, v["user"].as_str(), v["password"].as_str(), &home)?}),
+            )
+        }
         "dump_cancel" => {
             Ok(json!({"cancelled": dumprestore::cancel(v["job"].as_str().unwrap_or(""))}))
         }

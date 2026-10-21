@@ -1861,9 +1861,10 @@ pub struct Request {
     pub file: String,
     pub target: String,
     pub mode: Mode,
-    /// Tables created empty: their INSERT / COPY data is left out.
+    /// Tables created empty: their INSERT / COPY data is left out. Missing: the project's
+    /// `databases.<target>.skip_data` from .corescope.yml.
     #[serde(default)]
-    pub skip_data: Vec<String>,
+    pub skip_data: Option<Vec<String>>,
     #[serde(default)]
     pub drop_triggers: bool,
     /// PostgreSQL: leave out OWNER TO (local roles rarely match production's).
@@ -1872,6 +1873,12 @@ pub struct Request {
     /// Snapshot an existing database before it is replaced.
     #[serde(default = "yes")]
     pub snapshot_first: bool,
+    /// Run the project's `before_restore` / `after_restore` commands (.corescope.yml).
+    #[serde(default = "yes")]
+    pub run_hooks: bool,
+    /// Close other sessions on the database before dropping it (else wait up to 30 s).
+    #[serde(default = "yes")]
+    pub kill_connections: bool,
     /// A server on the Mac: its user and password (from the app's Keychain).
     #[serde(default)]
     pub user: Option<String>,
@@ -1890,6 +1897,121 @@ pub struct Outcome {
     pub left_out: u64,
     pub snapshot: Option<String>,
     pub tables_in_database: Option<u64>,
+    /// Other sessions closed before the drop.
+    pub connections_closed: u64,
+    /// The project commands that ran (before and after).
+    pub hooks: Vec<String>,
+    /// An after_restore command failed: the data is restored, the follow-up is not.
+    pub after_restore_error: Option<String>,
+}
+
+/// The project that describes `target` on this server: (folder, project name, its spec).
+pub fn database_spec(
+    target: &str,
+    e: &Endpoint,
+    home: &Path,
+) -> Option<(String, String, crate::projectconfig::DatabaseSpec)> {
+    let list = crate::projects::load(&crate::projects::default_path(home));
+    for p in list {
+        let Some(found) = crate::projectconfig::load(Path::new(&p.folder)) else {
+            continue;
+        };
+        let Some(config) = found.config else { continue };
+        let Some(spec) = config.databases.get(target) else {
+            continue;
+        };
+        let matches = match spec.server.as_deref() {
+            None => true,
+            Some(s) => e.container.as_deref() == Some(s) || s.parse::<u16>().ok() == Some(e.port),
+        };
+        if matches {
+            return Some((p.folder, config.name.unwrap_or(p.name), spec.clone()));
+        }
+    }
+    None
+}
+/// A project's commands, one after the other, in its folder (the user's login shell), with the
+/// output in the job's log. The first failure stops.
+fn run_hooks(
+    commands: &[String],
+    folder: &str,
+    env: &[(&str, String)],
+    job: &Job,
+) -> Result<(), String> {
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
+    for c in commands {
+        job.check()?;
+        job.log(&format!("$ {c}"));
+        let mut child = Command::new(&shell)
+            .args(["-l", "-c", c])
+            .current_dir(folder)
+            .envs(env.iter().map(|(k, v)| (*k, v.as_str())))
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|err| format!("{c}: {err}"))?;
+        let lines = Arc::new(Mutex::new(Vec::<String>::new()));
+        let mut readers = Vec::new();
+        for pipe in [
+            child
+                .stdout
+                .take()
+                .map(|p| Box::new(p) as Box<dyn Read + Send>),
+            child
+                .stderr
+                .take()
+                .map(|p| Box::new(p) as Box<dyn Read + Send>),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            let sink = lines.clone();
+            readers.push(std::thread::spawn(move || {
+                let mut r = std::io::BufReader::new(pipe);
+                let mut line = String::new();
+                while std::io::BufRead::read_line(&mut r, &mut line).unwrap_or(0) > 0 {
+                    if let Ok(mut l) = sink.lock() {
+                        l.push(line.trim_end().to_string());
+                    }
+                    line.clear();
+                }
+            }));
+        }
+        let started = Instant::now();
+        let status = loop {
+            if let Some(st) = child.try_wait().map_err(|err| err.to_string())? {
+                break st;
+            }
+            if job.cancelled() || started.elapsed() > Duration::from_secs(30 * 60) {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(if job.cancelled() {
+                    "cancelled".into()
+                } else {
+                    format!("{c}: passed 30 min")
+                });
+            }
+            if let Ok(mut l) = lines.lock() {
+                for line in l.drain(..) {
+                    job.log(&format!("  {line}"));
+                }
+            }
+            std::thread::sleep(Duration::from_millis(200));
+        };
+        for r in readers {
+            let _ = r.join();
+        }
+        if let Ok(mut l) = lines.lock() {
+            for line in l.drain(..) {
+                job.log(&format!("  {line}"));
+            }
+        }
+        if !status.success() {
+            return Err(format!("{c} exited with {}", status.code().unwrap_or(-1)));
+        }
+    }
+    Ok(())
 }
 
 const SYSTEM: [&str; 7] = [
@@ -1921,7 +2043,7 @@ fn client(
                 args.push("-i".into());
             }
             let run = match query {
-                Some(_) => r#""$M" -u"$U" -N -B ${2:+-D "$2"} -e "$1""#,
+                Some(_) => r#""$M" -u"$U" -N -B --raw ${2:+-D "$2"} -e "$1""#,
                 None => {
                     r#""$M" -u"$U" --default-character-set=utf8mb4 --max-allowed-packet=1073741824 -D "$2""#
                 }
@@ -1969,7 +2091,7 @@ fn client(
             ];
             match query {
                 Some(q) => {
-                    args.extend(["-N".into(), "-B".into()]);
+                    args.extend(["-N".into(), "-B".into(), "--raw".into()]);
                     if !db.is_empty() {
                         args.push(format!("-D{db}"));
                     }
@@ -2036,8 +2158,8 @@ fn clean_error(stderr: &str) -> String {
         .take(600)
         .collect()
 }
-/// One query; its output.
-fn query(
+/// One query; its output (MySQL: tab-separated, unescaped).
+pub(crate) fn query(
     e: &Endpoint,
     req: &Request,
     database: Option<&str>,
@@ -2087,7 +2209,7 @@ fn newlines_before_code(text: &[u8]) -> u64 {
     }
     lines
 }
-fn safe_word(s: &str) -> bool {
+pub(crate) fn safe_word(s: &str) -> bool {
     !s.is_empty() && s.len() <= 64 && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
 }
 
@@ -2168,10 +2290,37 @@ pub fn restore(req: &Request, e: &Endpoint, job: &Job, home: &Path) -> Result<Ou
         ));
     }
     let names: HashSet<&str> = a.tables.iter().map(|t| t.name.as_str()).collect();
-    if let Some(unknown) = req.skip_data.iter().find(|t| !names.contains(t.as_str())) {
-        return Err(format!("{unknown} is not a table of this dump"));
-    }
-    let skip: HashSet<&str> = req.skip_data.iter().map(String::as_str).collect();
+    let spec = database_spec(target, e, home);
+    let skip_list: Vec<String> = match &req.skip_data {
+        Some(list) => {
+            if let Some(unknown) = list.iter().find(|t| !names.contains(t.as_str())) {
+                return Err(format!("{unknown} is not a table of this dump"));
+            }
+            list.clone()
+        }
+        // The project's defaults, for the tables this dump has.
+        None => spec
+            .as_ref()
+            .map(|(_, _, s)| {
+                s.skip_data
+                    .iter()
+                    .filter(|t| names.contains(t.as_str()))
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default(),
+    };
+    let skip: HashSet<&str> = skip_list.iter().map(String::as_str).collect();
+    let hook_env: Vec<(&str, String)> = vec![
+        ("CORESCOPE_DATABASE", target.to_string()),
+        ("CORESCOPE_DUMP", req.file.clone()),
+        ("CORESCOPE_DB_KIND", e.kind.to_string()),
+        (
+            "CORESCOPE_DB_CONTAINER",
+            e.container.clone().unwrap_or_default(),
+        ),
+        ("CORESCOPE_DB_PORT", e.port.to_string()),
+    ];
     let list = match e.kind {
         "mysql" => query(e, req, None, "SHOW DATABASES", home)?,
         _ => query(e, req, None, "select datname from pg_database", home)?,
@@ -2187,6 +2336,15 @@ pub fn restore(req: &Request, e: &Endpoint, job: &Job, home: &Path) -> Result<Ou
         created: !exists,
         ..Outcome::default()
     };
+    if req.run_hooks
+        && let Some((folder, project, s)) = &spec
+        && !s.before_restore.is_empty()
+    {
+        job.phase("before", &format!("before_restore ({project})"));
+        run_hooks(&s.before_restore, folder, &hook_env, job)
+            .map_err(|err| format!("before_restore: {err} (the database was not touched)"))?;
+        outcome.hooks.extend(s.before_restore.iter().cloned());
+    }
     if exists && req.snapshot_first {
         job.phase(
             "snapshot",
@@ -2247,7 +2405,43 @@ pub fn restore(req: &Request, e: &Endpoint, job: &Job, home: &Path) -> Result<Ou
     job.set(|s| s.database_touched = true);
     if e.kind == "mysql" {
         if exists {
-            query(e, req, None, &format!("DROP DATABASE `{target}`"), home)?;
+            // Sessions on the database (an app, its workers) would hold the DROP for a long time.
+            let ids: Vec<u64> = query(
+                e,
+                req,
+                None,
+                &format!("SELECT ID FROM information_schema.PROCESSLIST WHERE DB = '{target}' AND ID <> CONNECTION_ID()"),
+                home,
+            )
+            .unwrap_or_default()
+            .lines()
+            .filter_map(|l| l.trim().parse().ok())
+            .collect();
+            if !ids.is_empty() {
+                job.log(&format!(
+                    "{} other sessions on {target}{}",
+                    ids.len(),
+                    if req.kill_connections {
+                        ": closing them"
+                    } else {
+                        ""
+                    }
+                ));
+                if req.kill_connections {
+                    for id in &ids {
+                        if query(e, req, None, &format!("KILL {id}"), home).is_ok() {
+                            outcome.connections_closed += 1;
+                        }
+                    }
+                }
+            }
+            query(e, req, None, &format!("SET SESSION lock_wait_timeout = 30; DROP DATABASE `{target}`"), home).map_err(|err| {
+                if err.contains("1205") {
+                    format!("{target} is in use by another session (waited 30 s): stop what uses it, or close its connections")
+                } else {
+                    err
+                }
+            })?;
         }
         let charset = a
             .charset
@@ -2269,6 +2463,16 @@ pub fn restore(req: &Request, e: &Endpoint, job: &Job, home: &Path) -> Result<Ou
         if create(collate.as_deref()).is_err() {
             create(None)?;
         }
+        query(
+            e,
+            req,
+            Some(target),
+            &format!(
+                "CREATE TABLE `{MARKER}` (started_at datetime NOT NULL, dump varchar(255) NOT NULL) COMMENT='CoreScope: a dump restore is running or failed; dropped when it succeeds'; INSERT INTO `{MARKER}` VALUES (NOW(), '{}')",
+                marker_name(&req.file)
+            ),
+            home,
+        )?;
     } else {
         if exists {
             let _ = query(
@@ -2283,6 +2487,16 @@ pub fn restore(req: &Request, e: &Endpoint, job: &Job, home: &Path) -> Result<Ou
             query(e, req, None, &format!("DROP DATABASE \"{target}\""), home)?;
         }
         query(e, req, None, &format!("CREATE DATABASE \"{target}\""), home)?;
+        query(
+            e,
+            req,
+            Some(target),
+            &format!(
+                "CREATE TABLE public.{MARKER} (started_at timestamptz NOT NULL DEFAULT now(), dump text NOT NULL); INSERT INTO public.{MARKER} (dump) VALUES ('{}')",
+                marker_name(&req.file)
+            ),
+            home,
+        )?;
     }
     job.phase("importing", "Importing");
     let (program, args, env) = client(e, req, Some(target), None, home)?;
@@ -2312,38 +2526,43 @@ pub fn restore(req: &Request, e: &Endpoint, job: &Job, home: &Path) -> Result<Ou
     }
     let stdin = child.stdin.take().ok_or("client pipe")?;
     let mut out = Out {
-        w: std::io::BufWriter::with_capacity(1 << 20, stdin),
+        // Small, so progress follows what the server took.
+        w: std::io::BufWriter::with_capacity(64 << 10, stdin),
         line: 1,
         marks: Vec::new(),
     };
     let input = Input::open(&path)?;
-    let result = if e.kind == "mysql" {
-        import_mysql(
-            input,
-            &mut out,
-            req,
-            &skip,
-            &accounts,
-            log_bin_off,
-            job,
-            &mut outcome,
-        )
-    } else {
-        import_pg(input, &mut out, req, &skip, job, &mut outcome)
-    };
-    if result.is_ok() {
-        job.phase(
-            "finishing",
-            "Everything sent; waiting for the server to finish",
-        );
-    }
-    let Out { mut w, marks, .. } = out;
-    let flushed = w.flush();
-    drop(w);
-    if result.is_err() && job.cancelled() {
-        let _ = child.kill();
-    }
-    let status = child.wait().map_err(|err| err.to_string())?;
+    // Progress comes from the server (docker exec buffers what is sent): tables created and the
+    // table being loaded.
+    let done = AtomicBool::new(false);
+    let total = (a.tables.len() as u64 + a.views).max(1);
+    let (result, status, marks, flushed) = std::thread::scope(|scope| {
+        scope.spawn(|| server_progress(e, req, target, total, job, home, &done));
+        let result = if e.kind == "mysql" {
+            import_mysql(
+                input,
+                &mut out,
+                req,
+                &skip,
+                &accounts,
+                log_bin_off,
+                job,
+                &mut outcome,
+            )
+        } else {
+            import_pg(input, &mut out, req, &skip, job, &mut outcome)
+        };
+        let Out { mut w, marks, .. } = out;
+        let flushed = w.flush();
+        drop(w);
+        if result.is_err() && job.cancelled() {
+            let _ = child.kill();
+        }
+        let status = child.wait();
+        done.store(true, Ordering::Relaxed);
+        (result, status, marks, flushed)
+    });
+    let status = status.map_err(|err| err.to_string())?;
     // Give the stderr reader a moment to drain.
     std::thread::sleep(Duration::from_millis(100));
     let text = stderr.lock().map(|s| s.clone()).unwrap_or_default();
@@ -2362,6 +2581,11 @@ pub fn restore(req: &Request, e: &Endpoint, job: &Job, home: &Path) -> Result<Ou
     result?;
     flushed.map_err(|err| err.to_string())?;
     job.phase("checking", "Checking the result");
+    let drop_marker = match e.kind {
+        "mysql" => format!("DROP TABLE IF EXISTS `{MARKER}`"),
+        _ => format!("DROP TABLE IF EXISTS public.{MARKER}"),
+    };
+    query(e, req, Some(target), &drop_marker, home)?;
     let count = match e.kind {
         "mysql" => query(
             e,
@@ -2381,8 +2605,163 @@ pub fn restore(req: &Request, e: &Endpoint, job: &Job, home: &Path) -> Result<Ou
         ),
     };
     outcome.tables_in_database = count.ok().and_then(|c| c.trim().parse().ok());
+    outcome.tables_without_data = {
+        let mut t = outcome.tables_without_data.clone();
+        for name in &skip_list {
+            if !t.contains(name) {
+                t.push(name.clone());
+            }
+        }
+        t.sort();
+        t
+    };
+    if req.run_hooks
+        && let Some((folder, project, s)) = &spec
+        && !s.after_restore.is_empty()
+    {
+        job.phase("after", &format!("after_restore ({project})"));
+        match run_hooks(&s.after_restore, folder, &hook_env, job) {
+            Ok(()) => outcome.hooks.extend(s.after_restore.iter().cloned()),
+            Err(err) => {
+                job.log(&format!(
+                    "after_restore failed: {err} (the data is restored)"
+                ));
+                outcome.after_restore_error = Some(err);
+            }
+        }
+    }
     outcome.seconds = started.elapsed().as_secs();
     Ok(outcome)
+}
+
+/// Every 1.5 s while the client imports: tables already in the target and the statement it runs.
+fn server_progress(
+    e: &Endpoint,
+    req: &Request,
+    target: &str,
+    total: u64,
+    job: &Job,
+    home: &Path,
+    done: &AtomicBool,
+) {
+    let (sql, sep) = match e.kind {
+        "mysql" => (
+            format!(
+                "SELECT (SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = '{target}'), IFNULL((SELECT LEFT(REPLACE(REPLACE(INFO, '\\n', ' '), '\\t', ' '), 300) FROM information_schema.PROCESSLIST WHERE DB = '{target}' AND COMMAND = 'Query' AND ID <> CONNECTION_ID() LIMIT 1), '')"
+            ),
+            '\t',
+        ),
+        _ => (
+            format!(
+                "select (select count(*) from information_schema.tables where table_schema not in ('pg_catalog','information_schema')), coalesce((select replace(left(query, 300), E'\\n', ' ') from pg_stat_activity where datname = '{target}' and pid <> pg_backend_pid() and state = 'active' limit 1), '')"
+            ),
+            '|',
+        ),
+    };
+    loop {
+        for _ in 0..15 {
+            if done.load(Ordering::Relaxed) {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        let database = if e.kind == "mysql" {
+            None
+        } else {
+            Some(target)
+        };
+        let Ok(out) = query(e, req, database, &sql, home) else {
+            continue;
+        };
+        let line = out.lines().next().unwrap_or("");
+        let (count, info) = line.split_once(sep).unwrap_or((line, ""));
+        // Less the restore's own marker table.
+        let created = count.trim().parse::<u64>().unwrap_or(0).saturating_sub(1);
+        let table = if info.trim().is_empty() {
+            None
+        } else if e.kind == "mysql" {
+            classify_mysql(info.as_bytes()).objects.first().cloned()
+        } else {
+            classify_pg(info.as_bytes()).objects.first().cloned()
+        };
+        let fraction = (created as f64 / total as f64).min(0.99);
+        job.set(|s| {
+            s.fraction = s.fraction.max(fraction);
+            if table.is_some() {
+                s.table = table;
+            }
+        });
+    }
+}
+impl Request {
+    /// Only the credentials, for queries outside a restore.
+    pub(crate) fn credentials(user: Option<&str>, password: Option<&str>) -> Request {
+        Request {
+            file: String::new(),
+            target: String::new(),
+            mode: Mode::Create,
+            skip_data: None,
+            drop_triggers: false,
+            drop_owners: true,
+            snapshot_first: false,
+            run_hooks: false,
+            kill_connections: false,
+            user: user.map(str::to_string),
+            password: password.map(str::to_string),
+        }
+    }
+}
+/// Other sessions connected to `database` (an app, its workers, a GUI).
+pub fn sessions(
+    e: &Endpoint,
+    database: &str,
+    user: Option<&str>,
+    password: Option<&str>,
+    home: &Path,
+) -> Result<u64, String> {
+    if !safe_word(database) {
+        return Err("invalid database name".into());
+    }
+    let req = Request {
+        file: String::new(),
+        target: database.into(),
+        mode: Mode::Create,
+        skip_data: None,
+        drop_triggers: false,
+        drop_owners: true,
+        snapshot_first: false,
+        run_hooks: false,
+        kill_connections: false,
+        user: user.map(str::to_string),
+        password: password.map(str::to_string),
+    };
+    let sql = match e.kind {
+        "mysql" => format!(
+            "SELECT COUNT(*) FROM information_schema.PROCESSLIST WHERE DB = '{database}' AND ID <> CONNECTION_ID()"
+        ),
+        _ => format!(
+            "select count(*) from pg_stat_activity where datname = '{database}' and pid <> pg_backend_pid()"
+        ),
+    };
+    query(e, &req, None, &sql, home)?
+        .trim()
+        .parse()
+        .map_err(|_| "unexpected answer".to_string())
+}
+/// In the target while a restore runs; dropped when it succeeds (left behind it says the
+/// database is incomplete).
+pub const MARKER: &str = "__corescope_restore_incomplete";
+fn marker_name(file: &str) -> String {
+    Path::new(file)
+        .file_name()
+        .map(|n| {
+            n.to_string_lossy()
+                .chars()
+                .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+                .take(200)
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// Feeds a MySQL dump to the client, filtered.
@@ -2407,7 +2786,6 @@ fn import_mysql<W: Write>(
     let mut pending_bytes = 0usize;
     let mut pending = 0u32;
     let mut skipped_tables: HashSet<String> = HashSet::new();
-    let mut last = Instant::now();
     let mut table: Option<String> = None;
     while let Some(item) = s.next_item()? {
         job.check()?;
@@ -2466,11 +2844,7 @@ fn import_mysql<W: Write>(
                 job.log(&format!("Table {o}"));
             }
             table = object.clone();
-            let f = s.src.r.fraction();
-            job.set(|st| {
-                st.table = object.clone();
-                st.fraction = f;
-            });
+            job.set(|st| st.table = object.clone());
         }
         let leading = newlines_before_code(&text);
         out.at(line, leading);
@@ -2486,11 +2860,6 @@ fn import_mysql<W: Write>(
             out.put(b"\n").map_err(io)?;
             pending = 0;
             pending_bytes = 0;
-        }
-        if last.elapsed() > Duration::from_millis(200) {
-            let f = s.src.r.fraction();
-            job.set(|st| st.fraction = f);
-            last = Instant::now();
         }
     }
     out.put(b"COMMIT").map_err(io)?;
@@ -2516,7 +2885,6 @@ fn import_pg<W: Write>(
     let mut s = PgScanner::new(input, LIMIT);
     let mut skipping_copy = false;
     let mut skipped_tables: HashSet<String> = HashSet::new();
-    let mut last = Instant::now();
     let mut table: Option<String> = None;
     while let Some(item) = s.next_item()? {
         job.check()?;
@@ -2581,11 +2949,7 @@ fn import_pg<W: Write>(
                         job.log(&format!("Table {o}"));
                     }
                     table = object.clone();
-                    let f = s.src.r.fraction();
-                    job.set(|st| {
-                        st.table = object.clone();
-                        st.fraction = f;
-                    });
+                    job.set(|st| st.table = object.clone());
                 }
                 let leading = newlines_before_code(&text);
                 out.at(line, leading);
@@ -2594,11 +2958,6 @@ fn import_pg<W: Write>(
                 outcome.statements += 1;
             }
             Item::Delimiter(_) => {}
-        }
-        if last.elapsed() > Duration::from_millis(200) {
-            let f = s.src.r.fraction();
-            job.set(|st| st.fraction = f);
-            last = Instant::now();
         }
     }
     s.src.r.finish()?;
@@ -2631,6 +2990,10 @@ pub struct JobStatus {
     pub log_file: Option<String>,
     /// The target was dropped or created: a failure may leave it incomplete.
     pub database_touched: bool,
+    /// The server a restore writes to (label, container or port).
+    pub server: Option<String>,
+    pub container: Option<String>,
+    pub port: Option<u16>,
 }
 pub struct Job {
     status: Mutex<JobStatus>,
@@ -2781,13 +3144,14 @@ fn finish(job: &Job, result: Result<serde_json::Value, String>) {
             }
         }
     }
-    job.set(|s| {
+    let record = job.log_file.as_ref().map(|l| l.with_extension("json"));
+    let ended = |s: &mut JobStatus, result: &Result<serde_json::Value, String>| {
         s.ended = Some(crate::now() as i64);
         s.fraction = if result.is_ok() { 1.0 } else { s.fraction };
         match result {
             Ok(v) => {
                 s.state = "succeeded".into();
-                s.result = Some(v);
+                s.result = Some(v.clone());
             }
             Err(e) => {
                 s.state = if cancelled {
@@ -2795,10 +3159,44 @@ fn finish(job: &Job, result: Result<serde_json::Value, String>) {
                 } else {
                     "failed".into()
                 };
-                s.error = Some(e);
+                s.error = Some(e.clone());
             }
         }
-    });
+    };
+    // The record first (a CLI waiting on this job exits as soon as it ends).
+    if let Some(path) = record {
+        let mut st = job.snapshot();
+        ended(&mut st, &result);
+        st.log.clear();
+        if let Ok(json) = serde_json::to_vec_pretty(&st) {
+            let _ = std::fs::write(path, json);
+        }
+    }
+    job.set(|s| ended(s, &result));
+}
+/// Past restores, newest first (a server's when `container` or `port` is given).
+pub fn history(home: &Path, container: Option<&str>, port: Option<u16>) -> Vec<serde_json::Value> {
+    let logs = home.join("Library/Application Support/CoreScope/logs");
+    let mut out: Vec<serde_json::Value> = std::fs::read_dir(&logs)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| {
+            let n = e.file_name().to_string_lossy().into_owned();
+            n.starts_with("restore-") && n.ends_with(".json")
+        })
+        .filter_map(|e| {
+            serde_json::from_slice::<serde_json::Value>(&std::fs::read(e.path()).ok()?).ok()
+        })
+        .filter(|v| match (container, port) {
+            (Some(c), _) => v["container"].as_str() == Some(c),
+            (None, Some(p)) => v["port"].as_u64() == Some(p as u64) && v["container"].is_null(),
+            _ => true,
+        })
+        .collect();
+    out.sort_by_key(|v| std::cmp::Reverse(v["started"].as_i64().unwrap_or(0)));
+    out.truncate(30);
+    out
 }
 fn new_id(kind: &str) -> String {
     static N: AtomicU64 = AtomicU64::new(0);
@@ -2844,6 +3242,11 @@ pub fn start_restore(req: Request, e: Endpoint, home: PathBuf) -> Result<String,
         Some(req.target.clone()),
         Some(log_file),
     ));
+    job.set(|s| {
+        s.server = Some(e.label.clone());
+        s.container = e.container.clone();
+        s.port = Some(e.port);
+    });
     std::thread::spawn(move || {
         job.log(&format!(
             "Restore {} into {} ({}, {:?}); without data: {}",
@@ -2851,10 +3254,10 @@ pub fn start_restore(req: Request, e: Endpoint, home: PathBuf) -> Result<String,
             req.target,
             e.label,
             req.mode,
-            if req.skip_data.is_empty() {
-                "none".into()
-            } else {
-                req.skip_data.join(", ")
+            match &req.skip_data {
+                None => "the project's defaults".into(),
+                Some(l) if l.is_empty() => "none".into(),
+                Some(l) => l.join(", "),
             }
         ));
         let r = restore(&req, &e, &job, &home).and_then(|o| {

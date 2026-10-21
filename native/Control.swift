@@ -214,7 +214,7 @@ enum ControlAPI {
       ])
     case "db.restore":
       var request: [String: Any] = ["op": "dump_restore"]
-      for key in ["file", "target", "mode", "skip_data", "drop_triggers", "drop_owners", "snapshot_first"] {
+      for key in ["file", "target", "mode", "skip_data", "drop_triggers", "drop_owners", "snapshot_first", "run_hooks", "kill_connections"] {
         if let v = args[key] { request[key] = v }
       }
       let server = args["database"]
