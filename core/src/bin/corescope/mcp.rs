@@ -96,8 +96,10 @@ fn tool(name: &str, description: &str, properties: Value, required: &[&str]) -> 
                            "destructiveHint": destructive, "openWorldHint": false}})
 }
 /// Tools that stop, delete or remove things; hosts ask the user before running them.
-const DESTRUCTIVE: [&str; 17] = [
+const DESTRUCTIVE: [&str; 19] = [
     "remove_volumes",
+    "restore_dump",
+    "cancel_restore",
     "project_git_discard",
     "project_remove_unused",
     "db_restore",
@@ -566,6 +568,43 @@ fn app_tools() -> Vec<(
             vec![],
         ),
         (
+            "restore_dump",
+            "db.restore",
+            "Restore a dump (analyze_dump first) into a local MySQL/MariaDB or PostgreSQL: \
+             mode replace drops an existing database (after a snapshot, unless snapshot_first is \
+             false) and recreates it from the dump; mode create makes a new one and refuses an \
+             existing name. skip_data lists tables to create empty (their INSERT/COPY data left \
+             out, e.g. huge audit tables). The dump's own USE / CREATE DATABASE / \\connect are \
+             left out, so it lands in `target`; DEFINER accounts missing here become \
+             CURRENT_USER. Runs in the app (its card shows progress); returns a job for \
+             restore_status. Confirm the target, mode and skipped tables with the user first.",
+            json!({"file": {"type": "string"},
+                   "database": {"type": ["string", "integer"], "description": "the server: container name or host port, from list_databases"},
+                   "target": {"type": "string", "description": "database name (letters, digits, _)"},
+                   "mode": {"type": "string", "enum": ["replace", "create"]},
+                   "skip_data": {"type": "array", "items": {"type": "string"}},
+                   "drop_triggers": {"type": "boolean", "description": "do not create the dump's triggers"},
+                   "drop_owners": {"type": "boolean", "description": "PostgreSQL: leave out OWNER TO (default true)"},
+                   "snapshot_first": {"type": "boolean", "description": "default true"}}),
+            vec!["file", "database", "target", "mode"],
+        ),
+        (
+            "restore_status",
+            "db.restore_status",
+            "A dump restore's progress (phase, fraction, current table, log) and outcome; without \
+             job, the restores this run of the app knows.",
+            json!({"job": {"type": "string"}}),
+            vec![],
+        ),
+        (
+            "cancel_restore",
+            "db.restore_cancel",
+            "Stop a running dump restore. The target database is left incomplete: restore again, \
+             or put its snapshot back with db_restore.",
+            json!({"job": {"type": "string"}}),
+            vec!["job"],
+        ),
+        (
             "list_stuck_agents",
             "agents.stuck",
             "Busy Claude Code sessions and Codex threads and whether they look stuck: no transcript \
@@ -711,6 +750,19 @@ fn core_tools() -> Vec<Value> {
              for db_restore.",
             json!({"port": {"type": "integer"}, "database": {"type": "string"}}),
             &["port", "database"],
+        ),
+        tool(
+            "analyze_dump",
+            "Read a MySQL/MariaDB (mysqldump, mariadb-dump) or PostgreSQL (pg_dump plain) dump, \
+             .sql or .sql.gz, before restoring it: every table with its exact row count and data \
+             size (most rows first), views, triggers, routines, the source database, DEFINER \
+             accounts, and what a restore leaves out (USE, CREATE DATABASE, SET GLOBAL, grants). \
+             Refuses a truncated dump or one that holds several databases. Read-only; it can take \
+             a while for multi-GB files. Show the big tables to the user and ask which should come \
+             without data before calling restore_dump.",
+            json!({"file": {"type": "string", "description": "absolute path of the dump"},
+                   "kind": {"type": "string", "enum": ["mysql", "postgres"], "description": "when the dump does not say"}}),
+            &["file"],
         ),
         tool(
             "db_snapshots",
@@ -1094,6 +1146,23 @@ fn call(params: &Value) -> Value {
         "list_agent_sessions" => text(agents(&sample(true)), false),
         "list_orphans" => text(orphans(&sample(false)), false),
         "list_databases" => text(databases(&sample(false)), false),
+        "analyze_dump" => {
+            let request = json!({"op": "dump_analyze", "file": args["file"], "kind": args["kind"], "wait": true});
+            match corescope::db_tool(&request) {
+                Ok(mut v) => {
+                    // A dump with thousands of tables: the 300 largest, and the count.
+                    if let Some(t) = v["tables"].as_array_mut()
+                        && t.len() > 300
+                    {
+                        let n = t.len();
+                        t.truncate(300);
+                        v["tables_shown"] = json!(format!("300 of {n}, most rows first"));
+                    }
+                    text(v, false)
+                }
+                Err(e) => text(json!({"error": e}), true),
+            }
+        }
         "list_containers" => text(containers(), false),
         "list_volumes" => text(
             list_volumes(args["unused_only"].as_bool() == Some(true)),

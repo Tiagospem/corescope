@@ -9,6 +9,7 @@ pub mod dbsnapshot;
 pub mod devspace;
 pub mod diskgrowth;
 pub mod diskhealth;
+pub mod dumprestore;
 pub mod eject;
 pub mod exposure;
 pub mod git;
@@ -1764,6 +1765,20 @@ pub fn database_at(port: u16) -> Option<databases::Endpoint> {
         .into_iter()
         .find(|e| e.port == port)
 }
+/// A MySQL/PostgreSQL endpoint by container name (published or not) or by host port.
+pub fn database_endpoint(
+    container: Option<&str>,
+    port: Option<u16>,
+) -> Option<databases::Endpoint> {
+    let containers = containers::Reader::default().read(false).containers;
+    databases::detect(&processes_now(), &containers)
+        .into_iter()
+        .filter(|e| matches!(e.kind, "mysql" | "postgres"))
+        .find(|e| match container {
+            Some(c) => e.container.as_deref() == Some(c),
+            None => port == Some(e.port) && e.published,
+        })
+}
 /// Connection string for a local endpoint, without a password (apps ask for one if needed).
 pub fn dsn(e: &databases::Endpoint, database: Option<&str>) -> String {
     let db = database.unwrap_or("");
@@ -1791,7 +1806,9 @@ pub fn dsn(e: &databases::Endpoint, database: Option<&str>) -> String {
 }
 /// Database tools shared by the app, the CLI and MCP. `op`: keyspace {port, db, sample},
 /// flush {port, db}, databases {port}, dsn {port, database}, snapshots, snapshot {port,
-/// database}, restore {id}, delete {id}.
+/// database}, restore {id}, delete {id}; dumps: dump_analyze {file, kind, wait},
+/// dump_restore {container | port, file, target, mode, skip_data, drop_triggers, drop_owners,
+/// snapshot_first, user, password}, dump_job {job}, dump_jobs, dump_cancel {job}.
 pub fn db_tool(v: &serde_json::Value) -> Result<serde_json::Value, String> {
     use serde_json::json;
     let home = home();
@@ -1849,6 +1866,36 @@ pub fn db_tool(v: &serde_json::Value) -> Result<serde_json::Value, String> {
             let id = v["id"].as_str().ok_or("id is required")?;
             dbsnapshot::delete(&dir, id)?;
             Ok(json!({"deleted": id}))
+        }
+        // A dump: analysis (tables, rows, what is left out) and restore jobs.
+        "dump_analyze" => {
+            let file = v["file"].as_str().ok_or("file is required")?;
+            let hint = v["kind"].as_str();
+            if v["wait"].as_bool().unwrap_or(false) {
+                Ok(json!(dumprestore::analyze_cached(
+                    std::path::Path::new(file),
+                    hint,
+                    None
+                )?))
+            } else {
+                Ok(
+                    json!({"job": dumprestore::start_analyze(file.into(), hint.map(str::to_string))}),
+                )
+            }
+        }
+        "dump_restore" => {
+            let e = database_endpoint(v["container"].as_str(), port)
+                .ok_or("no local MySQL/PostgreSQL with that container or port")?;
+            let req: dumprestore::Request =
+                serde_json::from_value(v.clone()).map_err(|e| format!("invalid request: {e}"))?;
+            Ok(json!({"job": dumprestore::start_restore(req, e, home.clone())?}))
+        }
+        "dump_job" => dumprestore::status(v["job"].as_str().unwrap_or(""))
+            .map(|s| json!(s))
+            .ok_or_else(|| "no such job".to_string()),
+        "dump_jobs" => Ok(json!(dumprestore::all())),
+        "dump_cancel" => {
+            Ok(json!({"cancelled": dumprestore::cancel(v["job"].as_str().unwrap_or(""))}))
         }
         _ => Err("unknown operation".into()),
     }

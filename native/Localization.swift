@@ -1758,4 +1758,70 @@ private let entries = """
   Copiar comando ¦ Copy command ¦ Copiar comando
   %@ rodando ¦ %@ running ¦ %@ en ejecución
   Rodando: clique para ver a saída ¦ Running: click to see the output ¦ En ejecución: haz clic para ver la salida
+  %@ DEFINER → CURRENT_USER ¦ %@ DEFINER → CURRENT_USER ¦ %@ DEFINER → CURRENT_USER
+  %@ de %@ tabelas com dados · %@ linhas · %@ a importar ¦ %@ of %@ tables with data · %@ rows · %@ to import ¦ %@ de %@ tablas con datos · %@ filas · %@ a importar
+  %@ instruções em %@ ¦ %@ statements in %@ ¦ %@ instrucciones en %@
+  %@ já existe: escolha substituir, ou outro nome. ¦ %@ already exists: choose replace, or another name. ¦ %@ ya existe: elige reemplazar, u otro nombre.
+  %@ linhas ¦ %@ rows ¦ %@ filas
+  %@ restaurado ¦ %@ restored ¦ %@ restaurada
+  %@ rotinas ¦ %@ routines ¦ %@ rutinas
+  %@ tabelas ¦ %@ tables ¦ %@ tablas
+  %@ tabelas no banco ¦ %@ tables in the database ¦ %@ tablas en la base
+  %@ tabelas sem dados (%@ linhas) ¦ %@ tables without data (%@ rows) ¦ %@ tablas sin datos (%@ filas)
+  %@ triggers ¦ %@ triggers ¦ %@ triggers
+  %@ views ¦ %@ views ¦ %@ vistas
+  A restauração continua; o card do banco mostra o progresso. ¦ The restore goes on; the database's card shows its progress. ¦ La restauración sigue; la tarjeta de la base muestra el progreso.
+  A restauração falhou ¦ The restore failed ¦ La restauración falló
+  Aplicar ¦ Apply ¦ Aplicar
+  Banco ¦ Database ¦ Base de datos
+  Cancelar restauração ¦ Cancel restore ¦ Cancelar restauración
+  Conferindo… ¦ Checking… ¦ Comprobando…
+  Criar %@ ¦ Create %@ ¦ Crear %@
+  Criar um banco novo ¦ Create a new database ¦ Crear una base nueva
+  DEFINER de contas que não existem aqui vira CURRENT_USER: %@ ¦ DEFINER accounts that do not exist here become CURRENT_USER: %@ ¦ DEFINER de cuentas que no existen aquí pasa a CURRENT_USER: %@
+  Dados por tabela ¦ Data per table ¦ Datos por tabla
+  Deixa de fora ALTER … OWNER TO: os papéis de produção raramente existem aqui. ¦ Leaves out ALTER … OWNER TO: production roles rarely exist here. ¦ Deja fuera ALTER … OWNER TO: los roles de producción rara vez existen aquí.
+  Dump do banco atual antes de apagá-lo: dá para voltar em Snapshots. ¦ A dump of the current database before it is dropped: you can go back from Snapshots. ¦ Un dump de la base actual antes de borrarla: puedes volver desde Snapshots.
+  Dê um nome ao banco novo. ¦ Name the new database. ¦ Ponle nombre a la base nueva.
+  Escolha o banco a substituir. ¦ Choose the database to replace. ¦ Elige la base a reemplazar.
+  Escolha o dump ¦ Choose the dump ¦ Elige el dump
+  Escolha um dump .sql ou .sql.gz do mysqldump, mariadb-dump ou pg_dump (formato texto). Ele é lido antes de qualquer mudança: tabelas, linhas, triggers e o que fica de fora. ¦ Choose a .sql or .sql.gz dump from mysqldump, mariadb-dump or pg_dump (plain format). It is read before anything changes: tables, rows, triggers and what is left out. ¦ Elige un dump .sql o .sql.gz de mysqldump, mariadb-dump o pg_dump (formato texto). Se lee antes de cualquier cambio: tablas, filas, triggers y lo que queda fuera.
+  Escolher arquivo… ¦ Choose file… ¦ Elegir archivo…
+  Fica de fora: %@ ¦ Left out: %@ ¦ Queda fuera: %@
+  Filtrar tabelas ¦ Filter tables ¦ Filtrar tablas
+  Ignorar donos ¦ Ignore owners ¦ Ignorar dueños
+  Importando… ¦ Importing… ¦ Importando…
+  Lendo o dump… ¦ Reading the dump… ¦ Leyendo el dump…
+  Nenhuma ¦ None ¦ Ninguna
+  Nome do banco novo ¦ New database name ¦ Nombre de la base nueva
+  Nova restauração ¦ New restore ¦ Nueva restauración
+  Não cria as %@ triggers do dump (auditoria de produção, por exemplo). ¦ Does not create the dump's %@ triggers (production auditing, for example). ¦ No crea los %@ triggers del dump (auditoría de producción, por ejemplo).
+  O banco %@ pode ter ficado incompleto: restaure de novo, ou volte o snapshot em Snapshots. ¦ The database %@ may be incomplete: restore again, or put its snapshot back from Snapshots. ¦ La base %@ puede haber quedado incompleta: restaura de nuevo, o vuelve el snapshot desde Snapshots.
+  O banco %@ é apagado e recriado a partir do dump, sem snapshot: o conteúdo atual se perde. ¦ The database %@ is dropped and recreated from the dump, without a snapshot: its current content is lost. ¦ La base %@ se borra y se recrea desde el dump, sin snapshot: el contenido actual se pierde.
+  O banco %@ é apagado e recriado a partir do dump. Antes, um snapshot dele vai para Snapshots. ¦ The database %@ is dropped and recreated from the dump. A snapshot of it goes to Snapshots first. ¦ La base %@ se borra y se recrea desde el dump. Antes, un snapshot suyo va a Snapshots.
+  Preparando o banco… ¦ Preparing the database… ¦ Preparando la base…
+  Restaurando em %@ ¦ Restoring into %@ ¦ Restaurando en %@
+  Restaurar dump aqui… ¦ Restore a dump here… ¦ Restaurar un dump aquí…
+  Restaurar dump em %@ ¦ Restore a dump into %@ ¦ Restaurar un dump en %@
+  Restaurar dump… ¦ Restore dump… ¦ Restaurar dump…
+  Restauração cancelada ¦ Restore cancelled ¦ Restauración cancelada
+  Sem dados acima de ¦ No data above ¦ Sin datos por encima de
+  Sem triggers ¦ Without triggers ¦ Sin triggers
+  Snapshot antes ¦ Snapshot first ¦ Snapshot antes
+  Snapshot antes de substituir… ¦ Snapshot before replacing… ¦ Snapshot antes de reemplazar…
+  Substituir ¦ Replace ¦ Reemplazar
+  Substituir %@? ¦ Replace %@? ¦ ¿Reemplazar %@?
+  Substituir %@… ¦ Replace %@… ¦ Reemplazar %@…
+  Substituir um banco existente ¦ Replace an existing database ¦ Reemplazar una base existente
+  Todas ¦ All ¦ Todas
+  Trocar ¦ Change ¦ Cambiar
+  Um dump .sql / .sql.gz (de produção, por exemplo) num banco existente ou novo, escolhendo quais tabelas vêm sem dados. ¦ A .sql / .sql.gz dump (from production, for example) into an existing or new database, choosing which tables come without data. ¦ Un dump .sql / .sql.gz (de producción, por ejemplo) en una base existente o nueva, eligiendo qué tablas vienen sin datos.
+  Use letras, números e _ (até 64). ¦ Use letters, digits and _ (up to 64). ¦ Usa letras, números y _ (hasta 64).
+  Ver log ¦ Show log ¦ Ver log
+  do banco %@ ¦ from database %@ ¦ de la base %@
+  linhas ¦ rows ¦ filas
+  sem marca = criada vazia ¦ unchecked = created empty ¦ sin marca = se crea vacía
+  snapshot antes: %@ ¦ snapshot first: %@ ¦ snapshot antes: %@
+  tabela %@ ¦ table %@ ¦ tabla %@
+  Tudo enviado; o servidor está terminando… ¦ Everything sent; the server is finishing… ¦ Todo enviado; el servidor está terminando…
   """

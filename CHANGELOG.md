@@ -11,6 +11,16 @@ section as the GitHub release notes.
 ## [Unreleased]
 
 ### Added
+- **Databases › restore a dump**: a mysqldump / mariadb-dump / pg_dump (plain) dump, `.sql` or
+  `.sql.gz`, into an existing database (replaced after a snapshot) or a new one. It is analysed first
+  — tables with exact row counts and sizes, views, triggers, routines, definers; truncated,
+  multi-database or cross-database dumps are refused — and you choose which tables come without
+  data (or *No data above N rows*), and whether to leave out triggers / owners. Streamed into the
+  server's client inside the container with its credentials, in batched transactions; the dump's
+  USE / CREATE DATABASE / \connect, SET GLOBAL and grants are left out, missing DEFINER accounts
+  become CURRENT_USER, max_allowed_packet is raised when needed. Progress, cancel and a log that
+  names the dump line of an error. CLI `db analyze` / `db import`; MCP `analyze_dump`,
+  `restore_dump`, `restore_status`, `cancel_restore`.
 - **Environment › recent runs**: every mode start/stop and action keeps its last 5 logs (with the
   exit code appended). The environment card lists them, *Show output* next to a status error opens
   the latest one, and logs open in a window that follows the run, marks errors and finds with ⌘F.

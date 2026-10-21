@@ -16,6 +16,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   /// Only one CoreScope runs at a time: a second launch (another copy or build of the app)
   /// reopens the running one, which shows its window, and quits before showing anything.
   func applicationWillFinishLaunching(_ notification: Notification) {
+    // A pipe whose reader went away (a client that stopped on an error, gzip closed after the
+    // first bytes of a dump) must be a write error, not the end of the app.
+    signal(SIGPIPE, SIG_IGN)
     guard let id = Bundle.main.bundleIdentifier,
       let running = NSRunningApplication.runningApplications(withBundleIdentifier: id)
         .first(where: { $0.processIdentifier != getpid() && !$0.isTerminated })

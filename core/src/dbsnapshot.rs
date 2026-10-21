@@ -59,7 +59,7 @@ pub fn docker_cli(home: &Path) -> Option<PathBuf> {
     .into_iter()
     .find(|p| p.is_file())
 }
-fn host_tool(names: &[&str]) -> Option<PathBuf> {
+pub(crate) fn host_tool(names: &[&str]) -> Option<PathBuf> {
     let dirs = [
         "/opt/homebrew/bin",
         "/usr/local/bin",

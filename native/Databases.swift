@@ -140,6 +140,7 @@ private struct DatabaseCard: View {
   let db: DatabaseItem
   @ViewState private var analyzing: Int?
   @ViewState private var askPassword = false
+  @ObservedObject var restores = DumpRestoreStore.shared
   @ViewBuilder private var viaNote: some View {
     switch db.via {
     case "container":
@@ -214,8 +215,14 @@ private struct DatabaseCard: View {
       // page itself cannot log in.
       if db.kind != "redis" && (db.status == "ok" || db.container != nil) {
         Divider()
+        DumpRestoreBanner(db: db)
         DatabaseSnapshotsSection(db: db)
       }
+    }
+    .sheet(
+      isPresented: Binding(get: { restores.presenting?.db == db.id }, set: { if !$0 { restores.presenting = nil } })
+    ) {
+      DumpRestoreSheet(db: db, preselect: restores.presenting?.preselect) { restores.presenting = nil }
     }
     .sheet(item: Binding(get: { analyzing.map(RedisDB.init) }, set: { analyzing = $0?.id })) {
       RedisKeyspaceSheet(db: db, number: $0.id)
@@ -247,6 +254,11 @@ private struct DatabaseCard: View {
         ForEach(top, id: \.self) { s in
           HStack(spacing: 8) {
             Text(s.name).font(.callout).lineLimit(1).frame(width: 220, alignment: .leading)
+              .contextMenu {
+                if db.kind != "redis" && (db.status == "ok" || db.container != nil) {
+                  Button(L("Restaurar dump aqui…")) { DumpRestoreStore.shared.present(db, preselect: s.name) }
+                }
+              }
             MeterBar(fraction: (s.bytes ?? s.keys ?? 0) / largest, color: Tint.brand.opacity(0.7)).frame(height: 5)
             Text(s.keys.map { L("%@ chaves", "\(Int($0))") } ?? s.bytes.map(diskBytes) ?? "—")
               .font(.caption).foregroundStyle(.secondary).monospacedDigit().frame(width: 90, alignment: .trailing)
