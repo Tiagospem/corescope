@@ -15,6 +15,9 @@ section as the GitHub release notes.
   "warning" lingers while half the memory is free; it now counts only with 35% or less available
   ("critical" always counts). A waiting action says so on its chip and row (*waiting for room:*
   and why) and *Run now* skips the wait.
+- **An environment stuck on a busy port**: when a status error names a port ("Port 19091 in use"),
+  the card shows who listens on it (marked when orphaned) with Terminate, so a process left by an
+  earlier start no longer blocks the environment until it is found by hand.
 
 ## [0.12.0] - 2026-10-21
 

@@ -339,12 +339,15 @@ import Foundation
     precondition(!looksLikeTime("8000") && !looksLikeTime("redis") && !looksLikeTime("14"))
     precondition(cleanLogText("\u{1B}[32m✓ built\u{1B}[0m\r\nok") == "✓ built\nok", "ANSI colors and CRLF")
     precondition(cleanLogText("10%\r50%\r100%\ndone") == "100%\ndone", "progress kept at its last state")
+    precondition(portsMentioned("Porta 19091 ocupada por outro processo; revamp-api não foi iniciado.") == [19091])
+    precondition(portsMentioned("port 3000 in use, also 127.0.0.1:8080 and port 3000") == [3000, 8080])
+    precondition(portsMentioned("exited with 1 at 12:30") == [] && portsMentioned("report 2026") == [], "times and words ending in port are not ports")
     precondition(movedOne(["a", "b", "c"], "b", up: true) == ["b", "a", "c"] && movedOne(["a", "b"], "a", up: true) == ["a", "b"])
     precondition(movedOne(["a", "b", "c"], "b", up: false) == ["a", "c", "b"] && movedOne(["a"], "x", up: false) == ["a"])
     precondition(orderedBySaved(["c", "a", "b", "d"], key: { $0 }, saved: ["b", "x", "a"]) == ["b", "a", "c", "d"], "saved first, the rest as given")
     precondition(logExitCode("x\n[CoreScope] exit 1\n") == 1 && logExitCode("[CoreScope] exit 0") == 0 && logExitCode("exit 3") == nil)
     print(
-      "32 native assertions passed: descendants, cycle, ordering, off-screen recovery, negative-origin monitor, forest roots, flatten, collapse, totals, ancestors, filter, formatting, container ports, shared ports, demo paths, debounce, sustained thresholds, new arrivals, port parsing, shortcut label, agent stalls, health targets, service states, shared containers, ssh stats, gate hook, machine alerts, failed unit explanations, service history, own cost, links, palette, Claude Desktop usage, limit pace, settings backup, performance audit, docker volumes, unused worktrees and branches, environment controller (bound checks, status, controller health, artifacts), run logs, reordering; plus settings JSON, Unicode escapes, status line install/chain, Claude limits, Claude /usage text, update versions, release notes, appcast"
+      "32 native assertions passed: descendants, cycle, ordering, off-screen recovery, negative-origin monitor, forest roots, flatten, collapse, totals, ancestors, filter, formatting, container ports, shared ports, demo paths, debounce, sustained thresholds, new arrivals, port parsing, shortcut label, agent stalls, health targets, service states, shared containers, ssh stats, gate hook, machine alerts, failed unit explanations, service history, own cost, links, palette, Claude Desktop usage, limit pace, settings backup, performance audit, docker volumes, unused worktrees and branches, environment controller (bound checks, status, controller health, artifacts), run logs, reordering, ports in errors; plus settings JSON, Unicode escapes, status line install/chain, Claude limits, Claude /usage text, update versions, release notes, appcast"
     )
     print(
       "token usage assertions passed: timestamps, formatting, Claude block dedupe, embedded entries, partial lines, long-line skip, fast/full parity, Codex repeats and forks"

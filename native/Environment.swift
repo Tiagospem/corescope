@@ -813,6 +813,25 @@ struct EnvironmentCard: View {
           .buttonStyle(.link).font(.caption)
           .help(L("A saída da última execução deste ambiente"))
         }
+        portHolders(s.errors.joined(separator: " "))
+      }
+    }
+  }
+
+  /// For an error that names a port: who listens on it, with Terminate (the usual confirmation
+  /// and protections). A process left by an earlier start keeps a port and blocks the next one.
+  @ViewBuilder private func portHolders(_ text: String) -> some View {
+    let processes = Monitor.shared.snapshot?.processes ?? []
+    ForEach(portsMentioned(text), id: \.self) { port in
+      if let p = processes.first(where: { $0.ports.contains { $0.port == port } }) {
+        HStack(spacing: 6) {
+          Image(systemName: "network").font(.caption).foregroundStyle(.secondary)
+          Text(L("porta %@: %@ (PID %@)", "\(port)", p.name, "\(p.pid)")).font(.caption).foregroundStyle(.secondary)
+          if let o = p.orphan { Badge(text: L("órfão"), color: .orange).help(L(o)) }
+          KillButton(process: p)
+        }
+        .padding(.leading, 18)
+        .help(p.path.isEmpty ? p.name : p.path)
       }
     }
   }

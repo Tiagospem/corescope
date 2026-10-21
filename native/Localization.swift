@@ -1876,6 +1876,7 @@ private let entries = """
   padrão ¦ default ¦ por defecto
   projeto ¦ project ¦ proyecto
   Limpar lista ¦ Clear list ¦ Vaciar lista
+  porta %@: %@ (PID %@) ¦ port %@: %@ (PID %@) ¦ puerto %@: %@ (PID %@)
   Ação pesada: espera a máquina ter folga (agents.wait_for_capacity do .corescope.yml). Rodar agora ignora a espera. ¦ A heavy action: it waits for the Mac to have room (agents.wait_for_capacity in .corescope.yml). Run now skips the wait. ¦ Acción pesada: espera a que la Mac tenga holgura (agents.wait_for_capacity del .corescope.yml). Ejecutar ahora omite la espera.
   Esperando folga: %@ (menu: Rodar agora) ¦ Waiting for room: %@ (menu: Run now) ¦ Esperando holgura: %@ (menú: Ejecutar ahora)
   Rodar agora ¦ Run now ¦ Ejecutar ahora
