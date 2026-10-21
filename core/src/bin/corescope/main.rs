@@ -41,6 +41,10 @@ USAGE:
   corescope db snapshot PORT DATABASE   dump a MySQL/PostgreSQL database (inside its container,
                                         with the container's own credentials) to a gzipped file
   corescope db snapshots | db restore ID   list snapshots / put a database back (asks first)
+  corescope db analyze FILE             a .sql / .sql.gz dump's tables, rows and what a restore leaves out
+  corescope db import FILE --into NAME --container C [--replace] [--skip t1,t2]
+                                        restore a dump into a new (or, --replace, existing) database;
+                                        --skip creates those tables empty; --drop-triggers, --no-snapshot
   corescope db redis PORT [--db N]      Redis memory by key prefix and keys without TTL (sampled)
   corescope db                          local MySQL/PostgreSQL/Redis: size, connections, slow
                                         and long-running queries (containers read inside, read-only)
@@ -188,6 +192,9 @@ fn main() {
         Some("space") => {
             let folders: Vec<std::path::PathBuf> = positional[1..].iter().map(Into::into).collect();
             print(json_out, space(&folders, !flag("--no-docker")))
+        }
+        Some("db") if matches!(positional.get(1).copied(), Some("analyze" | "import")) => {
+            db_dump(&args, &positional, json_out)
         }
         Some("db") if positional.len() > 1 => {
             let arg = |i: usize| positional.get(i).copied().unwrap_or("");
@@ -1317,6 +1324,108 @@ pub fn english(error: &str) -> String {
 }
 
 /// Asks on the terminal; false (refuse) when there is no terminal to ask in.
+/// `db analyze FILE` and `db import FILE --into NAME (--container C | --port P) [--replace]
+/// [--skip t1,t2] [--drop-triggers] [--no-snapshot] [--yes]`.
+fn db_dump(args: &[String], positional: &[&str], json_out: bool) -> i32 {
+    let value = |name: &str| {
+        args.iter()
+            .position(|a| a == name)
+            .and_then(|i| args.get(i + 1))
+            .cloned()
+    };
+    let flag = |name: &str| args.iter().any(|a| a == name);
+    let Some(file) = positional.get(2).map(|f| f.to_string()) else {
+        return fail(
+            json_out,
+            "usage: corescope db analyze FILE | db import FILE --into NAME --container C [--replace] [--skip t1,t2]",
+        );
+    };
+    let file = std::fs::canonicalize(&file)
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or(file);
+    if positional[1] == "analyze" {
+        return match corescope::db_tool(&json!({"op": "dump_analyze", "file": file, "wait": true}))
+        {
+            Err(e) => fail(json_out, &e),
+            Ok(v) if json_out => print(true, v),
+            Ok(v) => {
+                println!(
+                    "{} dump, {} tables, {} rows{}",
+                    v["dialect"].as_str().unwrap_or("?"),
+                    v["tables"].as_array().map_or(0, Vec::len),
+                    v["total_rows"],
+                    v["source_database"]
+                        .as_str()
+                        .map(|d| format!(", from database {d}"))
+                        .unwrap_or_default()
+                );
+                for t in v["tables"].as_array().into_iter().flatten().take(30) {
+                    println!(
+                        "{:>12} rows {:>10.1} MB  {}",
+                        t["rows"],
+                        t["data_bytes"].as_f64().unwrap_or(0.0) / 1e6,
+                        t["name"].as_str().unwrap_or("")
+                    );
+                }
+                0
+            }
+        };
+    }
+    let Some(target) = value("--into") else {
+        return fail(json_out, "--into NAME is required");
+    };
+    let replace = flag("--replace");
+    if replace
+        && !flag("--yes")
+        && !confirm(&format!(
+            "Replace the database {target} with {file}? Its current data is dropped (a snapshot is taken first unless --no-snapshot)"
+        ))
+    {
+        return 1;
+    }
+    let skip: Vec<String> = value("--skip")
+        .map(|s| {
+            s.split(',')
+                .map(|t| t.trim().to_string())
+                .filter(|t| !t.is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
+    let request = json!({
+        "op": "dump_restore", "file": file, "target": target,
+        "mode": if replace { "replace" } else { "create" },
+        "container": value("--container"),
+        "port": value("--port").and_then(|p| p.parse::<u16>().ok()),
+        "skip_data": skip, "drop_triggers": flag("--drop-triggers"),
+        "snapshot_first": !flag("--no-snapshot"),
+    });
+    let job = match corescope::db_tool(&request) {
+        Ok(v) => v["job"].as_str().unwrap_or("").to_string(),
+        Err(e) => return fail(json_out, &e),
+    };
+    let mut shown = 0;
+    loop {
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        let Ok(s) = corescope::db_tool(&json!({"op": "dump_job", "job": job})) else {
+            return fail(json_out, "the job disappeared");
+        };
+        let log = s["log"].as_array().cloned().unwrap_or_default();
+        if !json_out {
+            for line in log.iter().skip(shown) {
+                eprintln!("{}", line.as_str().unwrap_or(""));
+            }
+        }
+        shown = log.len();
+        if s["state"] != "running" {
+            return if s["state"] == "succeeded" {
+                print(json_out, s["result"].clone())
+            } else {
+                fail(json_out, s["error"].as_str().unwrap_or("failed"))
+            };
+        }
+    }
+}
+
 fn confirm(question: &str) -> bool {
     if !std::io::stdin().is_terminal() {
         eprintln!("refusing without --yes when stdin is not a terminal");

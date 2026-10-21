@@ -1736,4 +1736,144 @@ private let entries = """
   Editor e terminal ¦ Editor and terminal ¦ Editor y terminal
   Abrir pastas no terminal com ¦ Open folders in the terminal with ¦ Abrir carpetas en la terminal con
   Usado pelo botão de terminal nos projetos, worktrees, processos e agentes. ¦ Used by the terminal button on projects, worktrees, processes and agents. ¦ Usado por el botón de terminal en proyectos, worktrees, procesos y agentes.
+  Ver saída ¦ Show output ¦ Ver salida
+  A saída da última execução deste ambiente ¦ The output of this environment's last run ¦ La salida de la última ejecución de este entorno
+  Nenhuma saída registrada para este ambiente. ¦ No output recorded for this environment. ¦ No hay salida registrada para este entorno.
+  Ver a saída ¦ Show the output ¦ Ver la salida
+  Execuções recentes ¦ Recent runs ¦ Ejecuciones recientes
+  Saída de cada início, parada e ação (as últimas %@ de cada) ¦ Output of every start, stop and action (the last %@ of each) ¦ Salida de cada inicio, parada y acción (las últimas %@ de cada una)
+  Nenhuma execução ainda. ¦ No runs yet. ¦ Aún no hay ejecuciones.
+  rodando desde %@ ¦ running since %@ ¦ en ejecución desde %@
+  ok ¦ ok ¦ ok
+  saída %@ ¦ exit %@ ¦ salida %@
+  sem resultado ¦ no result ¦ sin resultado
+  ao vivo ¦ live ¦ en vivo
+  Abrir no Console ¦ Open in Console ¦ Abrir en Consola
+  Mostrando o último 1 MB; o arquivo completo está no Finder. ¦ Showing the last 1 MB; the full file is in Finder. ¦ Mostrando el último 1 MB; el archivo completo está en el Finder.
+  Arraste para mudar a ordem ¦ Drag to change the order ¦ Arrastra para cambiar el orden
+  Mover para cima ¦ Move up ¦ Mover arriba
+  Mover para baixo ¦ Move down ¦ Mover abajo
+  ambiente parado ¦ environment stopped ¦ entorno detenido
+  %@ de %@ perfis iniciados ¦ %@ of %@ profiles started ¦ %@ de %@ perfiles iniciados
+  Copiar comando ¦ Copy command ¦ Copiar comando
+  %@ rodando ¦ %@ running ¦ %@ en ejecución
+  Rodando: clique para ver a saída ¦ Running: click to see the output ¦ En ejecución: haz clic para ver la salida
+  %@ DEFINER → CURRENT_USER ¦ %@ DEFINER → CURRENT_USER ¦ %@ DEFINER → CURRENT_USER
+  %@ de %@ tabelas com dados · %@ linhas · %@ a importar ¦ %@ of %@ tables with data · %@ rows · %@ to import ¦ %@ de %@ tablas con datos · %@ filas · %@ a importar
+  %@ instruções em %@ ¦ %@ statements in %@ ¦ %@ instrucciones en %@
+  %@ já existe: escolha substituir, ou outro nome. ¦ %@ already exists: choose replace, or another name. ¦ %@ ya existe: elige reemplazar, u otro nombre.
+  %@ linhas ¦ %@ rows ¦ %@ filas
+  %@ restaurado ¦ %@ restored ¦ %@ restaurada
+  %@ rotinas ¦ %@ routines ¦ %@ rutinas
+  %@ tabelas ¦ %@ tables ¦ %@ tablas
+  %@ tabelas no banco ¦ %@ tables in the database ¦ %@ tablas en la base
+  %@ tabelas sem dados (%@ linhas) ¦ %@ tables without data (%@ rows) ¦ %@ tablas sin datos (%@ filas)
+  %@ triggers ¦ %@ triggers ¦ %@ triggers
+  %@ views ¦ %@ views ¦ %@ vistas
+  A restauração continua; o card do banco mostra o progresso. ¦ The restore goes on; the database's card shows its progress. ¦ La restauración sigue; la tarjeta de la base muestra el progreso.
+  A restauração falhou ¦ The restore failed ¦ La restauración falló
+  Aplicar ¦ Apply ¦ Aplicar
+  Banco ¦ Database ¦ Base de datos
+  Cancelar restauração ¦ Cancel restore ¦ Cancelar restauración
+  Conferindo… ¦ Checking… ¦ Comprobando…
+  Criar %@ ¦ Create %@ ¦ Crear %@
+  Criar um banco novo ¦ Create a new database ¦ Crear una base nueva
+  DEFINER de contas que não existem aqui vira CURRENT_USER: %@ ¦ DEFINER accounts that do not exist here become CURRENT_USER: %@ ¦ DEFINER de cuentas que no existen aquí pasa a CURRENT_USER: %@
+  Dados por tabela ¦ Data per table ¦ Datos por tabla
+  Deixa de fora ALTER … OWNER TO: os papéis de produção raramente existem aqui. ¦ Leaves out ALTER … OWNER TO: production roles rarely exist here. ¦ Deja fuera ALTER … OWNER TO: los roles de producción rara vez existen aquí.
+  Dump do banco atual antes de apagá-lo: dá para voltar em Snapshots. ¦ A dump of the current database before it is dropped: you can go back from Snapshots. ¦ Un dump de la base actual antes de borrarla: puedes volver desde Snapshots.
+  Dê um nome ao banco novo. ¦ Name the new database. ¦ Ponle nombre a la base nueva.
+  Escolha o banco a substituir. ¦ Choose the database to replace. ¦ Elige la base a reemplazar.
+  Escolha o dump ¦ Choose the dump ¦ Elige el dump
+  Escolha um dump .sql ou .sql.gz do mysqldump, mariadb-dump ou pg_dump (formato texto). Ele é lido antes de qualquer mudança: tabelas, linhas, triggers e o que fica de fora. ¦ Choose a .sql or .sql.gz dump from mysqldump, mariadb-dump or pg_dump (plain format). It is read before anything changes: tables, rows, triggers and what is left out. ¦ Elige un dump .sql o .sql.gz de mysqldump, mariadb-dump o pg_dump (formato texto). Se lee antes de cualquier cambio: tablas, filas, triggers y lo que queda fuera.
+  Escolher arquivo… ¦ Choose file… ¦ Elegir archivo…
+  Fica de fora: %@ ¦ Left out: %@ ¦ Queda fuera: %@
+  Filtrar tabelas ¦ Filter tables ¦ Filtrar tablas
+  Ignorar donos ¦ Ignore owners ¦ Ignorar dueños
+  Importando… ¦ Importing… ¦ Importando…
+  Lendo o dump… ¦ Reading the dump… ¦ Leyendo el dump…
+  Nenhuma ¦ None ¦ Ninguna
+  Nome do banco novo ¦ New database name ¦ Nombre de la base nueva
+  Nova restauração ¦ New restore ¦ Nueva restauración
+  Não cria as %@ triggers do dump (auditoria de produção, por exemplo). ¦ Does not create the dump's %@ triggers (production auditing, for example). ¦ No crea los %@ triggers del dump (auditoría de producción, por ejemplo).
+  O banco %@ pode ter ficado incompleto: restaure de novo, ou volte o snapshot em Snapshots. ¦ The database %@ may be incomplete: restore again, or put its snapshot back from Snapshots. ¦ La base %@ puede haber quedado incompleta: restaura de nuevo, o vuelve el snapshot desde Snapshots.
+  O banco %@ é apagado e recriado a partir do dump, sem snapshot: o conteúdo atual se perde. ¦ The database %@ is dropped and recreated from the dump, without a snapshot: its current content is lost. ¦ La base %@ se borra y se recrea desde el dump, sin snapshot: el contenido actual se pierde.
+  O banco %@ é apagado e recriado a partir do dump. Antes, um snapshot dele vai para Snapshots. ¦ The database %@ is dropped and recreated from the dump. A snapshot of it goes to Snapshots first. ¦ La base %@ se borra y se recrea desde el dump. Antes, un snapshot suyo va a Snapshots.
+  Preparando o banco… ¦ Preparing the database… ¦ Preparando la base…
+  Restaurando em %@ ¦ Restoring into %@ ¦ Restaurando en %@
+  Restaurar dump aqui… ¦ Restore a dump here… ¦ Restaurar un dump aquí…
+  Restaurar dump em %@ ¦ Restore a dump into %@ ¦ Restaurar un dump en %@
+  Restaurar dump… ¦ Restore dump… ¦ Restaurar dump…
+  Restauração cancelada ¦ Restore cancelled ¦ Restauración cancelada
+  Sem dados acima de ¦ No data above ¦ Sin datos por encima de
+  Sem triggers ¦ Without triggers ¦ Sin triggers
+  Snapshot antes ¦ Snapshot first ¦ Snapshot antes
+  Snapshot antes de substituir… ¦ Snapshot before replacing… ¦ Snapshot antes de reemplazar…
+  Substituir ¦ Replace ¦ Reemplazar
+  Substituir %@? ¦ Replace %@? ¦ ¿Reemplazar %@?
+  Substituir %@… ¦ Replace %@… ¦ Reemplazar %@…
+  Substituir um banco existente ¦ Replace an existing database ¦ Reemplazar una base existente
+  Todas ¦ All ¦ Todas
+  Trocar ¦ Change ¦ Cambiar
+  Um dump .sql / .sql.gz (de produção, por exemplo) num banco existente ou novo, escolhendo quais tabelas vêm sem dados. ¦ A .sql / .sql.gz dump (from production, for example) into an existing or new database, choosing which tables come without data. ¦ Un dump .sql / .sql.gz (de producción, por ejemplo) en una base existente o nueva, eligiendo qué tablas vienen sin datos.
+  Use letras, números e _ (até 64). ¦ Use letters, digits and _ (up to 64). ¦ Usa letras, números y _ (hasta 64).
+  Ver log ¦ Show log ¦ Ver log
+  do banco %@ ¦ from database %@ ¦ de la base %@
+  linhas ¦ rows ¦ filas
+  sem marca = criada vazia ¦ unchecked = created empty ¦ sin marca = se crea vacía
+  snapshot antes: %@ ¦ snapshot first: %@ ¦ snapshot antes: %@
+  tabela %@ ¦ table %@ ¦ tabla %@
+  Tudo enviado; o servidor está terminando… ¦ Everything sent; the server is finishing… ¦ Todo enviado; el servidor está terminando…
+  %@ comandos do projeto ¦ %@ project commands ¦ %@ comandos del proyecto
+  %@ conexões encerradas ¦ %@ connections closed ¦ %@ conexiones cerradas
+  %@ em %@ ¦ %@ on %@ ¦ %@ en %@
+  %@ grandes (só linhas novas) ¦ %@ large (new rows only) ¦ %@ grandes (solo filas nuevas)
+  %@ ignoradas ¦ %@ ignored ¦ %@ ignoradas
+  A última restauração neste banco parou no meio: restaure de novo, ou volte o snapshot. ¦ The last restore into this database stopped half-way: restore again, or put its snapshot back. ¦ La última restauración en esta base se detuvo a medias: restaura de nuevo, o vuelve el snapshot.
+  ALTERADO ¦ UPDATED ¦ MODIFICADO
+  APAGADO ¦ DELETED ¦ BORRADO
+  Antes ¦ Before ¦ Antes
+  CRIADO ¦ CREATED ¦ CREADO
+  Coluna ¦ Column ¦ Columna
+  Comparar com %@ ¦ Compare with %@ ¦ Comparar con %@
+  Comparação com %@: %@ diferenças ¦ Compared with %@: %@ differences ¦ Comparación con %@: %@ diferencias
+  Copiar como JSON ¦ Copy as JSON ¦ Copiar como JSON
+  Depois ¦ After ¦ Después
+  Encerrar as %@ conexões abertas neste banco antes (app, workers, IDE) ¦ Close the %@ open connections to this database first (app, workers, IDE) ¦ Cerrar antes las %@ conexiones abiertas a esta base (app, workers, IDE)
+  Escolha uma alteração para ver os valores. ¦ Choose a change to see its values. ¦ Elige un cambio para ver sus valores.
+  Esquece as alterações mostradas; o monitor continua. ¦ Forgets the changes shown; the monitor keeps going. ¦ Olvida los cambios mostrados; el monitor sigue.
+  Filtrar ¦ Filter ¦ Filtrar
+  Filtrar tabela ou chave ¦ Filter table or key ¦ Filtrar tabla o clave
+  Ignoradas (%@) ¦ Ignored (%@) ¦ Ignoradas (%@)
+  Ignorar a tabela %@ ¦ Ignore the table %@ ¦ Ignorar la tabla %@
+  Lendo as tabelas… ¦ Reading the tables… ¦ Leyendo las tablas…
+  MUDOU ¦ CHANGED ¦ CAMBIÓ
+  Monitorar alterações ¦ Watch changes ¦ Vigilar cambios
+  Monitorar alterações em %@: linhas criadas, alteradas e apagadas enquanto você usa o app ¦ Watch changes in %@: rows created, updated and deleted while you use the app ¦ Vigilar cambios en %@: filas creadas, modificadas y borradas mientras usas la app
+  Monitorar alterações… ¦ Watch changes… ¦ Vigilar cambios…
+  Nada mudou desde o snapshot. ¦ Nothing changed since the snapshot. ¦ Nada cambió desde el snapshot.
+  Nenhum snapshot salvo ¦ No saved snapshot ¦ Ningún snapshot guardado
+  Não são lidas nem mostradas. As marcadas como padrão vêm do .corescope.yml (databases.<banco>.ignore_changes). ¦ Not read nor shown. The ones marked default come from .corescope.yml (databases.<name>.ignore_changes). ¦ No se leen ni se muestran. Las marcadas por defecto vienen del .corescope.yml (databases.<base>.ignore_changes).
+  Os dados foram restaurados, mas o after_restore falhou: %@ ¦ The data was restored, but after_restore failed: %@ ¦ Los datos se restauraron, pero after_restore falló: %@
+  Padrão do projeto ¦ Project default ¦ Por defecto del proyecto
+  Restauração em %@ ¦ Restore into %@ ¦ Restauración en %@
+  Restaurações ¦ Restores ¦ Restauraciones
+  Rodando after_restore… ¦ Running after_restore… ¦ Ejecutando after_restore…
+  Rodando before_restore… ¦ Running before_restore… ¦ Ejecutando before_restore…
+  Rodar os comandos de %@ (.corescope.yml) ¦ Run %@'s commands (.corescope.yml) ¦ Ejecutar los comandos de %@ (.corescope.yml)
+  Salvar o estado atual ¦ Save the current state ¦ Guardar el estado actual
+  Sem isso, o DROP espera até 30 s pelas conexões e falha se continuarem. ¦ Without it, the DROP waits up to 30 s for those connections and fails if they stay. ¦ Sin esto, el DROP espera hasta 30 s por las conexiones y falla si siguen.
+  Snapshot ¦ Snapshot ¦ Snapshot
+  Snapshot salvo: compare depois em Comparar com… ¦ Snapshot saved: compare later with Compare with… ¦ Snapshot guardado: compara después con Comparar con…
+  Tabelas ignoradas ¦ Ignored tables ¦ Tablas ignoradas
+  Use o app (um cadastro, um pedido…): as linhas criadas, alteradas e apagadas aparecem aqui. ¦ Use the app (a sign-up, an order…): rows created, updated and deleted show up here. ¦ Usa la app (un registro, un pedido…): las filas creadas, modificadas y borradas aparecen aquí.
+  Valor ¦ Value ¦ Valor
+  Voltar ao vivo ¦ Back to live ¦ Volver al vivo
+  antes: %@ ¦ before: %@ ¦ antes: %@
+  depois: %@ ¦ after: %@ ¦ después: %@
+  desde %@ ¦ since %@ ¦ desde %@
+  incompleto ¦ incomplete ¦ incompleta
+  padrão ¦ default ¦ por defecto
+  projeto ¦ project ¦ proyecto
+  Limpar lista ¦ Clear list ¦ Vaciar lista
   """

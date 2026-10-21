@@ -240,6 +240,28 @@ pub fn remove(file: &Path, id: &str) -> Result<(), String> {
     }
     save(file, &list)
 }
+/// Puts the listed projects (ids or names) first, in that order; the others keep their order
+/// after them. The list order is what the app, the floating panel, the menu bar and MCP show.
+pub fn reorder(file: &Path, keys: &[String]) -> Result<Vec<Project>, String> {
+    let list = load(file);
+    let mut out: Vec<Project> = Vec::with_capacity(list.len());
+    for key in keys {
+        let found = list.iter().find(|p| {
+            !out.iter().any(|o| o.id == p.id) && (p.id == *key || p.name.eq_ignore_ascii_case(key))
+        });
+        match found {
+            Some(p) => out.push(p.clone()),
+            None => return Err(format!("no registered project called {key}")),
+        }
+    }
+    for p in &list {
+        if !out.iter().any(|o| o.id == p.id) {
+            out.push(p.clone());
+        }
+    }
+    save(file, &out)?;
+    Ok(out)
+}
 fn fnv(s: &str) -> u64 {
     s.bytes().fold(0xcbf29ce484222325, |h, b| {
         (h ^ b as u64).wrapping_mul(0x100000001b3)
@@ -275,6 +297,36 @@ mod tests {
         assert_eq!(error_line(text, "something else entirely"), None);
     }
 
+    #[test]
+    fn reorder_puts_the_listed_first() {
+        let root = std::env::temp_dir().join(format!("corescope-reorder-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let file = root.join("projects.json");
+        let p = |id: &str, name: &str| Project {
+            id: id.into(),
+            name: name.into(),
+            folder: format!("/tmp/{id}"),
+            show_in_panel: false,
+            notify_minutes: None,
+            added: 0,
+        };
+        save(&file, &[p("a", "Alpha"), p("b", "Beta"), p("c", "Gamma")]).unwrap();
+        let ids = |l: Vec<Project>| l.into_iter().map(|p| p.id).collect::<Vec<_>>();
+        assert_eq!(
+            ids(reorder(&file, &["c".into(), "alpha".into()]).unwrap()),
+            ["c", "a", "b"],
+            "by id or name; the rest keep their order"
+        );
+        assert_eq!(ids(load(&file)), ["c", "a", "b"], "saved");
+        assert!(reorder(&file, &["zzz".into()]).is_err());
+        assert_eq!(
+            ids(load(&file)),
+            ["c", "a", "b"],
+            "an unknown one changes nothing"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
     #[test]
     fn default_names_add_template_and_registry() {
         let root = std::env::temp_dir().join(format!("corescope-projects-{}", std::process::id()));

@@ -10,6 +10,44 @@ section as the GitHub release notes.
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-10-21
+
+### Added
+- **Databases › watch changes**: a window per database that lists, while you use the app, rows
+  created (all values), updated (before/after, changed columns) and deleted, per table and
+  moment; ignore noisy tables (defaults from `.corescope.yml`, togglable in the window), clear,
+  snapshot and compare. No triggers or binlog: kept rows compared when the server says a table
+  was written (MySQL/MariaDB information_schema, PostgreSQL pg_stat). MCP `db_watch_*`.
+- **`.corescope.yml` `databases:`** — per database: `server`, `ignore_changes`, `skip_data`,
+  `before_restore` / `after_restore` commands (any stack).
+- **Restore a dump, safer**: other sessions on a replaced database are closed (or waited for
+  30 s), `before_restore` / `after_restore` run around it, the tables without data default to
+  the project's list and the last choice, a marker table flags an incomplete restore (*incomplete*
+  on the card), progress is read from the server, and each server has a restore history.
+- **Databases › restore a dump**: a mysqldump / mariadb-dump / pg_dump (plain) dump, `.sql` or
+  `.sql.gz`, into an existing database (replaced after a snapshot) or a new one. It is analysed first
+  — tables with exact row counts and sizes, views, triggers, routines, definers; truncated,
+  multi-database or cross-database dumps are refused — and you choose which tables come without
+  data (or *No data above N rows*), and whether to leave out triggers / owners. Streamed into the
+  server's client inside the container with its credentials, in batched transactions; the dump's
+  USE / CREATE DATABASE / \connect, SET GLOBAL and grants are left out, missing DEFINER accounts
+  become CURRENT_USER, max_allowed_packet is raised when needed. Progress, cancel and a log that
+  names the dump line of an error. CLI `db analyze` / `db import`; MCP `analyze_dump`,
+  `restore_dump`, `restore_status`, `cancel_restore`.
+- **Environment › recent runs**: every mode start/stop and action keeps its last 5 logs (with the
+  exit code appended). The environment card lists them, *Show output* next to a status error opens
+  the latest one, and logs open in a window that follows the run, marks errors and finds with ⌘F.
+  Action logs are on the Logs page too. MCP `environment_runs`.
+- **Reorder by dragging** the ≡ handle (or *Move up* / *Move down*): projects on the Projects page
+  (saved in `projects.json`, so the floating panel and menu bar follow; MCP `reorder_projects`)
+  and project sections on the Profiles page (MCP `set_setting profiles_order`).
+
+### Changed
+- **Profiles page, more compact**: each project section folds to one line that says what is in
+  use, and an app's actions are chips grouped by kind instead of one row each — the chip is the
+  button (▶ and the name), with the last result as a dot and output, artifact, cancel and the
+  command in its context menu. Action and run rows highlight end to end under the pointer.
+
 ## [0.11.0] - 2026-10-20
 
 ### Added
@@ -532,7 +570,8 @@ First public release.
   compact / standard / detailed layouts and in-panel controls.
 - English, Portuguese and Spanish; offline-only.
 
-[Unreleased]: https://github.com/Tiagospem/corescope/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/Tiagospem/corescope/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/Tiagospem/corescope/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/Tiagospem/corescope/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/Tiagospem/corescope/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/Tiagospem/corescope/compare/v0.8.1...v0.9.0

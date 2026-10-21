@@ -1000,6 +1000,38 @@ func actionArtifact(_ output: String, folder: String) -> String? {
   return path.hasPrefix("/") ? path : (folder as NSString).appendingPathComponent(path)
 }
 
+/// Moves `key` one place up or down in `order` (the context menu alternative to dragging).
+func movedOne(_ order: [String], _ key: String, up: Bool) -> [String] {
+  guard let i = order.firstIndex(of: key) else { return order }
+  let j = up ? i - 1 : i + 1
+  guard order.indices.contains(j) else { return order }
+  var next = order
+  next.swapAt(i, j)
+  return next
+}
+/// Sorts by a saved order (keys missing from it go last, in the given fallback order).
+func orderedBySaved<T>(_ items: [T], key: (T) -> String, saved: [String]) -> [T] {
+  let rank = Dictionary(saved.enumerated().map { ($1, $0) }, uniquingKeysWith: { a, _ in a })
+  return items.enumerated().sorted { a, b in
+    let ra = rank[key(a.element)] ?? Int.max
+    let rb = rank[key(b.element)] ?? Int.max
+    return ra != rb ? ra < rb : a.offset < b.offset
+  }.map(\.element)
+}
+/// Log text as people read it: no ANSI colors, progress lines rewritten in place (`\r`) kept at
+/// their last state.
+func cleanLogText(_ raw: String) -> String {
+  let noAnsi = raw.replacingOccurrences(of: "\u{1B}\\[[0-9;?]*[ -/]*[@-~]", with: "", options: .regularExpression)
+  return noAnsi.replacingOccurrences(of: "\r\n", with: "\n").split(separator: "\n", omittingEmptySubsequences: false)
+    .map { line in line.split(separator: "\r", omittingEmptySubsequences: false).last.map(String.init) ?? "" }
+    .joined(separator: "\n")
+}
+/// The exit code CoreScope appended to a run's log (`[CoreScope] exit N`), from its last lines.
+func logExitCode(_ tail: String) -> Int32? {
+  guard let line = tail.components(separatedBy: "\n").last(where: { $0.hasPrefix("[CoreScope] exit ") }) else { return nil }
+  return Int32(line.dropFirst("[CoreScope] exit ".count).trimmingCharacters(in: .whitespaces))
+}
+
 /// Per-group summary, worst first, without empty states: [(.down, 2), (.up, 4)].
 func serviceSummary(_ states: [ServiceState]) -> [(state: ServiceState, count: Int)] {
   ServiceState.allCases.compactMap { s in

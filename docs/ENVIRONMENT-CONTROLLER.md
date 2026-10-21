@@ -169,6 +169,19 @@ expected; CoreScope does not take ownership of it.
   line. The last one counts, and only after exit 0 and if the file exists; CoreScope offers *Show in
   Finder*. It never opens or interprets the file.
 
+### Run logs
+
+- Every mode start or stop and every action writes its own log. A new run moves the previous one
+  aside, so the **last 5 runs** of each stay; CoreScope appends `[CoreScope] exit N` when the
+  command ends, so an older run keeps its outcome.
+- The environment card's *Recent runs* lists them newest first (outcome, when, how long). Each one
+  opens in a log window that follows the file while it is written, shows errors in red, finds
+  with ⌘F, and offers *Copy*, *Show in Finder* and *Open in Console*.
+- When the status reports an error (`errors`, such as the controller's "see the output above"),
+  *Show output* next to it opens the latest run's log.
+- Action logs also appear on the Logs page, so `tail_log`, `search_logs` and `recent_errors` read
+  them too.
+
 ### MCP
 
 `list_profiles` (app modes as `project/app:mode` with `lifecycle: controller`, `mode`, `app`,
@@ -177,7 +190,8 @@ expected; CoreScope does not take ownership of it.
 `external`, `unknown`), `environment_status` (read-only; `refresh: true` reads now),
 `list_actions` (read-only), `run_action` (destructive: actions with `confirm` return the preview
 and `needs_confirmation` first; call again with `confirmed: true` after the user agrees),
-`cancel_action` (destructive).
+`cancel_action` (destructive), `environment_runs` (read-only: the recent runs with outcome and
+log; pass `log` to read a run's last lines).
 
 ## Status output, format 1
 

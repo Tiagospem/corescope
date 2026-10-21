@@ -432,6 +432,7 @@ final class ActionStore: ObservableObject {
     }
     try? FileManager.default.createDirectory(at: ProfileStore.logs, withIntermediateDirectories: true)
     let log = Self.logURL(action)
+    RunLogs.rotate(log)
     guard FileManager.default.createFile(atPath: log.path, contents: Data("$ \(action.spec.run)\n".utf8)) else {
       return L("Não foi possível criar o log")
     }
@@ -470,6 +471,7 @@ final class ActionStore: ObservableObject {
     }
     Thread.detachNewThread { [weak self] in
       let code = reaper.wait(pid)
+      RunLogs.noteExit(log, code)
       let tail = Self.tail(log)
       DispatchQueue.main.async { self?.finished(action, pid: pid, code: code, tail: tail, timeout: timeout) }
     }
@@ -661,6 +663,9 @@ struct EnvironmentCard: View {
   @ViewState private var confirming: ProjectAction?
   @ViewState private var preview: Result<(text: String, hash: String), CleanupError>?
   @ViewState private var stopping: EnvProfile?
+  /// The action or run row under the pointer: highlighted end to end, so the button at the right
+  /// clearly belongs to it.
+  @ViewState private var hovered: String?
   var body: some View {
     let reading = environment.readings[file.file]
     let input = environment.input(file.file)
@@ -707,6 +712,8 @@ struct EnvironmentCard: View {
         Divider().opacity(0.5)
         groupActions(title: L("Ambiente inteiro"), key: "\(file.file)#general", list: general)
       }
+      Divider().opacity(0.5)
+      runsSection()
     }
     .sheet(item: $confirming) { action in
       ActionConfirmSheet(action: action, preview: preview) { hash in
@@ -769,8 +776,20 @@ struct EnvironmentCard: View {
         ).font(.caption).foregroundStyle(.orange).lineLimit(2)
       }
       if let first = s.errors.first {
-        Label(first, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange).lineLimit(2)
-          .help(s.errors.joined(separator: "\n\n"))
+        HStack(spacing: 8) {
+          Label(first, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange).lineLimit(2)
+            .help(s.errors.joined(separator: "\n\n"))
+          // Looked up on click: the card redraws often and the error stays.
+          Button(L("Ver saída")) {
+            if let run = RunLogs.history(source: file.file).first {
+              LogViewer.open(run.url, title: "\(file.project) · \(run.title)")
+            } else {
+              Monitor.shared.feedback = ActionFeedback(message: L("Nenhuma saída registrada para este ambiente."), failed: true)
+            }
+          }
+          .buttonStyle(.link).font(.caption)
+          .help(L("A saída da última execução deste ambiente"))
+        }
       }
     }
   }
@@ -888,6 +907,68 @@ struct EnvironmentCard: View {
       if open { ForEach(shared, id: \.name) { c in componentRow(c, stale: !fresh) }.padding(.leading, 26) }
     }
   }
+  /// The last runs of this environment's modes and actions, each opening its log. Read only while
+  /// open (one listing of the logs folder).
+  @ViewBuilder private func runsSection() -> some View {
+    let key = "\(file.file)#runs"
+    let open = folds.isOpen(key)
+    VStack(alignment: .leading, spacing: 6) {
+      HStack(spacing: 8) {
+        foldButton(key, open: open)
+        Image(systemName: "clock.arrow.circlepath").font(.caption).foregroundStyle(.secondary).frame(width: 8)
+        VStack(alignment: .leading, spacing: 1) {
+          Text(L("Execuções recentes")).font(.callout.weight(.semibold))
+          Text(L("Saída de cada início, parada e ação (as últimas %@ de cada)", "\(RunLogs.keep)")).font(.caption).foregroundStyle(.secondary)
+        }
+        Spacer()
+        if open {
+          Button(L("Mostrar no Finder")) { NSWorkspace.shared.open(ProfileStore.logs) }.buttonStyle(.link).font(.caption)
+        }
+      }
+      if open {
+        let runs = RunLogs.history(source: file.file).prefix(20)
+        if runs.isEmpty {
+          Text(L("Nenhuma execução ainda.")).font(.caption).foregroundStyle(.secondary).padding(.leading, 26)
+        }
+        ForEach(Array(runs)) { run in runRow(run).padding(.leading, 26) }
+      }
+    }
+  }
+  private func runRow(_ run: RunLogs.Entry) -> some View {
+    let (symbol, color): (String, Color) =
+      run.running ? ("circle.dotted", .blue)
+      : run.exit == 0 ? ("checkmark.circle", .green) : run.exit != nil ? ("xmark.circle", .red) : ("circle", .secondary)
+    let rowKey = "run#\(run.id)"
+    let hot = hovered == rowKey
+    return Button {
+      LogViewer.open(run.url, title: "\(file.project) · \(run.title)")
+    } label: {
+      HStack(spacing: 8) {
+        Image(systemName: symbol).font(.caption).foregroundStyle(color).frame(width: 14)
+        Image(systemName: run.action ? "bolt" : "play").font(.caption2).foregroundStyle(.secondary).frame(width: 10)
+        Text(run.title).font(.callout).lineLimit(1)
+        Spacer(minLength: 6)
+        Text(runDetail(run)).font(.caption).foregroundStyle(run.exit.map { $0 != 0 } == true ? Color.red : .secondary).lineLimit(1)
+        Image(systemName: "doc.text.magnifyingglass").font(.caption).foregroundStyle(hot ? Color.accentColor : .secondary)
+      }
+      .padding(.vertical, 2).padding(.horizontal, 6)
+      .background(RoundedRectangle(cornerRadius: 6).fill(hot ? Color.primary.opacity(0.07) : .clear))
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .onHover { inside in
+      if inside { hovered = rowKey } else if hovered == rowKey { hovered = nil }
+    }
+    .padding(.horizontal, -6)
+    .help(L("Ver a saída"))
+  }
+  private func runDetail(_ run: RunLogs.Entry) -> String {
+    let when = run.started.formatted(date: .abbreviated, time: .shortened)
+    if run.running { return L("rodando desde %@", when) }
+    let took = formatDuration(run.ended.timeIntervalSince(run.started))
+    let result = run.exit.map { $0 == 0 ? L("ok") : L("saída %@", "\($0)") } ?? L("sem resultado")
+    return "\(result) · \(when) · \(took)"
+  }
   private func groupActions(title: String, key: String, list: [ProjectAction]) -> some View {
     let open = folds.isOpen(key)
     return VStack(alignment: .leading, spacing: 6) {
@@ -903,16 +984,82 @@ struct EnvironmentCard: View {
       if open { kindRows(list).padding(.leading, 26) }
     }
   }
-  /// Actions in kind order (set up, start and modes, diagnostics, data, stop), each kind captioned.
+  /// Actions as chips, one wrapping line per kind (set up, start and modes, diagnostics, data,
+  /// stop): the chip itself is the button, so it is clear what a click runs.
   @ViewBuilder private func kindRows(_ list: [ProjectAction]) -> some View {
-    let sorted = list.sorted {
-      (ActionKind.allCases.firstIndex(of: $0.kind) ?? 0, $0.name) < (ActionKind.allCases.firstIndex(of: $1.kind) ?? 0, $1.name)
-    }
-    ForEach(Array(sorted.enumerated()), id: \.element.id) { i, a in
-      if i == 0 || sorted[i - 1].kind != a.kind {
-        Text(a.kind.label).font(.caption2.weight(.semibold)).foregroundStyle(.tertiary).padding(.top, 2)
+    let kinds = ActionKind.allCases.filter { k in list.contains { $0.kind == k } }
+    VStack(alignment: .leading, spacing: 6) {
+      ForEach(kinds, id: \.self) { kind in
+        HStack(alignment: .top, spacing: 8) {
+          Text(kind.label).font(.caption2.weight(.semibold)).foregroundStyle(.tertiary)
+            .frame(width: 96, alignment: .leading).padding(.top, 4)
+          FlowLayout(spacing: 6, lineSpacing: 6) {
+            ForEach(list.filter { $0.kind == kind }.sorted { $0.name < $1.name }) { a in actionChip(a) }
+          }
+        }
       }
-      actionRow(a, title: a.name)
+    }
+  }
+  /// One action: ▶ and its name (a spinner while it runs, a dot with the last result). A click
+  /// runs it (actions with `confirm` show their preview first), or shows the live output while it
+  /// runs; the context menu has the output, the artifact, cancel and the command.
+  private func actionChip(_ a: ProjectAction) -> some View {
+    let run = actions.runs[a.id]
+    let running = run?.outcome == .running
+    let failed = run.map { [ActionRun.Outcome.failed, .timedOut, .interrupted, .cancelled].contains($0.outcome) } ?? false
+    let key = "chip#\(a.id)"
+    let hot = hovered == key
+    let title = a.group.isEmpty ? a.name : "\(a.group) · \(a.name)"
+    return Button {
+      if running, let run {
+        LogViewer.open(URL(fileURLWithPath: run.log), title: "\(a.project) · \(title)")
+      } else {
+        start(a)
+      }
+    } label: {
+      HStack(spacing: 5) {
+        if running {
+          ProgressView().controlSize(.mini).scaleEffect(0.7).frame(width: 10, height: 10)
+        } else {
+          Image(systemName: a.confirm ? "exclamationmark.shield.fill" : "play.fill").font(.system(size: 8, weight: .bold))
+            .foregroundStyle(a.confirm ? Color.orange : hot ? Color.accentColor : .secondary)
+        }
+        Text(a.name).font(.caption.weight(.medium)).lineLimit(1)
+        if let run, !running {
+          Circle().fill(run.outcome == .succeeded ? Color.green : failed ? .red : .secondary).frame(width: 5, height: 5)
+        }
+      }
+      .padding(.horizontal, 8).padding(.vertical, 3)
+      .foregroundStyle(hot ? Color.accentColor : .primary)
+      .background(Capsule().fill(hot ? Color.accentColor.opacity(0.16) : Color.primary.opacity(0.06)))
+      .overlay(Capsule().strokeBorder(failed ? Color.red.opacity(0.5) : hot ? Color.accentColor.opacity(0.5) : .clear))
+      .contentShape(Capsule())
+    }
+    .buttonStyle(.plain)
+    .onHover { inside in
+      if inside { hovered = key } else if hovered == key { hovered = nil }
+    }
+    .help(
+      [running ? L("Rodando: clique para ver a saída") : L("Executar %@: %@", a.name, a.spec.run), a.spec.description, run.map(runText)]
+        .compactMap { $0 }.joined(separator: "\n"))
+    .accessibilityLabel(running ? L("%@ rodando", a.name) : L("Executar %@", a.name))
+    .contextMenu {
+      if !running { Button(L("Executar")) { start(a) } }
+      if let run {
+        Button(L("Ver a saída")) { LogViewer.open(URL(fileURLWithPath: run.log), title: "\(a.project) · \(title)") }
+        if let artifact = run.artifact, run.outcome == .succeeded {
+          Button(L("Mostrar %@ no Finder", (artifact as NSString).lastPathComponent)) {
+            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: artifact)])
+          }
+        }
+      }
+      if running {
+        Button(L("Cancelar %@", a.name)) {
+          if let error = actions.cancel(a) { Monitor.shared.feedback = ActionFeedback(message: error, failed: true) }
+        }
+      }
+      Divider()
+      Button(L("Copiar comando")) { copy(a.spec.run) }
     }
   }
   private func foldButton(_ key: String, open: Bool) -> some View {
@@ -972,6 +1119,8 @@ struct EnvironmentCard: View {
 
   private func actionRow(_ a: ProjectAction, title: String) -> some View {
     let run = actions.runs[a.id]
+    let rowKey = "\(a.id)#\(title)"
+    let hot = hovered == rowKey
     return HStack(spacing: 8) {
       Image(systemName: a.confirm ? "exclamationmark.shield" : "bolt").font(.caption)
         .foregroundStyle(a.confirm ? .orange : .secondary).frame(width: 14)
@@ -989,10 +1138,10 @@ struct EnvironmentCard: View {
           }.buttonStyle(.borderless).help(L("Mostrar %@ no Finder", (artifact as NSString).lastPathComponent))
         }
         Button {
-          NSWorkspace.shared.open(URL(fileURLWithPath: run.log))
+          LogViewer.open(URL(fileURLWithPath: run.log), title: "\(a.project) · \(title)")
         } label: {
           Image(systemName: "doc.text.magnifyingglass")
-        }.buttonStyle(.borderless).help(L("Abrir log"))
+        }.buttonStyle(.borderless).help(L("Ver a saída"))
       }
       if run?.outcome == .running {
         Button {
@@ -1004,11 +1153,25 @@ struct EnvironmentCard: View {
         Button {
           start(a)
         } label: {
-          Image(systemName: "play.circle")
+          // On hover the button names what it runs, in the accent color.
+          if hot {
+            Label(L("Executar"), systemImage: "play.fill").font(.caption.weight(.semibold)).labelStyle(.titleAndIcon)
+              .padding(.horizontal, 7).padding(.vertical, 2)
+              .background(Capsule().fill(Color.accentColor.opacity(0.18)))
+              .foregroundStyle(Color.accentColor)
+          } else {
+            Image(systemName: "play.circle").foregroundStyle(.secondary)
+          }
         }.buttonStyle(.borderless).help(L("Executar %@: %@", a.name, a.spec.run)).accessibilityLabel(L("Executar %@", a.name))
       }
     }
-    .padding(.vertical, 1)
+    .padding(.vertical, 2).padding(.horizontal, 6)
+    .background(RoundedRectangle(cornerRadius: 6).fill(hot ? Color.primary.opacity(0.07) : .clear))
+    .contentShape(Rectangle())
+    .onHover { inside in
+      if inside { hovered = rowKey } else if hovered == rowKey { hovered = nil }
+    }
+    .padding(.horizontal, -6)
     .help(a.spec.description.map { "\($0)\n\(a.spec.run)" } ?? a.spec.run)
   }
   private func runText(_ run: ActionRun) -> String {

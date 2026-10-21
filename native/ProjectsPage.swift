@@ -78,6 +78,17 @@ final class ProjectsStore: ObservableObject {
   /// The list was read at least once (until then the page shows a spinner, not "no projects").
   @Published private(set) var loaded = false
   @Published var message: String?
+  /// Drag and drop on the Projects page: the new order shows at once and is saved in
+  /// projects.json (the floating panel, the menu bar and MCP follow it).
+  func reorder(_ ids: [String]) {
+    let next = orderedBySaved(projects, key: \.id, saved: ids)
+    guard next != projects else { return }
+    projects = next
+    queue.async {
+      _ = ProjectsTool.call(["op": "reorder", "ids": ids], as: [ProjectEntry].self)
+      DispatchQueue.main.async { PanelProjectsStore.shared.reload() }
+    }
+  }
   /// The project whose changes are on screen (id).
   @Published var opened: String?
   /// Branch and change counts per project (id), so the list tells what changed without opening.
@@ -187,6 +198,7 @@ private func shown(_ path: String) -> String { Demo.enabled ? Demo.path(path) : 
 struct ProjectsView: View {
   @ObservedObject var store = ProjectsStore.shared
   @ViewState private var adding: ProjectCheck?
+  @ViewState private var dragging: String?
   var body: some View {
     if let id = store.opened, let project = store.projects.first(where: { $0.id == id }) {
       ProjectChangesView(project: project) { store.opened = nil }.id(project.id)
@@ -215,7 +227,14 @@ struct ProjectsView: View {
             EmptyNote(text: L("Nenhum projeto ainda. Adicione a pasta de um repositório: o CoreScope lê o .corescope.yml (ou oferece criar um) e o git dela, sem abrir uma IDE."))
           }
         }
-        ForEach(store.projects) { p in ProjectCard(project: p, check: store.checks[p.id], summary: store.summaries[p.id]) { store.opened = p.id } }
+        let ids = store.projects.map(\.id)
+        ForEach(store.projects) { p in
+          ProjectCard(project: p, check: store.checks[p.id], summary: store.summaries[p.id], dragging: $dragging, order: ids) {
+            store.opened = p.id
+          }
+          .opacity(dragging == p.id ? 0.5 : 1)
+          .onDrop(of: [.text], delegate: ReorderDropDelegate(item: p.id, order: ids, dragging: $dragging) { store.reorder($0) })
+        }
       }.padding(20)
     }
     .onAppear { store.setListVisible(true) }
@@ -368,6 +387,9 @@ private struct ProjectCard: View {
   let project: ProjectEntry
   let check: ProjectCheck?
   let summary: GitSummary?
+  @Binding var dragging: String?
+  /// The page's order (ids), for Move up / Move down.
+  let order: [String]
   let openChanges: () -> Void
   @ObservedObject var store = ProjectsStore.shared
   @ViewState private var editing = false
@@ -379,6 +401,14 @@ private struct ProjectCard: View {
   var body: some View {
     Card {
       HStack(spacing: 10) {
+        DragHandle()
+          .onDrag {
+            dragging = project.id
+            return NSItemProvider(object: project.id as NSString)
+          } preview: {
+            Label(shownProjectName(project), systemImage: "folder.fill").padding(.horizontal, 10).padding(.vertical, 5)
+              .background(.regularMaterial, in: Capsule())
+          }
         Image(systemName: "folder.fill").foregroundStyle(Tint.brand).frame(width: 22)
         VStack(alignment: .leading, spacing: 2) {
           if editing {
@@ -425,6 +455,11 @@ private struct ProjectCard: View {
               .disabled(check?.config.exists != true || check?.config.error != nil)
             Button(L("Remover worktrees e branches não usados…")) { removingUnused = true }
               .disabled(check?.git.is_repo != true)
+            Divider()
+            Button(L("Mover para cima")) { ProjectsStore.shared.reorder(movedOne(order, project.id, up: true)) }
+              .disabled(order.first == project.id)
+            Button(L("Mover para baixo")) { ProjectsStore.shared.reorder(movedOne(order, project.id, up: false)) }
+              .disabled(order.last == project.id)
             Divider()
             Button(L("Remover da lista…"), role: .destructive) { confirmRemove = true }
           } label: { Image(systemName: "ellipsis.circle") }.menuStyle(.borderlessButton).fixedSize()

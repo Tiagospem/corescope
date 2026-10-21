@@ -276,6 +276,8 @@ struct DatabaseSnapshotsSection: View {
           }.controlSize(.small).buttonStyle(.borderedProminent).disabled(chosen.isEmpty)
           Button(L("Cancelar")) { choosing = false }.controlSize(.small)
         } else {
+          Button(L("Restaurar dump…")) { DumpRestoreStore.shared.present(db) }.controlSize(.small)
+            .help(L("Um dump .sql / .sql.gz (de produção, por exemplo) num banco existente ou novo, escolhendo quais tabelas vêm sem dados."))
           Button(L("Novo snapshot…")) { choose() }.controlSize(.small).disabled(store.busy[db.id] != nil)
         }
       }

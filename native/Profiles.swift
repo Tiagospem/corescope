@@ -410,6 +410,7 @@ final class ProfileStore: ObservableObject {
     }
     try? FileManager.default.createDirectory(at: Self.logs, withIntermediateDirectories: true)
     let log = logURL(profile, command)
+    RunLogs.rotate(log)
     guard FileManager.default.createFile(atPath: log.path, contents: Data("$ \(command.command)\n".utf8)) else {
       return .failure(CleanupError(L("Não foi possível criar o log")))
     }
@@ -440,6 +441,7 @@ final class ProfileStore: ObservableObject {
       var status: Int32 = 0
       while waitpid(pid, &status, 0) < 0 && errno == EINTR {}
       let code = (status & 0x7f) == 0 ? (status >> 8) & 0xff : 128 + (status & 0x7f)
+      RunLogs.noteExit(log, code)
       let exit = CommandExit(status: code, at: Date())
       DispatchQueue.main.async {
         self?.exits[command.id] = exit
@@ -492,12 +494,25 @@ final class ProfileStore: ObservableObject {
   }
 }
 
+/// The order of the Profiles page's project sections (their file paths; "" for the profiles made
+/// in the app), set by dragging. Sections not in it follow, by name.
+final class ProfileSectionOrder: ObservableObject {
+  static let shared = ProfileSectionOrder()
+  @Published var keys: [String] {
+    didSet { UserDefaults.standard.set(keys, forKey: "profilesSectionOrder") }
+  }
+  private init() { keys = UserDefaults.standard.stringArray(forKey: "profilesSectionOrder") ?? [] }
+}
+
 struct ProfilesView: View {
   @ObservedObject var store = ProfileStore.shared
   @ObservedObject var files = ProjectFileStore.shared
   @ObservedObject var containers = ContainerStore.shared
   @ObservedObject var folds = FoldState.shared
+  @ObservedObject var order = ProfileSectionOrder.shared
+  @ObservedObject var environment = EnvironmentStore.shared
   @ViewState private var editing: EnvProfile?
+  @ViewState private var dragging: String?
   /// One section per project file (its environment, then its profiles); profiles made in the
   /// app last.
   private var sections: [(key: String, name: String, file: ProjectFile?, profiles: [EnvProfile])] {
@@ -509,7 +524,19 @@ struct ProfilesView: View {
     }
     out.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     if !store.profiles.isEmpty { out.append(("", L("Criados no app"), nil, store.profiles)) }
-    return out
+    return orderedBySaved(out, key: \.key, saved: order.keys)
+  }
+  /// One line for a folded section: what is in use.
+  private func foldedSummary(_ section: (key: String, name: String, file: ProjectFile?, profiles: [EnvProfile])) -> String {
+    var parts: [String] = []
+    if let file = section.file, let last = environment.readings[file.file]?.last {
+      let selected = last.apps.filter(\.selected).map(\.name)
+      parts.append(selected.isEmpty ? L("ambiente parado") : L("em uso: %@", selected.joined(separator: ", ")))
+    }
+    if !section.profiles.isEmpty {
+      parts.append(L("%@ de %@ perfis iniciados", "\(section.profiles.filter { inUse($0) }.count)", "\(section.profiles.count)"))
+    }
+    return parts.joined(separator: " · ")
   }
   /// Started, running a command, or (controller) not off according to the status.
   private func inUse(_ p: EnvProfile) -> Bool {
@@ -534,14 +561,31 @@ struct ProfilesView: View {
         if store.allProfiles.isEmpty {
           Card { EmptyNote(text: L("Nenhum perfil ainda. Crie um com os comandos que você roda todo dia (npm run dev, php artisan serve…) e os contêineres do projeto.")) }
         }
-        ForEach(sections, id: \.key) { section in
+        let all = sections
+        let keys = all.map(\.key)
+        ForEach(all, id: \.key) { section in
+          let foldKey = "\(section.key)#section"
+          let open = folds.isOpen(foldKey, default: true)
           VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
-              Image(systemName: section.key.isEmpty ? "hand.point.up.left" : "folder").foregroundStyle(.secondary)
-              Text(section.name).font(.headline)
-              if !section.profiles.isEmpty {
-                Text(L("%@ perfis", "\(section.profiles.count)")).font(.caption).foregroundStyle(.secondary)
-              }
+              DragHandle()
+              Button {
+                withAnimation(.easeOut(duration: 0.15)) { folds.toggle(foldKey, default: true) }
+              } label: {
+                HStack(spacing: 6) {
+                  Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold)).rotationEffect(.degrees(open ? 90 : 0))
+                    .foregroundStyle(.secondary).frame(width: 10)
+                  Image(systemName: section.key.isEmpty ? "hand.point.up.left" : "folder").foregroundStyle(.secondary)
+                  Text(section.name).font(.headline)
+                  if !section.profiles.isEmpty {
+                    Text(L("%@ perfis", "\(section.profiles.count)")).font(.caption).foregroundStyle(.secondary)
+                  }
+                  if !open {
+                    Text(foldedSummary(section)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                  }
+                }.contentShape(Rectangle())
+              }.buttonStyle(.plain)
+                .accessibilityLabel(section.name).accessibilityValue(open ? L("aberto") : L("fechado"))
               Spacer()
               if !section.key.isEmpty {
                 Text(abbreviateHome((section.key as NSString).deletingLastPathComponent)).font(.caption)
@@ -553,24 +597,44 @@ struct ProfilesView: View {
                 }.buttonStyle(.plain).help(L("Definido no arquivo do projeto: edite o arquivo para mudar o perfil."))
               }
             }
-            if let file = section.file { EnvironmentCard(file: file) }
-            // Profiles in use first; with many, the stopped ones fold into one line.
-            let busy = section.profiles.filter { inUse($0) }
-            let idle = section.profiles.filter { !inUse($0) }
-            let foldIdle = idle.count > 3
-            ForEach(foldIdle ? busy : section.profiles) { profile in
-              ProfileCard(profile: profile, containers: (containers.report?.containers ?? [])) { editing = profile }
+            .contentShape(Rectangle())
+            .onDrag {
+              dragging = section.key
+              return NSItemProvider(object: section.key as NSString)
+            } preview: {
+              Label(section.name, systemImage: "folder").padding(.horizontal, 10).padding(.vertical, 5)
+                .background(.regularMaterial, in: Capsule())
             }
-            if foldIdle {
-              let key = "\(section.key)#idleProfiles"
-              FoldHeader(title: L("Perfis parados"), detail: "\(idle.count)", key: key).padding(.leading, 4)
-              if folds.isOpen(key) {
-                ForEach(idle) { profile in
-                  ProfileCard(profile: profile, containers: (containers.report?.containers ?? [])) { editing = profile }
+            .contextMenu {
+              Button(open ? L("Recolher") : L("Expandir")) { folds.toggle(foldKey, default: true) }
+              Divider()
+              Button(L("Mover para cima")) { order.keys = movedOne(keys, section.key, up: true) }
+                .disabled(keys.first == section.key)
+              Button(L("Mover para baixo")) { order.keys = movedOne(keys, section.key, up: false) }
+                .disabled(keys.last == section.key)
+            }
+            if open {
+              if let file = section.file { EnvironmentCard(file: file) }
+              // Profiles in use first; with many, the stopped ones fold into one line.
+              let busy = section.profiles.filter { inUse($0) }
+              let idle = section.profiles.filter { !inUse($0) }
+              let foldIdle = idle.count > 3
+              ForEach(foldIdle ? busy : section.profiles) { profile in
+                ProfileCard(profile: profile, containers: (containers.report?.containers ?? [])) { editing = profile }
+              }
+              if foldIdle {
+                let key = "\(section.key)#idleProfiles"
+                FoldHeader(title: L("Perfis parados"), detail: "\(idle.count)", key: key).padding(.leading, 4)
+                if folds.isOpen(key) {
+                  ForEach(idle) { profile in
+                    ProfileCard(profile: profile, containers: (containers.report?.containers ?? [])) { editing = profile }
+                  }
                 }
               }
             }
           }
+          .opacity(dragging == section.key ? 0.5 : 1)
+          .onDrop(of: [.text], delegate: ReorderDropDelegate(item: section.key, order: keys, dragging: $dragging) { order.keys = $0 })
         }
         Text(
           L("Os comandos rodam no seu shell de login, na pasta do perfil, com a saída em ~/Library/Application Support/CoreScope/logs. Parar encerra só os processos que o CoreScope iniciou (com a mesma verificação de identidade do resto do app) e para os contêineres do perfil.")
@@ -814,10 +878,10 @@ private struct ProfileCard: View {
       case .idle: EmptyView()
       }
       Button {
-        NSWorkspace.shared.open(store.logURL(profile, command))
+        LogViewer.open(store.logURL(profile, command), title: "\(profile.name) · \(command.name)")
       } label: {
         Image(systemName: "doc.text.magnifyingglass")
-      }.buttonStyle(.borderless).help(L("Abrir log"))
+      }.buttonStyle(.borderless).help(L("Ver a saída"))
         .disabled(!FileManager.default.fileExists(atPath: store.logURL(profile, command).path))
     }
   }

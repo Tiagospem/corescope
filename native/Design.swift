@@ -473,3 +473,71 @@ final class WindowOpener {
     }
   }
 }
+
+/// Lays its subviews out left to right, wrapping to a new line when the width runs out (chips).
+struct FlowLayout: Layout {
+  var spacing: CGFloat = 6
+  var lineSpacing: CGFloat = 6
+  func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+    let width = proposal.width ?? .infinity
+    var x: CGFloat = 0, y: CGFloat = 0, line: CGFloat = 0, widest: CGFloat = 0
+    for view in subviews {
+      let size = view.sizeThatFits(.unspecified)
+      if x > 0 && x + size.width > width {
+        y += line + lineSpacing
+        x = 0
+        line = 0
+      }
+      x += size.width + spacing
+      line = max(line, size.height)
+      widest = max(widest, x - spacing)
+    }
+    return CGSize(width: proposal.width ?? widest, height: y + line)
+  }
+  func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+    var x = bounds.minX, y = bounds.minY, line: CGFloat = 0
+    for view in subviews {
+      let size = view.sizeThatFits(.unspecified)
+      if x > bounds.minX && x + size.width > bounds.maxX {
+        y += line + lineSpacing
+        x = bounds.minX
+        line = 0
+      }
+      view.place(at: CGPoint(x: x, y: y), anchor: .topLeading, proposal: ProposedViewSize(size))
+      x += size.width + spacing
+      line = max(line, size.height)
+    }
+  }
+}
+
+/// Live reordering by drag and drop: while `dragging` passes over `item`, the order changes so
+/// the dragged one takes its place.
+struct ReorderDropDelegate: DropDelegate {
+  let item: String
+  let order: [String]
+  @Binding var dragging: String?
+  let move: ([String]) -> Void
+  func dropEntered(info: DropInfo) {
+    guard let dragging, dragging != item, let from = order.firstIndex(of: dragging), let to = order.firstIndex(of: item)
+    else { return }
+    var next = order
+    next.move(fromOffsets: IndexSet(integer: from), toOffset: to > from ? to + 1 : to)
+    withAnimation(.easeOut(duration: 0.15)) { move(next) }
+  }
+  func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
+  func performDrop(info: DropInfo) -> Bool {
+    dragging = nil
+    return true
+  }
+}
+
+/// The ≡ handle that says a row can be dragged (open hand under the pointer).
+struct DragHandle: View {
+  var body: some View {
+    Image(systemName: "line.3.horizontal").font(.caption).foregroundStyle(.tertiary).frame(width: 14, height: 18)
+      .contentShape(Rectangle())
+      .onHover { inside in if inside { NSCursor.openHand.push() } else { NSCursor.pop() } }
+      .help(L("Arraste para mudar a ordem"))
+  }
+}
+
