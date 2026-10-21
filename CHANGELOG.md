@@ -10,6 +10,8 @@ section as the GitHub release notes.
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-10-21
+
 ### Added
 - **Databases › watch changes**: a window per database that lists, while you use the app, rows
   created (all values), updated (before/after, changed columns) and deleted, per table and
@@ -568,7 +570,8 @@ First public release.
   compact / standard / detailed layouts and in-panel controls.
 - English, Portuguese and Spanish; offline-only.
 
-[Unreleased]: https://github.com/Tiagospem/corescope/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/Tiagospem/corescope/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/Tiagospem/corescope/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/Tiagospem/corescope/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/Tiagospem/corescope/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/Tiagospem/corescope/compare/v0.8.1...v0.9.0
