@@ -1903,6 +1903,15 @@ pub fn projects_tool(v: &serde_json::Value) -> Result<serde_json::Value, String>
                 }
             })?))
         }
+        "reorder" => {
+            let keys: Vec<String> = v["ids"]
+                .as_array()
+                .ok_or("ids must be a list of project ids or names")?
+                .iter()
+                .filter_map(|k| k.as_str().map(str::to_string))
+                .collect();
+            Ok(json!(projects::reorder(&file, &keys)?))
+        }
         "remove" => {
             projects::remove(&file, id()?)?;
             Ok(json!({"removed": id()?}))

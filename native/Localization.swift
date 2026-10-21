@@ -1750,4 +1750,12 @@ private let entries = """
   ao vivo ¦ live ¦ en vivo
   Abrir no Console ¦ Open in Console ¦ Abrir en Consola
   Mostrando o último 1 MB; o arquivo completo está no Finder. ¦ Showing the last 1 MB; the full file is in Finder. ¦ Mostrando el último 1 MB; el archivo completo está en el Finder.
+  Arraste para mudar a ordem ¦ Drag to change the order ¦ Arrastra para cambiar el orden
+  Mover para cima ¦ Move up ¦ Mover arriba
+  Mover para baixo ¦ Move down ¦ Mover abajo
+  ambiente parado ¦ environment stopped ¦ entorno detenido
+  %@ de %@ perfis iniciados ¦ %@ of %@ profiles started ¦ %@ de %@ perfiles iniciados
+  Copiar comando ¦ Copy command ¦ Copiar comando
+  %@ rodando ¦ %@ running ¦ %@ en ejecución
+  Rodando: clique para ver a saída ¦ Running: click to see the output ¦ En ejecución: haz clic para ver la salida
   """

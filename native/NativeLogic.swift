@@ -1000,6 +1000,24 @@ func actionArtifact(_ output: String, folder: String) -> String? {
   return path.hasPrefix("/") ? path : (folder as NSString).appendingPathComponent(path)
 }
 
+/// Moves `key` one place up or down in `order` (the context menu alternative to dragging).
+func movedOne(_ order: [String], _ key: String, up: Bool) -> [String] {
+  guard let i = order.firstIndex(of: key) else { return order }
+  let j = up ? i - 1 : i + 1
+  guard order.indices.contains(j) else { return order }
+  var next = order
+  next.swapAt(i, j)
+  return next
+}
+/// Sorts by a saved order (keys missing from it go last, in the given fallback order).
+func orderedBySaved<T>(_ items: [T], key: (T) -> String, saved: [String]) -> [T] {
+  let rank = Dictionary(saved.enumerated().map { ($1, $0) }, uniquingKeysWith: { a, _ in a })
+  return items.enumerated().sorted { a, b in
+    let ra = rank[key(a.element)] ?? Int.max
+    let rb = rank[key(b.element)] ?? Int.max
+    return ra != rb ? ra < rb : a.offset < b.offset
+  }.map(\.element)
+}
 /// Log text as people read it: no ANSI colors, progress lines rewritten in place (`\r`) kept at
 /// their last state.
 func cleanLogText(_ raw: String) -> String {

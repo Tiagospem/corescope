@@ -15,6 +15,15 @@ section as the GitHub release notes.
   exit code appended). The environment card lists them, *Show output* next to a status error opens
   the latest one, and logs open in a window that follows the run, marks errors and finds with ⌘F.
   Action logs are on the Logs page too. MCP `environment_runs`.
+- **Reorder by dragging** the ≡ handle (or *Move up* / *Move down*): projects on the Projects page
+  (saved in `projects.json`, so the floating panel and menu bar follow; MCP `reorder_projects`)
+  and project sections on the Profiles page (MCP `set_setting profiles_order`).
+
+### Changed
+- **Profiles page, more compact**: each project section folds to one line that says what is in
+  use, and an app's actions are chips grouped by kind instead of one row each — the chip is the
+  button (▶ and the name), with the last result as a dot and output, artifact, cancel and the
+  command in its context menu. Action and run rows highlight end to end under the pointer.
 
 ## [0.11.0] - 2026-10-20
 

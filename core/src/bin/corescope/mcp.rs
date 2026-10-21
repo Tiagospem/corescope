@@ -116,8 +116,9 @@ const DESTRUCTIVE: [&str; 17] = [
     "cancel_action",
 ];
 /// Tools that change state without destroying anything.
-const CHANGES: [&str; 18] = [
+const CHANGES: [&str; 19] = [
     "project_git_sync",
+    "reorder_projects",
     "open_terminal",
     "generate_commit_message",
     "set_project",
@@ -541,7 +542,8 @@ fn app_tools() -> Vec<(
           what the floating panel shows (panel_agents, panel_machines, panel_machine_hosts), \
           check_for_updates (daily update check against the GitHub release feed, off by default), \
           projects_editor (where a project's Open sends files) and projects_terminal (the terminal \
-          that opens folders), each with its *_choices.",
+          that opens folders), each with its *_choices, and profiles_order (the Profiles page's \
+          project order, as project names).",
             json!({}),
             vec![],
         ),
@@ -793,6 +795,14 @@ fn core_tools() -> Vec<Value> {
             json!({"project": {"type": "string"}, "show_in_panel": {"type": "boolean"},
                    "notify_minutes": {"type": ["integer", "null"], "enum": [1, 5, 15, null]}}),
             &["project"],
+        ),
+        tool(
+            "reorder_projects",
+            "Change the order of the registered projects (the Projects page, floating panel and \
+             menu bar show them in this order): the listed ones (ids or names from list_projects) \
+             go first, in that order; the others follow as they were.",
+            json!({"projects": {"type": "array", "items": {"type": "string"}}}),
+            &["projects"],
         ),
         tool(
             "project_branches",
@@ -1176,6 +1186,18 @@ fn call(params: &Value) -> Value {
                 })
                 .collect();
             text(json!({"projects": rows}), false)
+        }
+        "reorder_projects" => {
+            match corescope::projects_tool(
+                &json!({"op": "reorder", "ids": args["projects"].clone()}),
+            ) {
+                Ok(v) => {
+                    // The app re-reads the list (best effort: it may be closed).
+                    let _ = app("projects.refresh", &json!({}));
+                    text(v, false)
+                }
+                Err(e) => text(json!({"error": e}), true),
+            }
         }
         "set_project" => {
             let wanted = args["project"].as_str().unwrap_or("");

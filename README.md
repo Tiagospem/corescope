@@ -362,6 +362,7 @@ With *Agents can use the app through MCP* (on by default once the server is regi
 | `project_git_status` / `project_git_diff` | A project's changes (branch, ahead/behind, last commit, files with +/− and groups, index.lock) and one file's diff (read-only) |
 | `generate_commit_message` | A commit message for a project's staged changes from the AI provider set up in CoreScope (opt-in; only after the user confirmed once what is sent); never commits |
 | `set_project` | A registered project's options: show it in the floating panel and menu bar, change notifications |
+| `reorder_projects` | The order of the registered projects (Projects page, floating panel, menu bar); the Profiles page's order is `profiles_order` in `set_setting` |
 | `project_branches` / `project_worktrees` | A project's local branches (last commit, ahead/behind, gone, checked out elsewhere) and worktrees (merged, changes, in use, lock, size) (read-only) |
 | `project_unused` / `project_remove_unused` | What a project no longer uses (merged worktrees and branches, with reasons and what blocks each) and removing a list of them with `git worktree remove` / `git branch -d`, re-checked, never forced (destructive: ask first) |
 | `project_git_stage` / `project_git_commit` / `project_git_discard` | Stage or unstage files, commit what is staged (hooks run; a failing hook's output comes back), discard tracked changes (destructive; asks first) |

@@ -251,6 +251,8 @@ enum ControlAPI {
       ])
 
     case "projects.refresh":
+      // The registered list too (its order or options may have changed through the CLI).
+      DispatchQueue.main.async { ProjectsStore.shared.load() }
       if let folder = args["folder"] as? String, FileManager.default.fileExists(atPath: folder) {
         ProjectFileStore.shared.remember(folder)
       }
@@ -917,6 +919,9 @@ enum AgentSettings {
     out["projects_editor_choices"] = CodeEditor.choices.map { ["id": $0.id, "name": $0.name] }
     out["projects_terminal"] = TerminalApp.preferred
     out["projects_terminal_choices"] = TerminalApp.installed.map { ["id": $0.bundle, "name": $0.name] }
+    // Section keys are project files; agents see and pass project names.
+    let files = ProjectFileStore.shared.files
+    out["profiles_order"] = ProfileSectionOrder.shared.keys.compactMap { key in files.first { $0.file == key }?.project }
     return out
   }
   static func write(_ key: String, _ value: Any?) -> String? {
@@ -957,6 +962,19 @@ enum AgentSettings {
         return "not on the Machines page: \(unknown.joined(separator: ", ")); machines: \(known.joined(separator: ", "))"
       }
       p.panelMachineHosts = panelMachineHosts(selected: hosts, hosts: known)
+      return nil
+    }
+    if key == "profiles_order" {
+      let files = ProjectFileStore.shared.files
+      guard let names = value as? [String] else { return "profiles_order takes a list of project names" }
+      var keys: [String] = []
+      for name in names {
+        guard let f = files.first(where: { $0.project.caseInsensitiveCompare(name) == .orderedSame }) else {
+          return "no project file named \(name); known: \(files.map(\.project).joined(separator: ", "))"
+        }
+        keys.append(f.file)
+      }
+      ProfileSectionOrder.shared.keys = keys
       return nil
     }
     if key == "projects_editor" || key == "projects_terminal" {
