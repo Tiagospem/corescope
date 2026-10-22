@@ -439,7 +439,8 @@ final class ActionStore: ObservableObject {
     var command = action.spec.run
     // Heavy actions wait for room first with the project's own rule (`corescope wait`).
     if action.spec.heavy == true, let cli = CommandLineTool.bundled?.path {
-      command = "'\(cli.replacingOccurrences(of: "'", with: "'\\''"))' wait . && { \(command)\n}"
+      let quote = { (text: String) in "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'" }
+      command = "\(quote(cli)) wait . --command \(quote(action.fullName)) && { \(command)\n}"
     }
     var env = ["CORESCOPE_ACTION": action.name]
     if confirmed { env["CORESCOPE_CONFIRMED"] = "1" }

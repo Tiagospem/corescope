@@ -89,10 +89,12 @@ fn initialize(params: &Value) -> Value {
     Before starting a dev server use find_free_port (and the project's preferred ports from \
     read_project_config); to debug a failing app use recent_errors instead of asking for logs; to \
     run or stop an environment use the project's profiles (list_profiles, start_profile). \
-    IMPORTANT: when the project's .corescope.yml has agents.wait_for_capacity, call \
-    wait_for_capacity before heavy commands (builds, test suites, docker builds) and repeat until \
-    it answers ready: true or the project's max_wait passes — the Mac is shared and an \
-    overloaded machine turns a task into hours. Before commands that wipe or rebuild a local \
+    IMPORTANT: when the project's .corescope.yml has agents.wait_for_capacity, heavy commands \
+    (builds, test suites, docker builds) go through an admission queue: before one, call \
+    system_capacity or reserve_capacity with the command; if there is no room and the reason is \
+    transient, call wait_for_capacity (it holds your place) until ready: true; if it is structural \
+    (the container VM is full), waiting won't help — do what it says or ask the user. Don't run \
+    heavy commands in parallel or in the background to skip the queue. Before commands that wipe or rebuild a local \
     database (migrate:fresh, db:wipe, migrate reset), take a db_snapshot so the user can go \
     back with db_restore. Stopping processes is limited to what this agent session started; ask \
     the user before destructive actions."
@@ -1040,21 +1042,58 @@ fn core_tools() -> Vec<Value> {
         ),
         tool(
             "system_capacity",
-            "Whether the Mac has room for heavy work now: CPU, memory pressure and the container \
-             VM's free memory (OrbStack/Docker Desktop/Colima) against the project's .corescope.yml \
-             agents.wait_for_capacity rule (or a default 70% CPU, normal memory, 15% VM free), the \
-             reasons when not, warnings (containers at their memory limit or killed lately) and the \
-             project's heavy command list.",
-            json!({"folder": {"type": "string", "description": "project folder; default: this session's"}}),
+            "Whether there is room for a heavy command now: CPU, memory pressure and, for commands \
+             that use containers, the container VM's free memory (OrbStack/Docker Desktop/Colima) \
+             against the project's .corescope.yml agents.wait_for_capacity rule. Blockers say whether \
+             they are transient (wait with wait_for_capacity) or structural (waiting won't help; do \
+             what they say). Also the admission queue, warnings (containers at their memory limit or \
+             killed lately) and the project's heavy commands with what each uses.",
+            json!({"folder": {"type": "string", "description": "project folder; default: this session's"},
+                   "command": {"type": "string", "description": "the command you plan to run: checks only what it uses"}}),
             &[],
         ),
         tool(
             "wait_for_capacity",
-            "Waits (up to `seconds`, default 45) until the Mac has room under the project's rule, \
-             then answers ready: true. If it answers ready: false, call it again: the project's \
-             max_wait_minutes counts across calls, and once it passes the answer is ready: true with \
-             gave_up: true — then proceed and tell the user why the Mac stayed busy.",
-            json!({"folder": {"type": "string"}, "seconds": {"type": "integer", "minimum": 5, "maximum": 55}}),
+            "Waits in CoreScope's admission queue (up to `seconds`, default 45) for room to run \
+             `command` (the heavy command you are about to run), then answers ready: true and holds \
+             the place for 2 minutes: run it right away. ready: false with structural: true means \
+             waiting won't help (the container VM is full): follow the message or ask the user. \
+             Otherwise call it again; the project's max_wait_minutes counts across calls, and once it \
+             passes the answer is gave_up: true — then don't run it: tell the user what blocks it.",
+            json!({"folder": {"type": "string"}, "command": {"type": "string", "description": "the command you are about to run, e.g. php artisan test --parallel"},
+                   "seconds": {"type": "integer", "minimum": 5, "maximum": 55}}),
+            &["command"],
+        ),
+        tool(
+            "reserve_capacity",
+            "Asks once (no waiting) for a place to run a heavy command: ready: true holds it for 2 \
+             minutes (run it now; the gate hook lets it through); otherwise the reason, whether it is \
+             structural (waiting won't help) and the queue position.",
+            json!({"folder": {"type": "string"}, "command": {"type": "string"}}),
+            &["command"],
+        ),
+        tool(
+            "release_capacity",
+            "Gives back this session's places in the admission queue (one command's, or all): call \
+             it when you decided not to run a command you reserved or waited for.",
+            json!({"folder": {"type": "string"}, "command": {"type": "string"}}),
+            &[],
+        ),
+        tool(
+            "capacity_advice",
+            "Helps write the project's agents.wait_for_capacity rule: the container VM (size, use, \
+             containers without limits or near theirs, limits that add up to more than the VM), the \
+             containers the project names, and a proposed YAML with, per heavy command, whether it runs \
+             on the Mac or also loads containers (and which). A proposal to review with the user, then \
+             write with write_project_config.",
+            json!({"folder": {"type": "string"}}),
+            &[],
+        ),
+        tool(
+            "capacity_events",
+            "The latest admission decisions on this Mac (any session): heavy commands admitted, \
+             reserved, deferred (with why) or let through because CoreScope could not decide in time.",
+            json!({"limit": {"type": "integer", "minimum": 1, "maximum": 500}}),
             &[],
         ),
         tool(
@@ -1527,7 +1566,8 @@ fn call(params: &Value) -> Value {
             Ok(v) => text(v, false),
             Err(e) => text(json!({"error": e}), true),
         },
-        "system_capacity" | "wait_for_capacity" => {
+        "system_capacity" | "wait_for_capacity" | "reserve_capacity" | "release_capacity" => {
+            use corescope::admission as a;
             let folder = args["folder"]
                 .as_str()
                 .map(std::path::PathBuf::from)
@@ -1535,13 +1575,72 @@ fn call(params: &Value) -> Value {
                 .unwrap_or_default();
             let rule = crate::capacity_spec(&folder);
             let spec = rule.clone().unwrap_or_default();
+            let list = corescope::capacity::heavy_list(&spec);
+            let asked = args["command"]
+                .as_str()
+                .map(str::trim)
+                .filter(|c| !c.is_empty());
+            // The heavy command as the project names it; a command it doesn't list still checks
+            // the Mac, but needs no place in the queue.
+            let heavy = asked.and_then(|c| corescope::capacity::heavy(c, &list).cloned());
+            if name == "release_capacity" {
+                let agent = crate::agent_pid(&sample(false));
+                let n =
+                    a::with_queue(|q| a::release(q, agent, heavy.as_ref().map(|h| h.command())))
+                        .unwrap_or(0);
+                return text(json!({"released": n}), false);
+            }
             if name == "system_capacity" {
-                let reading = corescope::capacity::full_reading(&sample(true));
-                let blockers = corescope::capacity::blockers(&spec, &reading);
+                let uses = heavy
+                    .as_ref()
+                    .map(|h| h.uses())
+                    .unwrap_or(if asked.is_some() {
+                        corescope::capacity::Uses::MAC
+                    } else {
+                        corescope::capacity::Uses::ALL
+                    });
+                let snapshot = sample(true);
+                let reading = corescope::capacity::full_reading(&snapshot, uses);
+                let targets = heavy
+                    .as_ref()
+                    .map(|h| h.containers().to_vec())
+                    .unwrap_or_default();
+                let blockers = corescope::capacity::blockers(&spec, &reading, uses, &targets);
+                let queue = a::with_queue(|q| {
+                    a::prune(q, a::now(), &a::alive, &|e| {
+                        crate::still_running(&snapshot, e)
+                    });
+                    q.entries.clone()
+                })
+                .unwrap_or_default();
                 return text(
-                    json!({"ready": blockers.is_empty(), "blockers": blockers,
-                           "warnings": corescope::capacity::warnings(&reading, now()), "reading": reading,
-                           "rule": rule, "rule_source": if rule.is_some() { "project .corescope.yml" } else { "default (no project rule)" }}),
+                    json!({"ready": blockers.is_empty(), "structural": !blockers.is_empty() && blockers.iter().all(|b| b.structural()),
+                           "blockers": blockers, "checked": uses.names(),
+                           "heavy_command": heavy.as_ref().map(|h| h.command()),
+                           "warnings": corescope::capacity::warnings(&reading, now()), "queue": queue, "reading": reading,
+                           "rule": rule, "rule_source": if rule.is_some() { "project .corescope.yml" } else { "default (no project rule)" },
+                           "max_parallel": spec.max_parallel,
+                           "heavy_commands": list.iter().map(|h| json!({"command": h.command(), "uses": h.uses().names(), "weight": h.weight(), "containers": h.containers()})).collect::<Vec<_>>()}),
+                    false,
+                );
+            }
+            let Some(heavy) = heavy else {
+                return text(
+                    json!({"ready": true, "queued": false,
+                    "note": match asked {
+                        Some(c) => format!("`{c}` is not a heavy command in this project (system_capacity lists them): run it."),
+                        None => "Pass `command` (the command you are about to run) to get a place in the queue.".into(),
+                    }}),
+                    asked.is_none(),
+                );
+            };
+            if name == "reserve_capacity" {
+                let (d, reading) =
+                    crate::admit(&spec, &heavy, &folder, None, a::Mode::Reserve, "mcp");
+                return text(
+                    json!({"ready": d.admitted(), "outcome": d.outcome, "message": d.message, "structural": d.structural,
+                           "blockers": d.blockers, "position": d.position, "retry_seconds": d.retry_seconds,
+                           "warnings": corescope::capacity::warnings(&reading, now())}),
                     false,
                 );
             }
@@ -1557,19 +1656,53 @@ fn call(params: &Value) -> Value {
             if left.is_zero() {
                 *waiting = None;
                 return text(
-                    json!({"ready": true, "gave_up": true, "waited_minutes": (started.elapsed().as_secs_f64() / 6.).round() / 10.,
-                           "note": "The project's max_wait_minutes passed across your calls: go ahead with the command, and tell the user the Mac stayed busy (see system_capacity for why). Don't call wait_for_capacity again for it."}),
+                    json!({"ready": false, "gave_up": true, "waited_minutes": (started.elapsed().as_secs_f64() / 6.).round() / 10.,
+                           "note": format!("The project's max_wait_minutes passed across your calls and there is still no room for `{}`. Don't run it now and don't keep waiting: tell the user what blocks it (system_capacity) and ask how to proceed, or run the check in CI.", heavy.command())}),
                     false,
                 );
             }
             let seconds = args["seconds"].as_u64().unwrap_or(45).clamp(5, 55);
-            let mut out =
-                crate::wait_for_room(&spec, Some(Duration::from_secs(seconds).min(left)), |_| {});
-            *waiting = (out["ready"] == false).then(|| (started, std::time::Instant::now()));
+            let mut out = crate::wait_for_room(
+                &spec,
+                &heavy,
+                &folder,
+                None,
+                a::Mode::Reserve,
+                Some(Duration::from_secs(seconds).min(left)),
+                "mcp",
+                |_| {},
+            );
+            *waiting = (out["ready"] == false && out["structural"] != true)
+                .then(|| (started, std::time::Instant::now()));
             out["max_wait_minutes"] = json!(spec.max_wait_minutes);
             out["waited_minutes_so_far"] =
                 json!((started.elapsed().as_secs_f64() / 60. * 10.).round() / 10.);
+            if out["ready"] == true {
+                out["note"] = json!(format!(
+                    "Run `{}` now: the place is held for 2 minutes.",
+                    heavy.command()
+                ));
+            } else if out["structural"] == true {
+                out["note"] = json!(
+                    "Waiting won't clear this: do what the message says or ask the user; don't call wait_for_capacity again until something changed."
+                );
+            }
             text(out, false)
+        }
+        "capacity_advice" => {
+            let folder = args["folder"]
+                .as_str()
+                .map(std::path::PathBuf::from)
+                .or_else(|| session(&sample(false)).map(|s| std::path::PathBuf::from(&s.cwd)))
+                .unwrap_or_default();
+            text(crate::capacity_advice(&folder), false)
+        }
+        "capacity_events" => {
+            let limit = args["limit"].as_u64().unwrap_or(30).clamp(1, 500) as usize;
+            text(
+                json!({"events": corescope::admission::events(limit)}),
+                false,
+            )
         }
         "container_logs" => {
             let name = args["name"].as_str().unwrap_or("");

@@ -10,6 +10,8 @@ char *cs_history(const char *request);
 char *cs_containers(int32_t stats);
 /// JSON array: each container engine VM's memory (total, available, top users, near-limit, killed).
 char *cs_container_vm(void);
+/// JSON request {op: list|grant|release, agent_pid, command}: the heavy-command admission queue.
+char *cs_capacity_queue(const char *request);
 char *cs_container_action(const char *id, const char *action);
 // Removes an unused volume (never forced; refused while any container mounts it). engine may be NULL.
 char *cs_volume_remove(const char *name, const char *engine);

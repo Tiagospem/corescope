@@ -452,6 +452,23 @@ pub struct ContainerMemory {
     pub used: f64,
     /// Its own `mem_limit`; None when it may use the whole VM.
     pub limit: Option<f64>,
+    /// Compose project and service, to match `.corescope.yml` names.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub service: Option<String>,
+}
+impl ContainerMemory {
+    /// Named by its container name, compose service, or `project-service`.
+    pub fn answers_to(&self, name: &str) -> bool {
+        self.name == name
+            || self.service.as_deref() == Some(name)
+            || matches!((&self.project, &self.service), (Some(p), Some(s)) if format!("{p}-{s}") == name)
+    }
+    /// Share of its own limit in use, percent.
+    pub fn limit_percent(&self) -> Option<f64> {
+        self.limit.filter(|l| *l > 0.).map(|l| self.used / l * 100.)
+    }
 }
 /// A container that ended killed (exit 137) or hit out-of-memory recently.
 #[derive(Clone, Debug, Serialize, PartialEq)]
@@ -474,6 +491,9 @@ pub struct VmMemory {
     pub containers_used: f64,
     /// Biggest users first (up to 5).
     pub top: Vec<ContainerMemory>,
+    /// Every running container, biggest first.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub running: Vec<ContainerMemory>,
     /// At 90% or more of their own limit: the next spike gets them killed.
     pub near_limit: Vec<ContainerMemory>,
     /// Killed in the last 30 minutes.
@@ -607,6 +627,8 @@ pub fn vm_memory() -> Vec<VmMemory> {
                     used: c.memory?,
                     // A limit at (or near) the VM's own is no limit.
                     limit: c.memory_limit.filter(|l| *l < total * 0.95),
+                    project: c.project.clone(),
+                    service: c.service.clone(),
                 })
             })
             .collect();
@@ -633,6 +655,7 @@ pub fn vm_memory() -> Vec<VmMemory> {
             available: vm_meminfo(&socket, &running).map(|(_, a)| a),
             containers_used: used.iter().map(|c| c.used).sum(),
             top: used.iter().take(5).cloned().collect(),
+            running: used.clone(),
             near_limit,
             killed,
         });
@@ -1306,6 +1329,7 @@ mod tests {
             available: None,
             containers_used: 3000.,
             top: vec![],
+            running: vec![],
             near_limit: vec![],
             killed: vec![],
         };

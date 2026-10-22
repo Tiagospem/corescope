@@ -19,7 +19,7 @@ enum HookHost: String, CaseIterable, Identifiable {
   /// Codex shows this while the hook runs; Claude Code has no such field.
   func statusMessage(_ hook: AgentHook) -> String? {
     guard self == .codex else { return nil }
-    return hook == .gate ? "CoreScope: waiting for the Mac to have room if this is heavy" : "CoreScope: project context"
+    return hook == .gate ? "CoreScope: checking room for heavy commands" : "CoreScope: project context"
   }
   /// Codex is set up on this Mac (its folder exists).
   var available: Bool {
@@ -72,58 +72,110 @@ enum AgentHooksBridge {
   }
 }
 
-/// A heavy command an agent is holding until the Mac has room (written by `corescope gate`).
-struct GateWait: Decodable, Identifiable, Equatable {
+/// A heavy command in CoreScope's admission queue (shared by every agent session; written by
+/// `corescope gate`, the MCP capacity tools and `corescope wait`).
+struct AdmissionEntry: Decodable, Identifiable, Equatable {
   let agent_pid: Int32
   let folder: String
   let command: String
-  let reason: String
+  let weight: Double
+  let containers: [String]?
+  /// waiting, granted (its next run goes) or running.
+  let state: String
   let since: Double
-  var id: String { "\(agent_pid)-\(since)" }
-  static let folder = FileManager.default.homeDirectoryForCurrentUser
-    .appendingPathComponent("Library/Application Support/CoreScope/gates")
-  /// Current waits; files whose gate process is gone are stale and removed.
-  static func read() -> [GateWait] {
-    let files = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
-    var out: [GateWait] = []
-    for file in files where file.pathExtension == "json" {
-      let pid = Int32(file.deletingPathExtension().lastPathComponent) ?? 0
-      guard pid > 0, kill(pid, 0) == 0 else {
-        try? FileManager.default.removeItem(at: file)
-        continue
-      }
-      if let data = try? Data(contentsOf: file), let wait = try? JSONDecoder().decode(GateWait.self, from: data) {
-        out.append(wait)
-      }
+  let seen: Double
+  let reason: String?
+  var id: String { "\(agent_pid)-\(command)-\(state)" }
+}
+/// One gate decision.
+struct AdmissionEvent: Decodable, Identifiable, Equatable {
+  let at: Double
+  let agent_pid: Int32
+  let folder: String
+  let command: String
+  let outcome: String
+  let reason: String?
+  let via: String
+  var id: String { "\(at)-\(agent_pid)-\(command)" }
+}
+struct AdmissionState: Decodable, Equatable {
+  var entries: [AdmissionEntry] = []
+  var events: [AdmissionEvent] = []
+  /// Off the main thread: reads and prunes the queue file.
+  static func read() -> AdmissionState {
+    guard let pointer = #"{"op":"list"}"#.withCString({ cs_capacity_queue($0) }) else { return AdmissionState() }
+    defer { cs_free(pointer) }
+    return (try? JSONDecoder().decode(AdmissionState.self, from: Data(bytes: pointer, count: strlen(pointer)))) ?? AdmissionState()
+  }
+  /// Run now: the agent's next run of the command is admitted whatever the readings say.
+  static func grant(_ e: AdmissionEntry, done: @escaping () -> Void) {
+    let request = (try? JSONSerialization.data(withJSONObject: ["op": "grant", "agent_pid": Int(e.agent_pid), "command": e.command]))
+      .flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+    DispatchQueue.global(qos: .userInitiated).async {
+      if let pointer = request.withCString({ cs_capacity_queue($0) }) { cs_free(pointer) }
+      DispatchQueue.main.async(execute: done)
     }
-    return out.sorted { $0.since < $1.since }
   }
 }
 
-/// Agents page: who is waiting for the Mac, for which command and why.
-struct GateWaitsCard: View {
-  let waits: [GateWait]
+/// Agents page: heavy commands running, waiting (why, since when, Run now) and the latest
+/// decisions of the admission queue.
+struct AdmissionCard: View {
+  let state: AdmissionState
+  var refresh: () -> Void = {}
+  private func since(_ t: Double) -> String {
+    Date(timeIntervalSince1970: t).formatted(.relative(presentation: .named))
+  }
   var body: some View {
-    if !waits.isEmpty {
+    let running = state.entries.filter { $0.state != "waiting" }
+    let waiting = state.entries.filter { $0.state == "waiting" }
+    let recent = state.events.filter { $0.outcome == "deferred" || $0.outcome == "failed_open" }.suffix(4)
+    if !state.entries.isEmpty || !recent.isEmpty {
       Card {
-        CardHeader(title: L("Aguardando capacidade"), symbol: "hourglass", tint: .orange, count: waits.count)
-        ForEach(waits) { w in
-          HStack(spacing: 8) {
-            Image(systemName: "pause.circle").foregroundStyle(.orange)
-            VStack(alignment: .leading, spacing: 2) {
-              Text(w.command).font(.system(.callout, design: .monospaced))
-              Text("\(projectName(w.folder) ?? w.folder) · \(w.reason)").font(.caption).foregroundStyle(.secondary)
-                .lineLimit(1)
+        CardHeader(title: L("Fila de comandos pesados"), symbol: "hourglass", tint: .orange, count: waiting.count)
+        ForEach(running) { e in
+          row(e, symbol: "play.circle.fill", tint: .green,
+              detail: e.state == "granted" ? L("vez reservada · começa na próxima execução") : L("rodando · peso %@", String(format: "%g", e.weight)),
+              time: e.seen)
+        }
+        ForEach(waiting) { e in
+          HStack(alignment: .top, spacing: 8) {
+            row(e, symbol: "pause.circle", tint: .orange, detail: e.reason ?? "", time: e.since)
+            Button(L("Rodar agora")) { AdmissionState.grant(e, done: refresh) }
+              .controlSize(.small)
+              .help(L("A próxima execução deste comando por esse agente passa direto, mesmo sem folga."))
+          }
+        }
+        if !recent.isEmpty {
+          Divider()
+          Text(L("Decisões recentes")).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+          ForEach(Array(recent.reversed())) { ev in
+            HStack(alignment: .top, spacing: 6) {
+              Image(systemName: ev.outcome == "failed_open" ? "exclamationmark.triangle" : "arrow.uturn.backward.circle")
+                .foregroundStyle(ev.outcome == "failed_open" ? .orange : .secondary)
+              Text("\(ev.command) · \(ev.reason ?? "")").font(.caption).foregroundStyle(.secondary).lineLimit(2)
+              Spacer()
+              Text(since(ev.at)).font(.caption).foregroundStyle(.secondary)
             }
-            Spacer()
-            Text(Date(timeIntervalSince1970: w.since).formatted(.relative(presentation: .named))).font(.caption)
-              .foregroundStyle(.secondary)
           }
         }
         Text(
-          L("O projeto pede que agentes esperem a máquina ter folga antes de comandos pesados (.corescope.yml › agents.wait_for_capacity). O comando começa sozinho quando a CPU e a memória normalizarem.")
+          L("Projetos com agents.wait_for_capacity no .corescope.yml passam comandos pesados por esta fila: a decisão sai na hora, com o motivo para o agente; um de cada vez por contêiner e no máximo max_parallel ao mesmo tempo.")
         ).font(.caption).foregroundStyle(.secondary)
       }
+    }
+  }
+  private func row(_ e: AdmissionEntry, symbol: String, tint: Color, detail: String, time: Double) -> some View {
+    HStack(spacing: 8) {
+      Image(systemName: symbol).foregroundStyle(tint)
+      VStack(alignment: .leading, spacing: 2) {
+        Text(e.command).font(.system(.callout, design: .monospaced))
+        let where_ = [projectName(e.folder) ?? e.folder, (e.containers ?? []).isEmpty ? nil : (e.containers ?? []).joined(separator: ", ")]
+          .compactMap { $0 }.joined(separator: " · ")
+        Text("\(where_) · \(detail)").font(.caption).foregroundStyle(.secondary).lineLimit(2)
+      }
+      Spacer()
+      Text(since(time)).font(.caption).foregroundStyle(.secondary)
     }
   }
 }

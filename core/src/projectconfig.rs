@@ -231,16 +231,100 @@ pub struct CapacitySpec {
     /// Give up waiting after this long and run anyway. Default 30.
     #[serde(default = "default_wait")]
     pub max_wait_minutes: f64,
-    /// Command prefixes that count as heavy (builds, test suites, `docker compose up`).
+    /// Commands that count as heavy (builds, test suites, `docker compose up`): a prefix, or
+    /// `{command, uses, weight}` saying what it draws on.
     #[serde(default)]
-    pub heavy_commands: Vec<String>,
+    pub heavy_commands: Vec<HeavyCommand>,
     /// Share of the container engine's VM memory (OrbStack, Docker Desktop, Colima) that must
     /// be free, percent. Default 15; 0 turns the check off.
     #[serde(default = "default_container_free")]
     pub container_memory_free: f64,
+    /// Heavy commands running at once on the Mac, as a sum of weights (default 2). One always
+    /// runs when there is room, whatever its weight.
+    #[serde(default = "default_parallel")]
+    pub max_parallel: f64,
+}
+fn default_parallel() -> f64 {
+    2.
 }
 fn default_container_free() -> f64 {
     15.
+}
+
+/// A heavy command: a plain prefix (it uses the Mac's CPU and memory) or one that says what it
+/// uses — `containers` adds the container VM's memory — and how heavy it is for the queue.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(untagged)]
+pub enum HeavyCommand {
+    Prefix(String),
+    Detailed(HeavySpec),
+}
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct HeavySpec {
+    pub command: String,
+    /// `cpu`, `memory`, `containers`. Default: cpu and memory.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub uses: Option<Vec<String>>,
+    /// Rough weight for the admission queue (default 1): a heavier command waits longer before
+    /// the next one is admitted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub weight: Option<f64>,
+    /// The containers it loads (name, compose service or `project-service`): each must be
+    /// running and below 90% of its own memory limit. Implies `containers` in `uses`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub containers: Vec<String>,
+}
+impl HeavyCommand {
+    pub fn with_uses(command: &str, uses: crate::capacity::Uses) -> HeavyCommand {
+        HeavyCommand::Detailed(HeavySpec {
+            command: command.into(),
+            uses: Some(uses.names().into_iter().map(String::from).collect()),
+            weight: None,
+            containers: vec![],
+        })
+    }
+    pub fn command(&self) -> &str {
+        match self {
+            HeavyCommand::Prefix(c) => c,
+            HeavyCommand::Detailed(d) => &d.command,
+        }
+    }
+    pub fn uses(&self) -> crate::capacity::Uses {
+        let base = match self {
+            HeavyCommand::Detailed(HeavySpec {
+                uses: Some(list), ..
+            }) => crate::capacity::Uses::parse(list).unwrap_or(crate::capacity::Uses::MAC),
+            _ => crate::capacity::Uses::MAC,
+        };
+        if self.containers().is_empty() {
+            base
+        } else {
+            crate::capacity::Uses {
+                containers: true,
+                ..base
+            }
+        }
+    }
+    pub fn containers(&self) -> &[String] {
+        match self {
+            HeavyCommand::Detailed(d) => &d.containers,
+            _ => &[],
+        }
+    }
+    pub fn weight(&self) -> f64 {
+        match self {
+            HeavyCommand::Detailed(HeavySpec {
+                weight: Some(w), ..
+            }) => w.clamp(0.1, 10.),
+            _ => 1.,
+        }
+    }
+}
+impl PartialEq<&str> for HeavyCommand {
+    fn eq(&self, other: &&str) -> bool {
+        matches!(self, HeavyCommand::Prefix(c) if c == other)
+    }
 }
 fn default_cpu() -> f64 {
     70.
@@ -259,6 +343,7 @@ impl Default for CapacitySpec {
             max_wait_minutes: default_wait(),
             heavy_commands: vec![],
             container_memory_free: default_container_free(),
+            max_parallel: default_parallel(),
         }
     }
 }
@@ -416,6 +501,28 @@ impl ProjectConfig {
             }
             if !(0.0..=90.0).contains(&c.container_memory_free) {
                 out.push("agents.wait_for_capacity.container_memory_free: between 0 and 90".into());
+            }
+            if !(1.0..=20.0).contains(&c.max_parallel) {
+                out.push("agents.wait_for_capacity.max_parallel: between 1 and 20".into());
+            }
+            for h in &c.heavy_commands {
+                if h.command().trim().is_empty() {
+                    out.push("agents.wait_for_capacity.heavy_commands: empty command".into());
+                }
+                if let HeavyCommand::Detailed(d) = h {
+                    if let Some(Err(e)) = d.uses.as_ref().map(|u| crate::capacity::Uses::parse(u)) {
+                        out.push(format!(
+                            "agents.wait_for_capacity.heavy_commands `{}`: uses {e}",
+                            d.command
+                        ));
+                    }
+                    if d.weight.is_some_and(|w| !(0.1..=10.).contains(&w)) {
+                        out.push(format!(
+                            "agents.wait_for_capacity.heavy_commands `{}`: weight between 0.1 and 10",
+                            d.command
+                        ));
+                    }
+                }
             }
         }
         out
@@ -950,6 +1057,35 @@ agents:
     cpu_below: 65
     heavy_commands: ["php artisan test", 'npm run build']
 "#;
+
+    #[test]
+    fn heavy_commands_say_what_they_use() {
+        let c = parse("agents:\n  wait_for_capacity:\n    heavy_commands:\n      - npm run build\n      - command: php artisan test\n        uses: [cpu, memory, containers]\n        weight: 3\n      - command: go test\n        uses: [cpu, memory]\n").unwrap();
+        let w = c.agents.unwrap().wait_for_capacity.unwrap();
+        let h = &w.heavy_commands;
+        assert_eq!(h[0], "npm run build");
+        assert_eq!(h[0].uses(), crate::capacity::Uses::MAC);
+        assert_eq!(
+            (h[1].command(), h[1].uses(), h[1].weight()),
+            ("php artisan test", crate::capacity::Uses::ALL, 3.)
+        );
+        assert_eq!(
+            (h[2].uses(), h[2].weight()),
+            (crate::capacity::Uses::MAC, 1.)
+        );
+        assert!(parse("agents:\n  wait_for_capacity:\n    heavy_commands:\n      - command: x\n        uses: [gpu]\n").unwrap_err().contains("gpu"));
+        assert!(parse("agents:\n  wait_for_capacity:\n    heavy_commands:\n      - command: x\n        weight: 50\n").is_err());
+        assert!(parse("agents:\n  wait_for_capacity:\n    heavy_commands:\n      - command: x\n        other: 1\n").is_err());
+        let c = parse("agents:\n  wait_for_capacity:\n    heavy_commands:\n      - command: php artisan test\n        uses: [cpu, memory]\n        containers: [mysql, redis]\n").unwrap();
+        let h = &c.agents.unwrap().wait_for_capacity.unwrap().heavy_commands[0];
+        assert_eq!(
+            (h.uses(), h.containers()),
+            (
+                crate::capacity::Uses::ALL,
+                &["mysql".to_string(), "redis".to_string()][..]
+            )
+        );
+    }
 
     #[test]
     fn databases_section() {

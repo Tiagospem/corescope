@@ -3,7 +3,6 @@
 //! file's error with its line. Delivered at session start by a hook (`corescope context --hook`,
 //! Claude Code and Codex), on request (MCP `agent_context`), or written as a marked section of
 //! `CLAUDE.md` / `AGENTS.md` for agents without hooks.
-use crate::capacity::DEFAULT_HEAVY;
 use crate::projectconfig::{self, Found};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
@@ -50,25 +49,27 @@ pub fn render(found: &Found) -> String {
         .as_ref()
         .and_then(|a| a.wait_for_capacity.as_ref())
     {
-        let heavy: Vec<String> = if c.heavy_commands.is_empty() {
-            DEFAULT_HEAVY.iter().map(|s| s.to_string()).collect()
-        } else {
-            c.heavy_commands.clone()
-        };
+        let heavy: Vec<String> = crate::capacity::heavy_list(c)
+            .iter()
+            .map(|h| {
+                if h.uses().containers {
+                    format!("`{}` (also the container VM)", h.command())
+                } else {
+                    format!("`{}`", h.command())
+                }
+            })
+            .collect();
         out.push(format!(
-            "- The Mac is shared: before heavy commands ({}) wait until it has room — total CPU below {:.0}% and memory pressure {} or better, waiting at most {}. Call the MCP tool wait_for_capacity (repeat until ready: true) or run `corescope wait`. With CoreScope's gate hook on, these commands already wait on their own; don't work around it or run them in parallel to save time.",
-            heavy
-                .iter()
-                .map(|h| format!("`{h}`"))
-                .collect::<Vec<_>>()
-                .join(", "),
-            c.cpu_below,
-            c.memory,
+            "- The Mac is shared; heavy commands go through CoreScope's admission queue: {}. Before one, call the MCP tool system_capacity (or reserve_capacity to hold a place). If it is deferred: when the reason is transient (CPU, memory pressure, a queue), call wait_for_capacity (up to 55 s per call) and try again — the wait budget is {}; when it is structural (the container VM is full), waiting won't help: do what it says or ask the user. With CoreScope's gate hook on, a deferred command is refused at once with the reason. Don't run heavy commands in parallel or in the background to get around the queue, and prefer CI when the check can run there. Limits: CPU below {:.0}%, memory pressure {} or better, {:.0}% of the container VM free.",
+            heavy.join(", "),
             if c.max_wait_minutes < 1. {
                 format!("{:.0} s", c.max_wait_minutes * 60.)
             } else {
                 format!("{:.0} min", c.max_wait_minutes)
-            }
+            },
+            c.cpu_below,
+            c.memory,
+            c.container_memory_free
         ));
     }
     if !config.ports.is_empty() {

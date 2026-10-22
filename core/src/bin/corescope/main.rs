@@ -33,10 +33,14 @@ USAGE:
   corescope logs [FOLDER] [--errors] [--search TEXT] [-n N]
                                         the project's log files: tail, errors with traces, or search
   corescope wait [FOLDER] [--cpu-below N] [--memory normal|warning] [--max-wait MIN]
-                                        wait until the Mac has room (the project's .corescope.yml
-                                        agents.wait_for_capacity, or the flags), then exit 0
-  corescope gate                        Claude Code PreToolUse hook: holds heavy Bash commands until
-                                        there is room, in projects that enable it
+                 [--command NAME] [--uses cpu,memory,containers]
+                                        wait in the admission queue until the Mac has room (the
+                                        project's .corescope.yml agents.wait_for_capacity, or the
+                                        flags), then exit 0; a full container VM ends it at once
+  corescope gate                        Claude Code / Codex PreToolUse hook: admits heavy Bash
+                                        commands or refuses them at once with the reason (≤ 5 s)
+  corescope capacity-advice [FOLDER]    what the container VM and the project's containers look like
+                                        now, and a proposed agents.wait_for_capacity rule to review
   corescope config [FOLDER]             validate and show the project's .corescope.yml (default: here)
   corescope db snapshot PORT DATABASE   dump a MySQL/PostgreSQL database (inside its container,
                                         with the container's own credentials) to a gzipped file
@@ -283,8 +287,54 @@ fn main() {
             if let Some(v) = value("--max-wait").and_then(|v| v.parse().ok()) {
                 spec.max_wait_minutes = v;
             }
-            let outcome = wait_for_room(&spec, None, |line| eprintln!("corescope: {line}"));
-            print(json_out, outcome)
+            // What it waits for (shown in the queue) and what it uses: everything unless told.
+            let uses = value("--uses").map(|list| {
+                corescope::capacity::Uses::parse(
+                    &list.split(',').map(String::from).collect::<Vec<_>>(),
+                )
+            });
+            match uses {
+                Some(Err(e)) => fail(json_out, &format!("--uses: {e}")),
+                _ => {
+                    let uses = uses
+                        .and_then(Result::ok)
+                        .unwrap_or(corescope::capacity::Uses::ALL);
+                    let label = value("--command").unwrap_or_else(|| "corescope wait".into());
+                    let heavy = corescope::projectconfig::HeavyCommand::with_uses(&label, uses);
+                    let outcome = wait_for_room(
+                        &spec,
+                        &heavy,
+                        &folder,
+                        // The shell that runs `corescope wait && command`: it lives while the
+                        // command runs, so the command counts as running.
+                        Some(std::os::unix::process::parent_id() as i32),
+                        corescope::admission::Mode::Run,
+                        None,
+                        "cli",
+                        |line| eprintln!("corescope: {line}"),
+                    );
+                    print(json_out, outcome)
+                }
+            }
+        }
+        Some("capacity-advice") => {
+            let folder = positional
+                .get(1)
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+            let out = capacity_advice(&folder);
+            if json_out {
+                print(true, out)
+            } else {
+                for f in out["advice"]["findings"].as_array().into_iter().flatten() {
+                    println!("- {}", f.as_str().unwrap_or(""));
+                }
+                println!(
+                    "\nProposed rule (review before using):\n\n{}",
+                    out["advice"]["yaml"].as_str().unwrap_or("")
+                );
+                0
+            }
         }
         Some("config") => {
             let folder = positional
@@ -1045,56 +1095,196 @@ pub fn logs(folder: &std::path::Path, errors: bool, query: Option<&str>, count: 
     json!({"log_sources": sources.iter().map(|s| &s.name).collect::<Vec<_>>(), "tails": tails})
 }
 
+/// What the project's capacity rule should say, from what runs now: the container VMs, the
+/// containers the project names (profiles, databases, environment apps) and its heavy commands.
+pub fn capacity_advice(folder: &std::path::Path) -> Value {
+    let config = project_config(folder).ok();
+    let c = config.as_ref().map(|v| &v["config"]);
+    let mut named: Vec<String> = vec![];
+    if let Some(c) = c {
+        let strings = |v: &Value| -> Vec<String> {
+            v.as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|x| x.as_str().map(String::from))
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+        for p in c["profiles"]
+            .as_object()
+            .into_iter()
+            .flat_map(|m| m.values())
+        {
+            named.extend(strings(&p["containers"]));
+        }
+        for d in c["databases"]
+            .as_object()
+            .into_iter()
+            .flat_map(|m| m.values())
+        {
+            if let Some(server) = d["server"].as_str().filter(|s| s.parse::<u16>().is_err()) {
+                named.push(server.into());
+            }
+        }
+        for app in c["environment"]["apps"]
+            .as_object()
+            .into_iter()
+            .flat_map(|m| m.values())
+        {
+            named.extend(strings(&app["containers"]));
+        }
+    }
+    named.sort();
+    named.dedup();
+    let spec = capacity_spec(folder);
+    let vms = corescope::containers::vm_memory();
+    let cores = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4);
+    let advice = corescope::capacity::advice(spec.as_ref(), &vms, &named, cores);
+    json!({"file": config.as_ref().map(|v| v["file"].clone()), "current_rule": spec,
+           "project_containers": named, "advice": advice,
+           "note": "A proposal from what runs now: review which containers each command really loads (and its weight) before putting it in .corescope.yml."})
+}
+
 /// The capacity rule of the project around `folder`, if it has one.
 pub fn capacity_spec(folder: &std::path::Path) -> Option<corescope::projectconfig::CapacitySpec> {
     let v = project_config(folder).ok()?;
     serde_json::from_value(v["config"]["agents"]["wait_for_capacity"].clone()).ok()
 }
 
-/// Samples until the rule is met twice in a row (10 s apart), or `limit` passes. An immediate
-/// pass needs one reading. Returns what happened, never fails: on timeout the caller proceeds.
+/// One admission decision for a heavy command of the project around `folder`: a fresh reading
+/// (the container VMs only when this command or one waiting uses them), then the shared queue.
+/// Recorded for the app and `capacity_events`. Never fails: a queue it cannot use admits.
+pub fn admit(
+    spec: &corescope::projectconfig::CapacitySpec,
+    heavy: &corescope::projectconfig::HeavyCommand,
+    folder: &std::path::Path,
+    agent: Option<i32>,
+    mode: corescope::admission::Mode,
+    via: &str,
+) -> (corescope::admission::Decision, corescope::capacity::Reading) {
+    use corescope::admission as a;
+    let started = std::time::Instant::now();
+    let queued = a::with_queue(|q| q.entries.clone()).unwrap_or_default();
+    let uses = queued.iter().fold(heavy.uses(), |u, e| u.union(e.uses));
+    let snapshot = sample(true);
+    let agent_pid = agent.unwrap_or_else(|| agent_pid(&snapshot));
+    let reading = corescope::capacity::full_reading(&snapshot, uses);
+    let blockers =
+        |u, targets: &[String]| corescope::capacity::blockers(spec, &reading, u, targets);
+    let running = |e: &a::Entry| still_running(&snapshot, e);
+    let folder_text = folder.to_string_lossy().to_string();
+    let request = a::Request {
+        agent_pid,
+        folder: &folder_text,
+        command: heavy.command(),
+        uses: heavy.uses(),
+        weight: heavy.weight(),
+        containers: heavy.containers(),
+        max_parallel: spec.max_parallel,
+    };
+    let decision =
+        a::with_queue(|q| a::decide(q, a::now(), &request, mode, &a::alive, &running, &blockers))
+            .unwrap_or_else(|e| a::Decision {
+                outcome: "admitted",
+                blockers: vec![],
+                position: None,
+                retry_seconds: None,
+                structural: false,
+                message: format!(
+                    "CoreScope could not use its queue ({e}); not holding `{}`",
+                    heavy.command()
+                ),
+            });
+    a::record(&a::Event {
+        at: a::now(),
+        agent_pid,
+        folder: folder_text.clone(),
+        command: heavy.command().into(),
+        outcome: decision.outcome.into(),
+        reason: if decision.admitted() {
+            String::new()
+        } else {
+            decision.message.clone()
+        },
+        via: via.into(),
+        millis: started.elapsed().as_millis() as u64,
+    });
+    (decision, reading)
+}
+
+/// Whether an admitted command still runs (see `admission::running_in`), from a snapshot.
+pub fn still_running(snapshot: &corescope::Snapshot, e: &corescope::admission::Entry) -> bool {
+    let table: Vec<(i32, i32, u64)> = snapshot
+        .processes
+        .iter()
+        .map(|p| (p.pid, p.ppid, p.start))
+        .collect();
+    corescope::admission::running_in(&table, e)
+}
+
+/// The agent session this process runs under (Claude Code, Codex…): the hook and the MCP server
+/// are both its descendants, so a place one reserves is the other's. The parent when none is.
+pub fn agent_pid(snapshot: &corescope::Snapshot) -> i32 {
+    mcp::session(snapshot)
+        .map(|p| p.pid)
+        .unwrap_or(std::os::unix::process::parent_id() as i32)
+}
+
+/// Waits for room by asking the queue every 10 s (keeping the place), until admitted or `limit`
+/// passes; for `corescope wait` and the MCP `wait_for_capacity`. `mode` Reserve holds the place
+/// for the agent's next run; Run takes it now. A structural blocker (the container VM is full)
+/// ends the wait at once: waiting cannot clear it.
+#[allow(clippy::too_many_arguments)]
 pub fn wait_for_room(
     spec: &corescope::projectconfig::CapacitySpec,
+    heavy: &corescope::projectconfig::HeavyCommand,
+    folder: &std::path::Path,
+    agent: Option<i32>,
+    mode: corescope::admission::Mode,
     limit: Option<Duration>,
+    via: &str,
     mut say: impl FnMut(&str),
 ) -> Value {
     let started = std::time::Instant::now();
     let limit = limit.unwrap_or(Duration::from_secs_f64(spec.max_wait_minutes.max(0.) * 60.));
-    let mut good = 0;
-    let mut waited = false;
+    let mut told = false;
     loop {
-        let reading = corescope::capacity::full_reading(&sample(true));
-        let blockers = corescope::capacity::blockers(spec, &reading);
-        if blockers.is_empty() {
-            good += 1;
-            if !waited || good >= 2 {
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_secs_f64())
-                    .unwrap_or(0.);
-                return json!({"ready": true, "waited_seconds": started.elapsed().as_secs(), "reading": reading,
-                              "warnings": corescope::capacity::warnings(&reading, now)});
-            }
-        } else {
-            good = 0;
-            if !waited {
-                say(&format!("waiting for room: {}", blockers.join(", ")));
-            }
-            waited = true;
-            if started.elapsed() + Duration::from_millis(900) >= limit {
-                return json!({"ready": false, "gave_up_after_seconds": started.elapsed().as_secs(),
-                              "blockers": blockers, "reading": reading});
-            }
+        let (decision, reading) = admit(spec, heavy, folder, agent, mode, via);
+        let warnings = corescope::capacity::warnings(&reading, corescope::admission::now());
+        if decision.admitted() {
+            return json!({"ready": true, "outcome": decision.outcome, "message": decision.message,
+                          "waited_seconds": started.elapsed().as_secs(), "reading": reading, "warnings": warnings});
+        }
+        if !told {
+            say(&format!("waiting for room: {}", decision.message));
+            told = true;
+        }
+        if decision.structural || started.elapsed() + Duration::from_millis(900) >= limit {
+            return json!({"ready": false, "outcome": "deferred", "structural": decision.structural,
+                          "message": decision.message, "blockers": decision.blockers, "position": decision.position,
+                          "retry_seconds": decision.retry_seconds, "waited_seconds": started.elapsed().as_secs(),
+                          "reading": reading, "warnings": warnings});
         }
         // Never past the limit: the last check lands on it. A second at a time, so "Run now" in
         // the app (a file named after this process) is seen at once.
         let left = limit.saturating_sub(started.elapsed());
-        let pause = Duration::from_secs(10).min(left.max(Duration::from_millis(200)));
+        let pause = Duration::from_secs(decision.retry_seconds.unwrap_or(10).clamp(2, 10))
+            .min(left.max(Duration::from_millis(200)));
         let until = std::time::Instant::now() + pause;
         while std::time::Instant::now() < until {
             if skip_requested() {
                 say("the user chose to run it now");
-                return json!({"ready": true, "skipped": true, "waited_seconds": started.elapsed().as_secs(), "reading": reading});
+                let _ = corescope::admission::with_queue(|q| {
+                    corescope::admission::release(
+                        q,
+                        agent.unwrap_or(std::os::unix::process::parent_id() as i32),
+                        Some(heavy.command()),
+                    )
+                });
+                return json!({"ready": true, "skipped": true, "waited_seconds": started.elapsed().as_secs()});
             }
             std::thread::sleep(
                 Duration::from_secs(1)
@@ -1117,9 +1307,14 @@ fn skip_requested() -> bool {
     false
 }
 
-/// Claude Code PreToolUse hook. Reads the tool call on stdin; for a heavy Bash command in a project
-/// whose .corescope.yml enables `agents.wait_for_capacity`, waits for room (recording the wait so
-/// CoreScope can show it). Always exits 0: it delays, it never blocks a command.
+/// The hook gives up deciding after this long and lets the command run (fail open).
+const GATE_BUDGET: Duration = Duration::from_millis(4500);
+
+/// Claude Code / Codex PreToolUse hook. Reads the tool call on stdin; for a heavy Bash command
+/// in a project whose .corescope.yml enables `agents.wait_for_capacity`, decides within ~5 s:
+/// admitted (nothing printed, the command runs) or deferred — refused with the reason, the
+/// numbers and what to do, which the agent reads. It never holds the command; if CoreScope
+/// cannot decide in time, the command runs and the failure is recorded.
 fn gate() -> i32 {
     use std::io::Read;
     let mut input = String::new();
@@ -1128,42 +1323,62 @@ fn gate() -> i32 {
     let Some((command, folder)) = gate_request(&call) else {
         return 0;
     };
-    let command = command.as_str();
     let Some(spec) = capacity_spec(&folder) else {
         return 0;
     };
-    let defaults: Vec<String> = corescope::capacity::DEFAULT_HEAVY
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
-    let prefixes = if spec.heavy_commands.is_empty() {
-        &defaults
-    } else {
-        &spec.heavy_commands
-    };
-    let Some(heavy) = corescope::capacity::heavy(command, prefixes) else {
+    let list = corescope::capacity::heavy_list(&spec);
+    let Some(heavy) = corescope::capacity::heavy(&command, &list).cloned() else {
         return 0;
     };
-    // Visible to CoreScope while it lasts: who waits, for what, why.
-    let dir = std::path::PathBuf::from(std::env::var_os("HOME").unwrap_or_default())
-        .join("Library/Application Support/CoreScope/gates");
-    let _ = std::fs::create_dir_all(&dir);
-    let file = dir.join(format!("{}.json", std::process::id()));
-    let agent = std::os::unix::process::parent_id();
-    let limit = Duration::from_secs_f64((spec.max_wait_minutes.clamp(0., 55.)) * 60.);
-    let outcome = wait_for_room(&spec, Some(limit), |reason| {
-        let note = json!({"agent_pid": agent, "folder": folder, "command": heavy, "reason": reason,
-                          "since": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)});
-        let _ = std::fs::write(&file, note.to_string());
-        eprintln!("CoreScope: {reason}; `{heavy}` will start when the Mac has room");
-    });
-    let _ = std::fs::remove_file(&file);
-    if outcome["ready"] == false {
-        eprintln!(
-            "CoreScope: still busy after the project's maximum wait; running `{heavy}` anyway"
-        );
+    let (tx, rx) = std::sync::mpsc::channel();
+    {
+        let (spec, heavy, folder) = (spec.clone(), heavy.clone(), folder.clone());
+        std::thread::spawn(move || {
+            let (decision, _) = admit(
+                &spec,
+                &heavy,
+                &folder,
+                None,
+                corescope::admission::Mode::Run,
+                "hook",
+            );
+            let _ = tx.send(decision);
+        });
     }
-    0
+    match rx.recv_timeout(GATE_BUDGET) {
+        Ok(d) if !d.admitted() => {
+            let mut reason = d.message.clone();
+            if let Some(n) = d.position {
+                reason.push_str(&format!(" (queue position {})", n + 1));
+            }
+            println!("{}", gate_refusal(&reason));
+            0
+        }
+        Ok(_) => 0,
+        Err(_) => {
+            corescope::admission::record(&corescope::admission::Event {
+                at: corescope::admission::now(),
+                agent_pid: std::os::unix::process::parent_id() as i32,
+                folder: folder.to_string_lossy().into(),
+                command: heavy.command().into(),
+                outcome: "failed_open".into(),
+                reason: format!(
+                    "no decision within {} s; the command ran",
+                    GATE_BUDGET.as_secs_f64()
+                ),
+                via: "hook".into(),
+                millis: GATE_BUDGET.as_millis() as u64,
+            });
+            0
+        }
+    }
+}
+
+/// The PreToolUse refusal Claude Code and Codex both read: the reason goes to the model.
+fn gate_refusal(reason: &str) -> String {
+    json!({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
+           "permissionDecisionReason": reason}})
+    .to_string()
 }
 
 /// The shell command and working folder of a PreToolUse hook call. Claude Code and Codex send
