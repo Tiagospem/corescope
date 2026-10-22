@@ -70,18 +70,30 @@ enum SessionJump {
     -> SessionJump?
   {
     if let url = meta?.desktopURL { return .desktop(url) }
+    // Remembered per session: each NSRunningApplication lookup goes to LaunchServices, and views
+    // ask on every snapshot.
+    let key = root.id
+    if let found = hosts[key], found.map({ !$0.isTerminated }) ?? true {
+      return found.map { .app($0, $0.localizedName ?? root.origin?.label ?? "") }
+    }
     // Walk up from the session to the nearest process that is a regular app.
     var pid = root.ppid
+    var host: NSRunningApplication?
     for _ in 0..<48 {
       guard pid > 1 else { break }
       if let app = NSRunningApplication(processIdentifier: pid), app.activationPolicy == .regular {
-        return .app(app, app.localizedName ?? root.origin?.label ?? "")
+        host = app
+        break
       }
       guard let parent = snapshot?.process(pid: pid)?.ppid else { break }
       pid = parent
     }
-    return nil
+    if hosts.count > 200 { hosts = [:] }
+    hosts[key] = host
+    return host.map { .app($0, $0.localizedName ?? root.origin?.label ?? "") }
   }
+  /// Session process id → the app hosting it (nil: none). Main thread only.
+  private static var hosts: [String: NSRunningApplication?] = [:]
   var label: String {
     switch self {
     case .desktop: L("Abrir no Claude")

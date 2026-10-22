@@ -1000,6 +1000,19 @@ func actionArtifact(_ output: String, folder: String) -> String? {
   return path.hasPrefix("/") ? path : (folder as NSString).appendingPathComponent(path)
 }
 
+/// Ports an error message names ("Porta 19091 ocupada", "port 3000 in use", "127.0.0.1:8080"),
+/// in order, without repeats.
+func portsMentioned(_ text: String) -> [UInt16] {
+  // "port 80" / "porta 19091", or ":8080" (three digits or more, so times like 12:30 are not ports).
+  guard let re = try? NSRegularExpression(pattern: "(?i)(?:\\bporta?\\s*(\\d{2,5})|:(\\d{3,5}))\\b") else { return [] }
+  let ns = text as NSString
+  var out: [UInt16] = []
+  for m in re.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
+    let range = m.range(at: 1).location != NSNotFound ? m.range(at: 1) : m.range(at: 2)
+    if let port = UInt16(ns.substring(with: range)), port > 0, !out.contains(port) { out.append(port) }
+  }
+  return out
+}
 /// Moves `key` one place up or down in `order` (the context menu alternative to dragging).
 func movedOne(_ order: [String], _ key: String, up: Bool) -> [String] {
   guard let i = order.firstIndex(of: key) else { return order }

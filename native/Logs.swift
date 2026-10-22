@@ -50,16 +50,10 @@ final class LogsStore: ObservableObject {
     }
     return out
   }
-  /// Nearest folder with a .git (within 5 levels), else the folder itself.
+  /// Nearest folder with a .git, else the folder itself (until the background lookup answers:
+  /// agent folders are often on an external disk, and this runs on the main thread).
   private func repositoryRoot(_ cwd: String) -> String {
-    var url = URL(fileURLWithPath: cwd)
-    for _ in 0..<5 {
-      if FileManager.default.fileExists(atPath: url.appendingPathComponent(".git").path) { return url.path }
-      let parent = url.deletingLastPathComponent()
-      if parent.path == url.path { break }
-      url = parent
-    }
-    return cwd
+    WorkingTrees.shared.tree(cwd) ?? cwd
   }
 
   func refresh(done: (() -> Void)? = nil) {

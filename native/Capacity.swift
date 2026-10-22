@@ -175,10 +175,30 @@ final class EconomyWatch {
 
 /// Agent sessions (and running Codex threads) sharing one git working tree: they can overwrite
 /// each other's files and fight over ports and dev servers.
-struct AgentConflictsCard: View {
-  let snapshot: Snapshot
-  let threads: [CodexThread]
-  private static func workingTree(_ path: String) -> String? {
+/// The git working tree around each folder, found off the main thread and remembered: the
+/// folders are often on an external disk, and a stat there stalls for seconds under heavy I/O.
+final class WorkingTrees: ObservableObject {
+  static let shared = WorkingTrees()
+  /// folder → its working tree ("" when it has none).
+  @Published private(set) var known: [String: String] = [:]
+  private var pending = Set<String>()
+  private let queue = DispatchQueue(label: "app.corescope.worktrees", qos: .utility)
+  /// The tree if already known; otherwise nil, and it is looked up in the background.
+  func tree(_ folder: String) -> String? {
+    if let tree = known[folder] { return tree.isEmpty ? nil : tree }
+    if pending.insert(folder).inserted {
+      queue.async {
+        let tree = Self.find(folder) ?? ""
+        DispatchQueue.main.async {
+          self.pending.remove(folder)
+          if self.known.count > 500 { self.known = [:] }
+          self.known[folder] = tree
+        }
+      }
+    }
+    return nil
+  }
+  private static func find(_ path: String) -> String? {
     var url = URL(fileURLWithPath: path)
     for _ in 0..<12 {
       if FileManager.default.fileExists(atPath: url.appendingPathComponent(".git").path) { return url.path }
@@ -188,15 +208,21 @@ struct AgentConflictsCard: View {
     }
     return nil
   }
+}
+
+struct AgentConflictsCard: View {
+  let snapshot: Snapshot
+  let threads: [CodexThread]
+  @ObservedObject private var trees = WorkingTrees.shared
   private var groups: [(tree: String, members: [String])] {
     var trees: [String: [String]] = [:]
     for root in snapshot.agentSessions where !root.cwd.isEmpty {
-      if let tree = Self.workingTree(root.cwd) {
+      if let tree = self.trees.tree(root.cwd) {
         trees[tree, default: []].append("\(root.host ?? root.name) \(root.pid)")
       }
     }
     for t in threads where t.running {
-      if let cwd = t.cwd, let tree = Self.workingTree(cwd) { trees[tree, default: []].append("Codex · \(t.title)") }
+      if let cwd = t.cwd, let tree = self.trees.tree(cwd) { trees[tree, default: []].append("Codex · \(t.title)") }
     }
     return trees.filter { $0.value.count > 1 }.map { ($0.key, $0.value) }.sorted { $0.tree < $1.tree }
   }

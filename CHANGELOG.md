@@ -10,6 +10,34 @@ section as the GitHub release notes.
 
 ## [Unreleased]
 
+## [0.12.1] - 2026-10-22
+
+### Added
+- **Container VM memory in the capacity gate**: OrbStack / Docker Desktop / Colima containers live
+  in a VM with its own memory (often 4 GB). `wait_for_capacity`, `system_capacity`, the gate hook and
+  `corescope wait` now read it and wait while less than `container_memory_free` (default 15%) is
+  free, naming the containers using most; containers at their own limit and those killed (exit
+  137 / out of memory) in the last 30 minutes come back as warnings. Overview › Memory shows the VM.
+  Default heavy commands now include `docker compose up` and `docker run`.
+
+### Fixed
+- **Agents looping on `wait_for_capacity`**: the project's `max_wait_minutes` now counts across
+  calls, so a Mac that stays busy ends in *go ahead* instead of an endless wait.
+- **Stale data and a frozen window under heavy load**: the collector no longer runs at utility
+  priority (it waited behind saturated efficiency cores for over 25 s); the Agents page, logs and
+  session buttons no longer touch project folders (often on an external disk) or LaunchServices on
+  the main thread on every sample; file events, profile container reads over MCP and the volume
+  re-read after an eject left the main thread. The disk-growth walk runs only on an idle Mac.
+- **A memory-pressure alert while memory was free**: the Overview alert follows the gate's rule (a
+  lingering "warning" counts only with 35% or less available).
+- **Heavy actions waiting for a busy Mac that was not busy**: the kernel's memory-pressure
+  "warning" lingers while half the memory is free; it now counts only with 35% or less available
+  ("critical" always counts). A waiting action says so on its chip and row (*waiting for room:*
+  and why) and *Run now* skips the wait.
+- **An environment stuck on a busy port**: when a status error names a port ("Port 19091 in use"),
+  the card shows who listens on it (marked when orphaned) with Terminate, so a process left by an
+  earlier start no longer blocks the environment until it is found by hand.
+
 ## [0.12.0] - 2026-10-21
 
 ### Added
@@ -570,7 +598,8 @@ First public release.
   compact / standard / detailed layouts and in-panel controls.
 - English, Portuguese and Spanish; offline-only.
 
-[Unreleased]: https://github.com/Tiagospem/corescope/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/Tiagospem/corescope/compare/v0.12.1...HEAD
+[0.12.1]: https://github.com/Tiagospem/corescope/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/Tiagospem/corescope/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/Tiagospem/corescope/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/Tiagospem/corescope/compare/v0.9.0...v0.10.0

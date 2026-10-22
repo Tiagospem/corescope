@@ -15,6 +15,17 @@ use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, Write};
 use std::time::Duration;
 
+/// The wait_for_capacity wait in progress across calls: when it started, when it last answered.
+static WAITING: std::sync::Mutex<Option<(std::time::Instant, std::time::Instant)>> =
+    std::sync::Mutex::new(None);
+
+fn now() -> f64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs_f64())
+        .unwrap_or(0.)
+}
+
 const SUPPORTED: [&str; 4] = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 
 pub fn serve() -> i32 {
@@ -1029,17 +1040,20 @@ fn core_tools() -> Vec<Value> {
         ),
         tool(
             "system_capacity",
-            "Whether the Mac has room for heavy work now: CPU and memory pressure against the \
-             project's .corescope.yml agents.wait_for_capacity rule (or a default 70% CPU, normal \
-             memory), the reasons when not, and the project's heavy command list.",
+            "Whether the Mac has room for heavy work now: CPU, memory pressure and the container \
+             VM's free memory (OrbStack/Docker Desktop/Colima) against the project's .corescope.yml \
+             agents.wait_for_capacity rule (or a default 70% CPU, normal memory, 15% VM free), the \
+             reasons when not, warnings (containers at their memory limit or killed lately) and the \
+             project's heavy command list.",
             json!({"folder": {"type": "string", "description": "project folder; default: this session's"}}),
             &[],
         ),
         tool(
             "wait_for_capacity",
             "Waits (up to `seconds`, default 45) until the Mac has room under the project's rule, \
-             then answers ready: true. If it answers ready: false, call it again until ready or the \
-             project's max_wait_minutes (also returned) passes — then proceed and tell the user.",
+             then answers ready: true. If it answers ready: false, call it again: the project's \
+             max_wait_minutes counts across calls, and once it passes the answer is ready: true with \
+             gave_up: true — then proceed and tell the user why the Mac stayed busy.",
             json!({"folder": {"type": "string"}, "seconds": {"type": "integer", "minimum": 5, "maximum": 55}}),
             &[],
         ),
@@ -1522,17 +1536,39 @@ fn call(params: &Value) -> Value {
             let rule = crate::capacity_spec(&folder);
             let spec = rule.clone().unwrap_or_default();
             if name == "system_capacity" {
-                let reading = corescope::capacity::reading(&sample(true));
+                let reading = corescope::capacity::full_reading(&sample(true));
                 let blockers = corescope::capacity::blockers(&spec, &reading);
                 return text(
-                    json!({"ready": blockers.is_empty(), "blockers": blockers, "reading": reading,
+                    json!({"ready": blockers.is_empty(), "blockers": blockers,
+                           "warnings": corescope::capacity::warnings(&reading, now()), "reading": reading,
                            "rule": rule, "rule_source": if rule.is_some() { "project .corescope.yml" } else { "default (no project rule)" }}),
                     false,
                 );
             }
+            // Agents call this in a loop; the project's max_wait counts across the calls, so a
+            // machine that stays busy ends the wait instead of holding the agent for hours.
+            let budget = Duration::from_secs_f64(spec.max_wait_minutes.max(0.) * 60.);
+            let mut waiting = WAITING.lock().unwrap_or_else(|e| e.into_inner());
+            let started = match *waiting {
+                Some((started, last)) if last.elapsed() < Duration::from_secs(180) => started,
+                _ => std::time::Instant::now(),
+            };
+            let left = budget.saturating_sub(started.elapsed());
+            if left.is_zero() {
+                *waiting = None;
+                return text(
+                    json!({"ready": true, "gave_up": true, "waited_minutes": (started.elapsed().as_secs_f64() / 6.).round() / 10.,
+                           "note": "The project's max_wait_minutes passed across your calls: go ahead with the command, and tell the user the Mac stayed busy (see system_capacity for why). Don't call wait_for_capacity again for it."}),
+                    false,
+                );
+            }
             let seconds = args["seconds"].as_u64().unwrap_or(45).clamp(5, 55);
-            let mut out = crate::wait_for_room(&spec, Some(Duration::from_secs(seconds)), |_| {});
+            let mut out =
+                crate::wait_for_room(&spec, Some(Duration::from_secs(seconds).min(left)), |_| {});
+            *waiting = (out["ready"] == false).then(|| (started, std::time::Instant::now()));
             out["max_wait_minutes"] = json!(spec.max_wait_minutes);
+            out["waited_minutes_so_far"] =
+                json!((started.elapsed().as_secs_f64() / 60. * 10.).round() / 10.);
             text(out, false)
         }
         "container_logs" => {

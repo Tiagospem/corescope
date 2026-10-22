@@ -40,6 +40,12 @@ final class DiskGrowthStore: ObservableObject {
   }
   private func measureIfOld() {
     guard !Monitor.shared.sleeping, !ProcessInfo.processInfo.isLowPowerModeEnabled else { return }
+    // The walk costs a minute of CPU and a lot of disk reads: only on an idle Mac (tried hourly).
+    if let s = Monitor.shared.snapshot,
+      (s.cpu.value ?? 0) > 40 || (s.pressure_percent.value ?? 0) > 60 || (s.disk_read.value ?? 0) > 20_000_000
+    {
+      return
+    }
     let last = report?.measured_at ?? 0
     if Date().timeIntervalSince1970 - last >= 6 * 3600 { measure() }
   }

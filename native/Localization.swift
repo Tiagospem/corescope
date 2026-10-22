@@ -355,6 +355,12 @@ private let entries = """
   Total normalizado em 0–100%, com janela sustentada configurável; saída 5 pontos abaixo do limite. Consumo alto não comprova a causa de lentidão. ¦ Total normalized to 0–100%, with a configurable sustained window; exits 5 points below the threshold. High usage does not prove the cause of slowness. ¦ Total normalizado en 0–100%, con ventana sostenida configurable; sale 5 puntos por debajo del límite. Un consumo alto no prueba la causa de la lentitud.
   Evento de pressão crítica de memória ¦ Critical memory pressure event ¦ Evento de presión crítica de memoria
   Evento de pressão de memória ¦ Memory pressure event ¦ Evento de presión de memoria
+  VM de contêineres (%@) ¦ Container VM (%@) ¦ VM de contenedores (%@)
+  %@ livres de %@ ¦ %@ free of %@ ¦ %@ libres de %@
+  %@ no limite: %@ de %@; mais carga e ele é encerrado ¦ %@ at its limit: %@ of %@; more load and it gets killed ¦ %@ en su límite: %@ de %@; más carga y se cierra
+  %@ encerrado há %@ min por falta de memória ¦ %@ killed %@ min ago, out of memory ¦ %@ cerrado hace %@ min por falta de memoria
+  %@ encerrado há %@ min (código 137) ¦ %@ killed %@ min ago (exit 137) ¦ %@ cerrado hace %@ min (código 137)
+  A VM tem memória própria, separada da do Mac: os contêineres podem ficar sem memória (e ser encerrados) mesmo com o Mac folgado. ¦ The VM has its own memory, apart from the Mac's: containers can run out of it (and get killed) while the Mac has plenty. ¦ La VM tiene memoria propia, aparte de la del Mac: los contenedores pueden quedarse sin memoria (y cerrarse) aunque el Mac tenga de sobra.
   Último evento de memória: normal ¦ Last memory event: normal ¦ Último evento de memoria: normal
   Pressão de memória ainda não informada ¦ Memory pressure not reported yet ¦ Presión de memoria aún no informada
   Fonte: eventos Dispatch do macOS. RAM ativa, wired e compressor são contagens distintas; não equivalem à pressão. Swap ocupado, isoladamente, não indica problema atual. ¦ Source: macOS Dispatch events. Active, wired and compressed RAM are separate counts; they are not pressure. Swap in use, by itself, does not indicate a current problem. ¦ Fuente: eventos Dispatch de macOS. La RAM activa, wired y comprimida son conteos distintos; no equivalen a presión. El swap ocupado, por sí solo, no indica un problema actual.
@@ -1876,4 +1882,11 @@ private let entries = """
   padrão ¦ default ¦ por defecto
   projeto ¦ project ¦ proyecto
   Limpar lista ¦ Clear list ¦ Vaciar lista
+  porta %@: %@ (PID %@) ¦ port %@: %@ (PID %@) ¦ puerto %@: %@ (PID %@)
+  Ação pesada: espera a máquina ter folga (agents.wait_for_capacity do .corescope.yml). Rodar agora ignora a espera. ¦ A heavy action: it waits for the Mac to have room (agents.wait_for_capacity in .corescope.yml). Run now skips the wait. ¦ Acción pesada: espera a que la Mac tenga holgura (agents.wait_for_capacity del .corescope.yml). Ejecutar ahora omite la espera.
+  Esperando folga: %@ (menu: Rodar agora) ¦ Waiting for room: %@ (menu: Run now) ¦ Esperando holgura: %@ (menú: Ejecutar ahora)
+  Rodar agora ¦ Run now ¦ Ejecutar ahora
+  Rodar agora, sem esperar folga ¦ Run now, without waiting for room ¦ Ejecutar ahora, sin esperar holgura
+  esperando folga: %@ ¦ waiting for room: %@ ¦ esperando holgura: %@
+  rodar agora, sem esperar folga (pedido no app) ¦ run now, without waiting for room (asked in the app) ¦ ejecutar ahora, sin esperar holgura (pedido en la app)
   """

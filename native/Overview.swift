@@ -278,6 +278,7 @@ private struct CoreLegend: View {
 /// Activity Monitor style memory categories, swap and the kernel's pressure percentage.
 private struct MemoryBreakdownCard: View {
   let snapshot: Snapshot
+  @ObservedObject private var vmStore = ContainerVMStore.shared
   var body: some View {
     let s = snapshot
     let total = s.physical.value ?? 0
@@ -332,14 +333,58 @@ private struct MemoryBreakdownCard: View {
           .accessibilityLabel(s.pressure_percent.value == nil ? L("Pressão de memória") : "")
           .accessibilityHidden(s.pressure_percent.value != nil)
         Spacer()
+        // Colored only while the alert counts: a lingering "warning" with memory to spare is gray.
+        let level = s.diagnostics.first { $0.id == "memory" }?.level ?? 0
         Badge(
           text: L("evento: %@", s.pressureLabel.lowercased()),
-          color: (s.pressure.value ?? 0) >= 2 ? .red : (s.pressure.value ?? 0) >= 1 ? .orange : .secondary)
+          color: level >= 2 ? .red : level >= 1 ? .orange : .secondary)
       }.help(s.pressure_percent.explanation + "\n" + s.pressure.explanation)
       Text(
         L("Pressão % = 100 − memória disponível segundo o kernel (kern.memorystatus_level). Os eventos são os avisos do macOS; RAM ocupada, sozinha, não é pressão.")
       ).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+      ForEach(vmStore.vms) { vm in
+        Divider()
+        ContainerVMRow(vm: vm)
+      }
     }
+    .onAppear { vmStore.appear() }
+    .onDisappear { vmStore.disappear() }
+  }
+}
+
+/// A container VM's memory: how much is free, who uses it, who is at its own limit or got killed.
+private struct ContainerVMRow: View {
+  let vm: ContainerVM
+  var body: some View {
+    let used = vm.usedFraction
+    VStack(alignment: .leading, spacing: 5) {
+      HStack(spacing: 8) {
+        Text(L("VM de contêineres (%@)", vm.engine)).font(.callout)
+        MeterBar(fraction: used, color: used >= 0.85 ? Tint.danger : used >= 0.7 ? Tint.warning : Tint.cpu)
+          .frame(maxWidth: 140)
+        Spacer()
+        Text(L("%@ livres de %@", formatBytes(vm.free), formatBytes(vm.total)))
+          .monospacedDigit().font(.callout).foregroundStyle(.secondary).fixedSize()
+      }
+      if !vm.top.isEmpty {
+        Text(vm.top.prefix(3).map { "\($0.name) \(formatBytes($0.used))" }.joined(separator: " · "))
+          .font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+      }
+      ForEach(vm.near_limit, id: \.name) { c in
+        Label(
+          L("%@ no limite: %@ de %@; mais carga e ele é encerrado", c.name, formatBytes(c.used), formatBytes(c.limit ?? 0)),
+          systemImage: "exclamationmark.triangle.fill"
+        ).font(.caption).foregroundStyle(Tint.warning)
+      }
+      ForEach(vm.killed, id: \.name) { k in
+        let minutes = Int(max(0, (Date().timeIntervalSince1970 - k.at) / 60).rounded())
+        Label(
+          L(k.oom ? "%@ encerrado há %@ min por falta de memória" : "%@ encerrado há %@ min (código 137)", k.name, "\(minutes)"),
+          systemImage: "xmark.octagon.fill"
+        ).font(.caption).foregroundStyle(Tint.danger)
+      }
+    }
+    .help(L("A VM tem memória própria, separada da do Mac: os contêineres podem ficar sem memória (e ser encerrados) mesmo com o Mac folgado."))
   }
 }
 
