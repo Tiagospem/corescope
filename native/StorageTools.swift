@@ -587,8 +587,7 @@ struct EjectSheet: View {
           ejected = true
           // Off the list now, and the inventory re-read on the next sample (not 30 s later).
           VolumeEject.ejected[mount] = Date()
-          cs_refresh_volumes()
-          Monitor.shared.refresh()
+          Monitor.shared.refreshVolumes()
         }
       }
     }

@@ -163,12 +163,29 @@ pub fn request(
     path: &str,
     timeout: Duration,
 ) -> Result<Response, std::io::Error> {
+    request_json(socket, method, path, "", timeout)
+}
+
+/// `request` with a JSON body (empty: none).
+pub fn request_json(
+    socket: &Path,
+    method: &str,
+    path: &str,
+    body: &str,
+    timeout: Duration,
+) -> Result<Response, std::io::Error> {
     let mut stream = UnixStream::connect(socket)?;
     stream.set_read_timeout(Some(timeout))?;
     stream.set_write_timeout(Some(Duration::from_secs(2)))?;
+    let kind = if body.is_empty() {
+        ""
+    } else {
+        "Content-Type: application/json\r\n"
+    };
     write!(
         stream,
-        "{method} {path} HTTP/1.1\r\nHost: docker\r\nUser-Agent: CoreScope\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+        "{method} {path} HTTP/1.1\r\nHost: docker\r\nUser-Agent: CoreScope\r\n{kind}Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
     )?;
     let mut raw = vec![];
     stream.take(MAX_RESPONSE as u64).read_to_end(&mut raw)?;
@@ -426,6 +443,212 @@ impl Reader {
         }
         self.previous = next;
     }
+}
+
+/// One container's memory, for the VM reading.
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct ContainerMemory {
+    pub name: String,
+    pub used: f64,
+    /// Its own `mem_limit`; None when it may use the whole VM.
+    pub limit: Option<f64>,
+}
+/// A container that ended killed (exit 137) or hit out-of-memory recently.
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct Killed {
+    pub name: String,
+    pub at: f64,
+    /// The engine reported an out-of-memory event (not only exit 137, which a plain SIGKILL gives too).
+    pub oom: bool,
+}
+/// The memory of a container engine's Linux VM (OrbStack, Docker Desktop, Colima). It is capped
+/// apart from the Mac's: containers run out of it, and get killed, while the Mac has plenty.
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct VmMemory {
+    pub engine: &'static str,
+    /// What the VM has (`/info` MemTotal).
+    pub total: f64,
+    /// MemAvailable read inside the VM; None when no running container could be asked.
+    pub available: Option<f64>,
+    /// What running containers use, without reclaimable page cache.
+    pub containers_used: f64,
+    /// Biggest users first (up to 5).
+    pub top: Vec<ContainerMemory>,
+    /// At 90% or more of their own limit: the next spike gets them killed.
+    pub near_limit: Vec<ContainerMemory>,
+    /// Killed in the last 30 minutes.
+    pub killed: Vec<Killed>,
+}
+impl VmMemory {
+    /// Free share of the VM, percent: MemAvailable when read, else what containers leave.
+    pub fn free_percent(&self) -> f64 {
+        let free = self
+            .available
+            .unwrap_or(self.total - self.containers_used)
+            .max(0.);
+        (free / self.total * 100.).clamp(0., 100.)
+    }
+}
+
+/// `MemTotal` and `MemAvailable` of a /proc/meminfo, in bytes.
+pub fn parse_meminfo(text: &str) -> Option<(f64, f64)> {
+    let field = |name: &str| {
+        text.lines()
+            .find_map(|l| l.strip_prefix(name))
+            .and_then(|rest| rest.split_whitespace().next())
+            .and_then(|kb| kb.parse::<f64>().ok())
+            .map(|kb| kb * 1024.)
+    };
+    Some((field("MemTotal:")?, field("MemAvailable:")?))
+}
+
+/// Containers killed (exit 137) or out of memory, from an `/events` body (one JSON per line).
+pub fn parse_kills(body: &[u8]) -> Vec<Killed> {
+    let mut out: Vec<Killed> = vec![];
+    for v in body
+        .split(|b| *b == b'\n')
+        .filter_map(|line| serde_json::from_slice::<Value>(line).ok())
+    {
+        let attrs = &v["Actor"]["Attributes"];
+        let Some(name) = attrs["name"].as_str() else {
+            continue;
+        };
+        let oom = v["Action"] == "oom";
+        if !oom && attrs["exitCode"].as_str() != Some("137") {
+            continue;
+        }
+        let at = v["time"].as_f64().unwrap_or(0.);
+        match out.iter_mut().find(|k| k.name == name) {
+            Some(k) => {
+                k.oom |= oom;
+                k.at = k.at.max(at);
+            }
+            None => out.push(Killed {
+                name: name.into(),
+                at,
+                oom,
+            }),
+        }
+    }
+    out
+}
+
+/// /proc/meminfo of the VM, read through a running container (a container sees the VM's).
+/// Tries a few; images without `cat` (distroless, scratch) just fail.
+fn vm_meminfo(socket: &Path, running: &[&Container]) -> Option<(f64, f64)> {
+    let create =
+        r#"{"AttachStdout":true,"AttachStderr":false,"Tty":true,"Cmd":["cat","/proc/meminfo"]}"#;
+    for c in running.iter().take(3) {
+        let Ok(r) = request_json(
+            socket,
+            "POST",
+            &format!("/containers/{}/exec", c.id),
+            create,
+            Duration::from_secs(2),
+        ) else {
+            continue;
+        };
+        let Some(exec) = serde_json::from_slice::<Value>(&r.body)
+            .ok()
+            .and_then(|v| v["Id"].as_str().filter(|id| valid_id(id)).map(String::from))
+        else {
+            continue;
+        };
+        let Ok(out) = request_json(
+            socket,
+            "POST",
+            &format!("/exec/{exec}/start"),
+            r#"{"Detach":false,"Tty":true}"#,
+            Duration::from_secs(2),
+        ) else {
+            continue;
+        };
+        if let Some(found) = parse_meminfo(&String::from_utf8_lossy(&out.body)) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+/// Every reachable engine's VM memory, with who uses it and who got killed lately. A few short
+/// requests per engine (list, stats, one exec, events): for the capacity gate and on demand.
+pub fn vm_memory() -> Vec<VmMemory> {
+    let home = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_default();
+    let host = std::env::var("DOCKER_HOST").ok();
+    let report = Reader::default().read(true);
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let mut out = vec![];
+    for socket in sockets(&home, host.as_deref()) {
+        let engine = engine_name(&socket.to_string_lossy());
+        let Some(total) = request(&socket, "GET", "/info", Duration::from_secs(2))
+            .ok()
+            .filter(|r| r.status == 200)
+            .and_then(|r| serde_json::from_slice::<Value>(&r.body).ok())
+            .and_then(|v| v["MemTotal"].as_f64())
+            .filter(|t| *t > 0.)
+        else {
+            continue;
+        };
+        let running: Vec<&Container> = report
+            .containers
+            .iter()
+            .filter(|c| c.engine == engine && c.state == "running")
+            .collect();
+        let mut used: Vec<ContainerMemory> = running
+            .iter()
+            .filter_map(|c| {
+                Some(ContainerMemory {
+                    name: c.name.clone(),
+                    used: c.memory?,
+                    // A limit at (or near) the VM's own is no limit.
+                    limit: c.memory_limit.filter(|l| *l < total * 0.95),
+                })
+            })
+            .collect();
+        used.sort_by(|a, b| b.used.total_cmp(&a.used));
+        let near_limit = used
+            .iter()
+            .filter(|c| c.limit.is_some_and(|l| c.used >= l * 0.9))
+            .cloned()
+            .collect();
+        let filters = r#"{"type":["container"],"event":["die","oom"]}"#;
+        let path = format!(
+            "/events?since={}&until={now}&filters={}",
+            now.saturating_sub(1800),
+            percent_encode(filters)
+        );
+        let killed = request(&socket, "GET", &path, Duration::from_secs(2))
+            .ok()
+            .filter(|r| r.status == 200)
+            .map(|r| parse_kills(&r.body))
+            .unwrap_or_default();
+        out.push(VmMemory {
+            engine,
+            total,
+            available: vm_meminfo(&socket, &running).map(|(_, a)| a),
+            containers_used: used.iter().map(|c| c.used).sum(),
+            top: used.iter().take(5).cloned().collect(),
+            near_limit,
+            killed,
+        });
+    }
+    out
+}
+
+fn percent_encode(text: &str) -> String {
+    text.bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                (b as char).to_string()
+            }
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
 }
 
 /// A named volume with what `/system/df` reports about it.
@@ -1050,6 +1273,57 @@ mod tests {
         assert_eq!(list[1].image, "96aaced979c9");
         assert!(list[1].health.is_none() && list[1].project.is_none());
     }
+    #[test]
+    fn vm_meminfo_and_kills() {
+        let info = "MemTotal:        4081492 kB\nMemFree:          964472 kB\nMemAvailable:    1341648 kB\n";
+        assert_eq!(
+            parse_meminfo(info),
+            Some((4081492. * 1024., 1341648. * 1024.))
+        );
+        assert_eq!(parse_meminfo("MemTotal: 10 kB\n"), None);
+        let events = br#"{"Type":"container","Action":"die","Actor":{"Attributes":{"exitCode":"137","name":"db"}},"time":100}
+{"Type":"container","Action":"die","Actor":{"Attributes":{"exitCode":"0","name":"web"}},"time":101}
+{"Type":"container","Action":"oom","Actor":{"Attributes":{"name":"db"}},"time":99}
+{"Type":"container","Action":"oom","Actor":{"Attributes":{"name":"cache"}},"time":102}"#;
+        assert_eq!(
+            parse_kills(events),
+            vec![
+                Killed {
+                    name: "db".into(),
+                    at: 100.,
+                    oom: true
+                },
+                Killed {
+                    name: "cache".into(),
+                    at: 102.,
+                    oom: true
+                }
+            ]
+        );
+        let vm = VmMemory {
+            engine: "OrbStack",
+            total: 4000.,
+            available: None,
+            containers_used: 3000.,
+            top: vec![],
+            near_limit: vec![],
+            killed: vec![],
+        };
+        assert_eq!(vm.free_percent(), 25.);
+        assert_eq!(
+            VmMemory {
+                available: Some(400.),
+                ..vm
+            }
+            .free_percent(),
+            10.
+        );
+        assert_eq!(
+            percent_encode(r#"{"a":["b c"]}"#),
+            "%7B%22a%22%3A%5B%22b%20c%22%5D%7D"
+        );
+    }
+
     #[test]
     fn stats_cpu_and_memory() {
         let a = br#"{"cpu_stats":{"cpu_usage":{"total_usage":1000000000},"system_cpu_usage":100000000000,"online_cpus":10},

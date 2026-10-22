@@ -234,6 +234,13 @@ pub struct CapacitySpec {
     /// Command prefixes that count as heavy (builds, test suites, `docker compose up`).
     #[serde(default)]
     pub heavy_commands: Vec<String>,
+    /// Share of the container engine's VM memory (OrbStack, Docker Desktop, Colima) that must
+    /// be free, percent. Default 15; 0 turns the check off.
+    #[serde(default = "default_container_free")]
+    pub container_memory_free: f64,
+}
+fn default_container_free() -> f64 {
+    15.
 }
 fn default_cpu() -> f64 {
     70.
@@ -251,6 +258,7 @@ impl Default for CapacitySpec {
             memory: default_memory(),
             max_wait_minutes: default_wait(),
             heavy_commands: vec![],
+            container_memory_free: default_container_free(),
         }
     }
 }
@@ -405,6 +413,9 @@ impl ProjectConfig {
             }
             if !(0.0..=1440.0).contains(&c.max_wait_minutes) {
                 out.push("agents.wait_for_capacity.max_wait_minutes: between 0 and 1440".into());
+            }
+            if !(0.0..=90.0).contains(&c.container_memory_free) {
+                out.push("agents.wait_for_capacity.container_memory_free: between 0 and 90".into());
             }
         }
         out

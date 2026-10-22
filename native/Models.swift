@@ -604,7 +604,9 @@ final class Monitor: ObservableObject {
   @Published var manuallyPaused = false
   @Published var feedback: ActionFeedback?
   @Published var pendingKill: KillRequest?
-  private let queue = DispatchQueue(label: "app.corescope.collector", qos: .utility)
+  // Not .utility: with the efficiency cores saturated (containers, builds) a utility sample
+  // waited behind them for over 25 s and every page went stale. A pass costs ~30 ms of CPU.
+  private let queue = DispatchQueue(label: "app.corescope.collector", qos: .userInitiated)
   private var timer: Timer?
   private var busy = false
   private var watchdog: DispatchWorkItem?
@@ -647,6 +649,14 @@ final class Monitor: ObservableObject {
         }
       })
     DispatchQueue.main.async { self.refresh() }
+  }
+  /// Re-reads the volume inventory on the next sample. On the collector queue: the call waits
+  /// for a sample in flight, which can take many seconds under heavy disk I/O.
+  func refreshVolumes() {
+    queue.async {
+      cs_refresh_volumes()
+      DispatchQueue.main.async { self.refresh() }
+    }
   }
   func setPaused(_ paused: Bool) {
     manuallyPaused = paused

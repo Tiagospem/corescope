@@ -118,7 +118,9 @@ enum ControlAPI {
     case "ping": reply(["ok": true, "version": Bundle.main.infoDictionary?["CFBundleShortVersionString"] ?? ""])
     case "profiles.list":
       ProjectFileStore.shared.refresh {
-        reply(["profiles": ProfileStore.shared.allProfiles.map(profileJSON)])
+        withContainers { containers in
+          reply(["profiles": ProfileStore.shared.allProfiles.map { profileJSON($0, containers) }])
+        }
       }
     case "profiles.create": createProfile(args, reply)
     case "profiles.delete": withProfile(args, reply) { p in
@@ -131,9 +133,11 @@ enum ControlAPI {
     case "profiles.start": withProfile(args, reply) { p in
         ProfileStore.shared.start(p) { errors in
           DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-            var out = profileJSON(ProfileStore.shared.allProfiles.first { $0.id == p.id } ?? p)
-            out["errors"] = errors
-            reply(out)
+            withContainers { containers in
+              var out = profileJSON(ProfileStore.shared.allProfiles.first { $0.id == p.id } ?? p, containers)
+              out["errors"] = errors
+              reply(out)
+            }
           }
         }
       }
@@ -498,8 +502,7 @@ enum ControlAPI {
         if error == nil {
           DispatchQueue.main.async {
             VolumeEject.ejected[mount] = Date()
-            cs_refresh_volumes()
-            Monitor.shared.refresh()
+            Monitor.shared.refreshVolumes()
           }
         }
         reply(error == nil ? ["ejected": true] : [
@@ -692,7 +695,7 @@ enum ControlAPI {
     }
     body(p)
   }
-  private static func createProfile(_ args: [String: Any], _ reply: Reply) {
+  private static func createProfile(_ args: [String: Any], _ reply: @escaping Reply) {
     let name = (args["name"] as? String ?? "").trimmingCharacters(in: .whitespaces)
     let folder = (args["folder"] as? String ?? "").trimmingCharacters(in: .whitespaces)
     var isDir: ObjCBool = false
@@ -723,11 +726,10 @@ enum ControlAPI {
     } else {
       store.profiles.append(profile)
     }
-    reply(profileJSON(profile))
+    withContainers { reply(profileJSON(profile, $0)) }
   }
-  private static func profileJSON(_ p: EnvProfile) -> [String: Any] {
+  private static func profileJSON(_ p: EnvProfile, _ containers: [ContainerItem]) -> [String: Any] {
     let store = ProfileStore.shared
-    let containers = ContainerStore.shared.report?.containers ?? currentContainers()
     var extra: [String: Any] = ["lifecycle": p.isController ? "controller" : "native"]
     if let mode = p.mode { extra["mode"] = mode }
     if p.isController {
@@ -814,12 +816,19 @@ enum ControlAPI {
     return row
   }
 
-  /// A direct read when no page keeps the container list fresh (local socket, fast).
-  private static func currentContainers() -> [ContainerItem] {
-    guard let pointer = cs_containers(0) else { return [] }
-    defer { cs_free(pointer) }
-    let data = Data(bytes: pointer, count: strlen(pointer))
-    return (try? JSONDecoder().decode(ContainerReport.self, from: data))?.containers ?? []
+  /// The container list a page keeps fresh, or a direct read off the main thread (the engine can
+  /// take seconds to answer under heavy disk I/O, and every request is handled on main).
+  private static func withContainers(_ done: @escaping ([ContainerItem]) -> Void) {
+    if let list = ContainerStore.shared.report?.containers { return done(list) }
+    DispatchQueue.global(qos: .userInitiated).async {
+      var list: [ContainerItem] = []
+      if let pointer = cs_containers(0) {
+        let data = Data(bytes: pointer, count: strlen(pointer))
+        cs_free(pointer)
+        list = (try? JSONDecoder().decode(ContainerReport.self, from: data))?.containers ?? []
+      }
+      DispatchQueue.main.async { done(list) }
+    }
   }
 
   // MARK: services, machines, cleanup

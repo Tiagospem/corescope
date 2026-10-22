@@ -1063,12 +1063,17 @@ pub fn wait_for_room(
     let mut good = 0;
     let mut waited = false;
     loop {
-        let reading = corescope::capacity::reading(&sample(true));
+        let reading = corescope::capacity::full_reading(&sample(true));
         let blockers = corescope::capacity::blockers(spec, &reading);
         if blockers.is_empty() {
             good += 1;
             if !waited || good >= 2 {
-                return json!({"ready": true, "waited_seconds": started.elapsed().as_secs(), "reading": reading});
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs_f64())
+                    .unwrap_or(0.);
+                return json!({"ready": true, "waited_seconds": started.elapsed().as_secs(), "reading": reading,
+                              "warnings": corescope::capacity::warnings(&reading, now)});
             }
         } else {
             good = 0;

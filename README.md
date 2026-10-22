@@ -131,6 +131,7 @@ agents:
     cpu_below: 70          # % of all cores
     memory: normal         # or warning
     max_wait_minutes: 30   # then run anyway
+    container_memory_free: 15   # % of the container VM's memory that must be free (0 = off)
     heavy_commands: [php artisan test, npm run build]   # empty = common builds and test suites
 ```
 
@@ -138,6 +139,8 @@ agents:
 - **Other agents** — the MCP server tells them to call `wait_for_capacity` (and `system_capacity`) before heavy commands in those projects.
 - **You see it** — the Agents page lists who is waiting, for which command and why; a heavy environment action that waits says *waiting for room* and why on its chip, and *Run now* skips the wait. `corescope wait` does the same for your own scripts.
 - **Memory** — macOS keeps its memory-pressure *warning* for a while after memory frees up, so `memory: normal` waits on a warning only when 35% or less of memory is available (and always on *critical*).
+- **Container memory** — OrbStack, Docker Desktop and Colima run containers in a Linux VM with its own memory cap (often 4 GB), so containers run out of memory and get killed while the Mac has plenty. The gate also reads that VM (its `/proc/meminfo`, through a running container) and waits while less than `container_memory_free` is free, naming the containers using most. Containers at their own `mem_limit` and containers killed in the last 30 minutes come back as warnings, and Overview › Memory shows the VM.
+- **No endless loops** — over MCP, `max_wait_minutes` counts across repeated `wait_for_capacity` calls: once it passes, the answer is *go ahead* (`gave_up: true`) instead of another wait.
 - **Agents learn the project's rules on their own** — *Project context at session start*, the other agent hook, runs `corescope context --hook` when a Claude Code or Codex session starts: the nearest `.corescope.yml` is summed up as context for the agent (the capacity rule and its heavy commands, preferred ports, profiles to start instead of running commands by hand, services, logs to read instead of asking you, a snapshot before wiping a database — or the file's error with its line). Nothing is said in folders without one. Agents without hooks get the same text from MCP `agent_context`, or from a marked section CoreScope writes into the project's `CLAUDE.md` / `AGENTS.md` (*Agent instructions…* on the project's card, `corescope context --write all`, MCP `write_agent_instructions`); the rest of those files is never touched, and `--remove` takes the section out. MCP `agent_hooks` reports and changes the hooks.
 - **Economy mode** (Energy page): on battery, busy processes agent sessions start run at macOS background priority, so they yield CPU and disk to what you are doing; servers with open ports are left alone, and everything returns to normal on AC.
 

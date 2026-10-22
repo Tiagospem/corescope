@@ -299,7 +299,14 @@ final class RepoWatcher {
     self.folder = folder
     self.root = root
     self.onChange = onChange
-    watcher = FileWatcher(path: root) { [weak self] paths in self?.changed(paths) }
+    // Events arrive off the main thread (a build or bind mount writes thousands of paths per
+    // batch); only the few that matter reach main.
+    let prefix = root.hasSuffix("/") ? root : root + "/"
+    watcher = FileWatcher(path: root) { [weak self] paths in
+      let (relevant, gitState) = Self.classify(paths, prefix: prefix)
+      guard gitState || !relevant.isEmpty else { return }
+      DispatchQueue.main.async { self?.changed(relevant, gitState: gitState) }
+    }
   }
 
   private func schedule() {
@@ -312,8 +319,9 @@ final class RepoWatcher {
     }
   }
 
-  private func changed(_ paths: [String]) {
-    let prefix = root.hasSuffix("/") ? root : root + "/"
+  /// Paths relative to the tree (at most 2000: enough to tell what changed), and whether git's
+  /// own state (HEAD, index, refs) moved.
+  private static func classify(_ paths: [String], prefix: String) -> ([String], Bool) {
     var relevant: [String] = []
     var gitState = false
     for path in paths {
@@ -324,8 +332,13 @@ final class RepoWatcher {
         if inner == "HEAD" || inner == "index" || inner.hasPrefix("refs/") || inner == "MERGE_HEAD" { gitState = true }
         continue
       }
-      if !rel.isEmpty { relevant.append(rel) }
+      if !rel.isEmpty && relevant.count < 2000 { relevant.append(rel) }
     }
+    return (relevant, gitState)
+  }
+
+  private func changed(_ relevant: [String], gitState: Bool) {
+    var relevant = relevant
     if gitState {
       schedule()
       return
@@ -358,6 +371,8 @@ final class RepoWatcher {
 
 /// FSEvents on one folder tree, coalesced by the system for half a second.
 final class FileWatcher {
+  /// Where every watcher's events arrive: handlers run here, not on the main thread.
+  private static let queue = DispatchQueue(label: "app.corescope.fsevents", qos: .utility)
   private var stream: FSEventStreamRef?
   private let handler: ([String]) -> Void
 
@@ -377,13 +392,15 @@ final class FileWatcher {
         nil, callback, &context, [path] as CFArray, FSEventStreamEventId(kFSEventStreamEventIdSinceNow), 0.5, flags)
     else { return nil }
     self.stream = stream
-    FSEventStreamSetDispatchQueue(stream, DispatchQueue.main)
+    FSEventStreamSetDispatchQueue(stream, Self.queue)
     FSEventStreamStart(stream)
   }
   deinit {
     if let stream {
       FSEventStreamStop(stream)
       FSEventStreamInvalidate(stream)
+      // A callback already running on the queue still points at this watcher: let it finish.
+      Self.queue.sync {}
       FSEventStreamRelease(stream)
     }
   }

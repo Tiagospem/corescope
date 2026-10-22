@@ -1018,9 +1018,20 @@ impl Collector {
             .or_default()
             .update(desired, elapsed, config.sustain);
         diagnostics.push(Diagnostic{id:"cpu",level,title:if cpu.is_none(){"CPU em aquecimento".into()}else if level>0{"CPU elevada de forma sustentada".into()}else{"CPU sem alerta sustentado".into()},detail:"Total normalizado em 0–100%, com janela sustentada configurável; saída 5 pontos abaixo do limite. Consumo alto não comprova a causa de lentidão.".into()});
-        let mem_level = match config.pressure {
-            2 => 2,
-            1 => 1,
+        // The kernel's "warning" lingers long after memory frees up; like the capacity gate, it
+        // counts only while little memory is available.
+        let mem_level = match capacity::effective_memory(
+            match config.pressure {
+                2 => Some("critical"),
+                1 => Some("warning"),
+                _ => None,
+            },
+            pressure_pct.map(|p| 100. - p),
+        )
+        .as_deref()
+        {
+            Some("critical") => 2,
+            Some("warning") => 1,
             _ => 0,
         };
         let level = self
@@ -1509,6 +1520,11 @@ pub extern "C" fn cs_containers(stats: i32) -> *mut c_char {
             .read(stats != 0);
         serde_json::to_string(&report).map_err(|e| e.to_string())
     })
+}
+/// Each container engine VM's memory: a few short requests to every engine.
+#[unsafe(no_mangle)]
+pub extern "C" fn cs_container_vm() -> *mut c_char {
+    response(|| serde_json::to_string(&containers::vm_memory()).map_err(|e| e.to_string()))
 }
 /// # Safety
 /// `id` and `action` are valid NUL-terminated strings. User must have confirmed this container and action.

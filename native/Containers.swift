@@ -56,6 +56,71 @@ struct ContainerReport: Decodable, Equatable {
 /// Reads containers from local Docker Engine sockets on its own queue. Polls at most every 5 s
 /// and only while a visible surface asks for it: `stats` watchers add one stats read per
 /// running container; port-only watchers (listening servers) need just the list.
+struct ContainerMemoryItem: Decodable, Hashable {
+  let name: String
+  let used: Double
+  let limit: Double?
+}
+struct KilledContainer: Decodable, Hashable {
+  let name: String
+  let at: Double
+  let oom: Bool
+}
+/// A container engine's Linux VM (OrbStack, Docker Desktop, Colima): its memory is capped apart
+/// from the Mac's, so containers run out of it, and get killed, while the Mac has plenty.
+struct ContainerVM: Decodable, Hashable, Identifiable {
+  let engine: String
+  let total: Double
+  let available: Double?
+  let containers_used: Double
+  let top: [ContainerMemoryItem]
+  let near_limit: [ContainerMemoryItem]
+  let killed: [KilledContainer]
+  var id: String { engine }
+  var free: Double { max(0, available ?? (total - containers_used)) }
+  var usedFraction: Double { total > 0 ? min(1, max(0, 1 - free / total)) : 0 }
+}
+
+/// Container VMs' memory, read every 30 s while a view showing it is open (off the main thread).
+final class ContainerVMStore: ObservableObject {
+  static let shared = ContainerVMStore()
+  @Published private(set) var vms: [ContainerVM] = []
+  private let queue = DispatchQueue(label: "app.corescope.containervm", qos: .utility)
+  private var viewers = 0
+  private var timer: Timer?
+  private var busy = false
+  func appear() {
+    viewers += 1
+    guard viewers == 1 else { return }
+    read()
+    timer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in self?.read() }
+    timer?.tolerance = 5
+  }
+  func disappear() {
+    viewers = max(0, viewers - 1)
+    guard viewers == 0 else { return }
+    timer?.invalidate()
+    timer = nil
+  }
+  private func read() {
+    guard !busy, !Monitor.shared.sleeping else { return }
+    busy = true
+    queue.async {
+      let cost = CostMeter.begin()
+      defer { CostMeter.end("containers", cost) }
+      var next: [ContainerVM] = []
+      if let pointer = cs_container_vm() {
+        next = (try? JSONDecoder().decode([ContainerVM].self, from: Data(bytes: pointer, count: strlen(pointer)))) ?? []
+        cs_free(pointer)
+      }
+      DispatchQueue.main.async {
+        self.busy = false
+        if next != self.vms { self.vms = next }
+      }
+    }
+  }
+}
+
 final class ContainerStore: ObservableObject {
   static let shared = ContainerStore()
   @Published private(set) var report: ContainerReport?

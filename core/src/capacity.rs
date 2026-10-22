@@ -12,6 +12,9 @@ pub struct Reading {
     pub memory: Option<String>,
     /// Memory the kernel considers available, percent (kern.memorystatus_level).
     pub available: Option<f64>,
+    /// Container engines' VMs: their memory is capped apart from the Mac's.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub containers: Vec<crate::containers::VmMemory>,
 }
 
 /// The pressure that counts: the kernel's "warning" lingers long after memory frees up (and
@@ -53,6 +56,63 @@ pub fn blockers(spec: &CapacitySpec, r: &Reading) -> Vec<String> {
             spec.memory
         ));
     }
+    for vm in &r.containers {
+        let free = vm.free_percent();
+        if spec.container_memory_free > 0. && free < spec.container_memory_free {
+            let top = vm
+                .top
+                .iter()
+                .take(3)
+                .map(|c| format!("{} {}", c.name, gb(c.used)))
+                .collect::<Vec<_>>()
+                .join(", ");
+            out.push(format!(
+                "{} VM memory {free:.0}% free of {} (limit {:.0}%); containers using most: {top}. \
+                 This only clears when containers stop or use less: stop the ones you don't need",
+                vm.engine,
+                gb(vm.total),
+                spec.container_memory_free
+            ));
+        }
+    }
+    out
+}
+
+fn gb(bytes: f64) -> String {
+    if bytes >= 1e9 {
+        format!("{:.1} GB", bytes / 1e9)
+    } else {
+        format!("{:.0} MB", bytes / 1e6)
+    }
+}
+
+/// What does not block but an agent should know before heavy work: containers at their own
+/// memory limit, and containers killed lately.
+pub fn warnings(r: &Reading, now: f64) -> Vec<String> {
+    let mut out = vec![];
+    for vm in &r.containers {
+        for c in &vm.near_limit {
+            if let Some(limit) = c.limit {
+                out.push(format!(
+                    "{} uses {} of its {} limit ({:.0}%): more load on it gets it killed (exit 137); \
+                     raise its mem_limit or lighten the work",
+                    c.name,
+                    gb(c.used),
+                    gb(limit),
+                    c.used / limit * 100.
+                ));
+            }
+        }
+        for k in &vm.killed {
+            let minutes = ((now - k.at) / 60.).max(0.).round();
+            out.push(format!(
+                "{} was killed {minutes:.0} min ago ({}) in the {} VM",
+                k.name,
+                if k.oom { "out of memory" } else { "exit 137" },
+                vm.engine
+            ));
+        }
+    }
     out
 }
 
@@ -66,6 +126,15 @@ pub fn reading(snapshot: &crate::Snapshot) -> Reading {
         cpu: snapshot.cpu.value.unwrap_or(0.),
         memory: effective_memory(crate::os::pressure_level(), available),
         available,
+        containers: vec![],
+    }
+}
+
+/// `reading` plus the container engines' VMs (a few requests to each engine): for the gate.
+pub fn full_reading(snapshot: &crate::Snapshot) -> Reading {
+    Reading {
+        containers: crate::containers::vm_memory(),
+        ..reading(snapshot)
     }
 }
 
@@ -103,7 +172,7 @@ pub fn heavy<'a>(command: &str, prefixes: &'a [String]) -> Option<&'a str> {
 
 /// Prefixes used when a project enables waiting but lists no commands: common builds, test
 /// suites and container builds across stacks.
-pub const DEFAULT_HEAVY: [&str; 22] = [
+pub const DEFAULT_HEAVY: [&str; 25] = [
     "npm run build",
     "npm test",
     "npm run test",
@@ -124,6 +193,9 @@ pub const DEFAULT_HEAVY: [&str; 22] = [
     "pytest",
     "docker build",
     "docker compose build",
+    "docker compose up",
+    "docker-compose up",
+    "docker run",
     "xcodebuild",
     "swift build",
 ];
@@ -155,6 +227,67 @@ mod tests {
         assert_eq!(
             steps("A=1 B=2 make test && echo ok"),
             ["make test", "echo ok"]
+        );
+    }
+
+    #[test]
+    fn container_vm_memory_blocks_and_warns() {
+        use crate::containers::{ContainerMemory, Killed, VmMemory};
+        let mysql = ContainerMemory {
+            name: "mysql".into(),
+            used: 0.96e9,
+            limit: Some(1e9),
+        };
+        let vm = VmMemory {
+            engine: "OrbStack",
+            total: 4e9,
+            available: Some(0.4e9),
+            containers_used: 3.4e9,
+            top: vec![mysql.clone()],
+            near_limit: vec![mysql],
+            killed: vec![Killed {
+                name: "redis".into(),
+                at: 1000.,
+                oom: true,
+            }],
+        };
+        let r = Reading {
+            cpu: 10.,
+            memory: Some("normal".into()),
+            available: Some(60.),
+            containers: vec![vm.clone()],
+        };
+        let b = blockers(&CapacitySpec::default(), &r);
+        assert_eq!(b.len(), 1, "{b:?}");
+        assert!(
+            b[0].starts_with("OrbStack VM memory 10% free of 4.0 GB"),
+            "{}",
+            b[0]
+        );
+        assert!(b[0].contains("mysql 960 MB"), "{}", b[0]);
+        let off = CapacitySpec {
+            container_memory_free: 0.,
+            ..Default::default()
+        };
+        assert!(blockers(&off, &r).is_empty());
+        let roomy = Reading {
+            containers: vec![VmMemory {
+                available: Some(2e9),
+                ..vm
+            }],
+            ..r
+        };
+        assert!(blockers(&CapacitySpec::default(), &roomy).is_empty());
+        let w = warnings(&roomy, 1000. + 300.);
+        assert_eq!(w.len(), 2, "{w:?}");
+        assert!(
+            w[0].starts_with("mysql uses 960 MB of its 1.0 GB limit (96%)"),
+            "{}",
+            w[0]
+        );
+        assert_eq!(
+            w[1],
+            "redis was killed 5 min ago (out of memory) in the OrbStack VM"
         );
     }
 
@@ -192,6 +325,7 @@ mod tests {
                     cpu: 40.,
                     memory: Some("normal".into()),
                     available: None,
+                    containers: vec![],
                 }
             )
             .is_empty()
@@ -203,6 +337,7 @@ mod tests {
                     cpu: 85.,
                     memory: None,
                     available: None,
+                    containers: vec![],
                 }
             )
             .len(),
@@ -214,6 +349,7 @@ mod tests {
                 cpu: 90.,
                 memory: Some("warning".into()),
                 available: None,
+                containers: vec![],
             },
         );
         assert_eq!(both.len(), 2, "{both:?}");
@@ -228,6 +364,7 @@ mod tests {
                     cpu: 10.,
                     memory: Some("warning".into()),
                     available: None,
+                    containers: vec![],
                 }
             )
             .is_empty()
@@ -239,6 +376,7 @@ mod tests {
                     cpu: 10.,
                     memory: Some("critical".into()),
                     available: None,
+                    containers: vec![],
                 }
             )
             .is_empty()
