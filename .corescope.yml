@@ -1,3 +1,26 @@
 # CoreScope project file: profiles, ports, Services checks, logs and agent limits.
 # https://github.com/Tiagospem/corescope#profiles-as-code
 name: CoreScope
+agents:
+  # Heavy commands go through CoreScope's admission queue (shared by every session on the Mac).
+  # Nothing here loads containers: every command runs on the Mac (CPU and memory).
+  wait_for_capacity:
+    cpu_below: 70
+    memory: normal
+    max_parallel: 2
+    max_wait_minutes: 15
+    heavy_commands:
+      - command: ./scripts/build.sh         # cargo release build (LTO) + swiftc, universal app
+        weight: 3
+      - command: scripts/build.sh
+        weight: 3
+      - command: ./scripts/test.sh          # cargo test, clippy, fmt and the native tests
+        weight: 3
+      - command: scripts/test.sh
+        weight: 3
+      - command: cargo build
+        weight: 2
+      - command: cargo test
+        weight: 2
+      - command: cargo clippy
+        weight: 2

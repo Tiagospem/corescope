@@ -1180,7 +1180,8 @@ enum AgentHook: String, CaseIterable {
   var event: String { self == .gate ? "PreToolUse" : "SessionStart" }
   var matcher: String? { self == .gate ? "Bash" : nil }
   private var suffix: String { self == .gate ? " gate" : " context --hook" }
-  var timeout: Int { self == .gate ? 3600 : 15 }
+  /// The gate decides within ~5 s (it never holds the command); a hook that times out lets it run.
+  var timeout: Int { self == .gate ? 10 : 15 }
   func command(binary: String) -> String { ClaudeStatusLine.shellQuote(binary) + suffix }
   private func isOurs(_ hook: OrderedJSON) -> Bool {
     guard let command = hook["command"]?.stringValue else { return false }

@@ -121,26 +121,34 @@ Projects whose environment is run by their own controller (a `bin/eco` that know
 
 Every log of every project in one place, for any stack: log files found in the usual folders (`storage/logs`, `log`, `logs`, `var/log`, `*.log` at the root) plus the `logs:` globs in `.corescope.yml`, the output of profile commands, and container logs. Tail one live, search a project, or see its recent errors — detected by the level each line declares, or by generic markers (`Exception`, `Traceback`, `panic`, `FATAL`…) — with their stack traces and repeats folded into a count. Agents get the same over MCP (`recent_errors` for a profile or project, `tail_log`, `search_logs`, `list_log_sources`), so they can debug without you pasting logs; and `corescope logs --errors` works in a terminal.
 
-### ⏸️ Agents wait for capacity
+### ⏸️ Heavy commands go through an admission queue
 
-When an agent starts a full test suite on a Mac that is already at 90% CPU, everything slows down and a ten-minute task takes hours. A project can opt in, in `.corescope.yml`:
+When several agent sessions share one Mac, a full test suite started on a busy machine — or two suites on one MySQL container — turns a ten-minute task into hours, or knocks the containers over. A project can opt in, in `.corescope.yml`:
 
 ```yaml
 agents:
   wait_for_capacity:
-    cpu_below: 70          # % of all cores
-    memory: normal         # or warning
-    max_wait_minutes: 30   # then run anyway
-    container_memory_free: 15   # % of the container VM's memory that must be free (0 = off)
-    heavy_commands: [php artisan test, npm run build]   # empty = common builds and test suites
+    cpu_below: 70               # the Mac: % of all cores
+    memory: normal              # the Mac: memory pressure (or warning)
+    container_memory_free: 15   # the container VM: % of its memory that must stay free (0 = off)
+    max_parallel: 2             # heavy commands at once on the Mac, by weight
+    max_wait_minutes: 30        # explicit waits (wait_for_capacity) give up after this, across calls
+    heavy_commands:             # empty = common builds and test suites
+      - npm run build           # a plain prefix runs on the Mac: CPU and memory
+      - command: php artisan test
+        uses: [cpu, memory, containers]   # also the container VM
+        containers: [mysql, redis]        # what it loads: each running and below 90% of its limit
+        weight: 2                         # counts double for max_parallel and the stagger
 ```
 
-- **Claude Code and Codex** — *Settings › MCP server for agents › Agent hooks › Wait for room before heavy commands* installs a `PreToolUse` hook (`corescope gate`) in `~/.claude/settings.json` and/or `~/.codex/hooks.json`, each backed up first. Before a heavy command in such a project it waits until CPU and memory pressure are back under the limit (two good readings in a row), then lets it run. Other commands and other projects pass in a few milliseconds. It delays, it never blocks. Codex runs a user hook only after you trust it in its `/hooks` screen; the settings show whether it does.
-- **Other agents** — the MCP server tells them to call `wait_for_capacity` (and `system_capacity`) before heavy commands in those projects.
-- **You see it** — the Agents page lists who is waiting, for which command and why; a heavy environment action that waits says *waiting for room* and why on its chip, and *Run now* skips the wait. `corescope wait` does the same for your own scripts.
-- **Memory** — macOS keeps its memory-pressure *warning* for a while after memory frees up, so `memory: normal` waits on a warning only when 35% or less of memory is available (and always on *critical*).
-- **Container memory** — OrbStack, Docker Desktop and Colima run containers in a Linux VM with its own memory cap (often 4 GB), so containers run out of memory and get killed while the Mac has plenty. The gate also reads that VM (its `/proc/meminfo`, through a running container) and waits while less than `container_memory_free` is free, naming the containers using most. Containers at their own `mem_limit` and containers killed in the last 30 minutes come back as warnings, and Overview › Memory shows the VM.
-- **No endless loops** — over MCP, `max_wait_minutes` counts across repeated `wait_for_capacity` calls: once it passes, the answer is *go ahead* (`gave_up: true`) instead of another wait.
+- **It decides, it never holds.** The `corescope gate` hook (Claude Code and Codex; *Settings › MCP server for agents › Agent hooks*) answers within 5 seconds: the command runs, or it is refused with the reason, the numbers and what to do, which the agent reads. If CoreScope cannot decide in time the command runs and the failure is recorded.
+- **The Mac and the containers are separate resources.** A Mac with room says nothing about OrbStack's, Docker Desktop's or Colima's VM, which has its own memory cap; and a VM with room says nothing about a MySQL at 96% of its own `mem_limit`. Each heavy command is checked against what it uses: `go test` with miniredis is not held because the VM is full, `php artisan test` is — and is held while the MySQL it loads is near its limit or not running.
+- **Waiting only when waiting helps.** High CPU or memory pressure is *transient*: the agent waits with `wait_for_capacity` (which keeps its place) and tries again. A full VM, a container at its limit or a stopped container is *structural*: the answer says so at once — which containers use most, how much to free, how to give the VM more memory — instead of a wait that cannot end.
+- **Managed load, not just a reading.** Admitted commands stay in the queue as *running* while the processes started for them live, so: at most `max_parallel` (by weight) run at once; one heavy command per container at a time; admissions are staggered so the next waits until the readings show the last one's load; and earlier commands go first. Places of sessions that stop asking, or end, expire on their own.
+- **Agents know the flow.** MCP `system_capacity` (with the command: checks only what it uses), `reserve_capacity` (a place held for 2 minutes, which the hook honours), `wait_for_capacity`, `release_capacity` and `capacity_events`; the session context and the MCP instructions tell agents not to run heavy commands in parallel or in the background to skip the queue, and to prefer CI.
+- **Configuring it takes a look at the containers.** `corescope capacity-advice` (MCP `capacity_advice`) reads the VM and the containers the project names — size, use, containers without a limit or near theirs, limits that add up to more than the VM — and proposes the rule, with per command whether it runs on the Mac or also loads containers (and which). Review it, then write it.
+- **You see it** — the Agents page shows what runs, what waits and why (with *Run now*, which lets that agent's next run through), and the latest decisions; a heavy environment action that waits says *waiting for room* and why on its chip. `corescope wait --command NAME [--uses cpu,memory,containers]` puts your own scripts in the same queue.
+- **Memory** — macOS keeps its memory-pressure *warning* for a while after memory frees up, so `memory: normal` waits on a warning only when 35% or less of memory is available (and always on *critical*). Overview › Memory shows the container VM next to the Mac's memory.
 - **Agents learn the project's rules on their own** — *Project context at session start*, the other agent hook, runs `corescope context --hook` when a Claude Code or Codex session starts: the nearest `.corescope.yml` is summed up as context for the agent (the capacity rule and its heavy commands, preferred ports, profiles to start instead of running commands by hand, services, logs to read instead of asking you, a snapshot before wiping a database — or the file's error with its line). Nothing is said in folders without one. Agents without hooks get the same text from MCP `agent_context`, or from a marked section CoreScope writes into the project's `CLAUDE.md` / `AGENTS.md` (*Agent instructions…* on the project's card, `corescope context --write all`, MCP `write_agent_instructions`); the rest of those files is never touched, and `--remove` takes the section out. MCP `agent_hooks` reports and changes the hooks.
 - **Economy mode** (Energy page): on battery, busy processes agent sessions start run at macOS background priority, so they yield CPU and disk to what you are doing; servers with open ports are left alone, and everything returns to normal on AC.
 
@@ -547,7 +555,8 @@ The capacity gate reads the memory of the containers' VM (OrbStack, Docker Deskt
 ### Backlog
 
 - **Agents that stop before a usage limit:** a hook like the capacity gate that checks `usage_limits` and, above a threshold set in `.corescope.yml` (e.g. `agents.usage_limit.stop_at: 90`), blocks the next tool call with a reason that asks the agent to save its progress and stop. At the reset, CoreScope resumes CLI sessions (`claude --resume <id> -p …`, Codex's resume) and sends a notification with an *Open* button for Claude Desktop sessions, which cannot be messaged from outside. With an MCP tool and a status in the Agents page.
-- **A queue for the capacity gate:** today each waiting command polls on its own, so when the Mac frees up every held build and test suite starts at once and overloads it again. A shared queue (one heavy command at a time, or N per project) with the waiting order shown in Agents and through MCP. The SessionStart context can also say when the Mac is under pressure, since that hook cannot hold a session from starting.
+- **Heavy commands started by profiles through the queue:** profile commands (`make test-env-up`) don't pass through the agent hook; environment actions marked `heavy` do (`corescope wait`). Profiles could declare the same.
+- **Learned weights:** record each container's peak memory while an admitted command runs, to propose `weight` and `containers` from what really happened rather than from names.
 - **Tokens spent under pressure:** cross History's per-minute CPU and memory pressure with the token usage timestamps to show how much of the day's tokens went to sessions running on an overloaded Mac.
 - **More agents with titles and status:** Cursor, Gemini CLI and Aider sessions with the same title, working/idle state, project and actions that Claude Code and Codex already have.
 - **Windows and Linux versions:** the Rust core is portable in spirit, but process, port and disk readers are macOS-specific (libproc, IOKit) and the app is SwiftUI. A multi-platform build needs per-OS readers (e.g. `/proc` on Linux, Toolhelp/IP Helper on Windows) and a cross-platform UI.

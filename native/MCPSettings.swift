@@ -218,12 +218,12 @@ private struct AgentHooksTable: View {
       .font(.caption).foregroundStyle(.secondary)
   }
   private func title(_ hook: AgentHook) -> String {
-    hook == .context ? L("Contexto do projeto no início da sessão") : L("Esperar folga antes de comandos pesados")
+    hook == .context ? L("Contexto do projeto no início da sessão") : L("Fila para comandos pesados")
   }
   private func detail(_ hook: AgentHook) -> String {
     hook == .context
       ? L("O agente recebe o que o .corescope.yml pede: capacidade, portas, perfis, serviços e logs.")
-      : L("Builds e testes esperam CPU e memória normalizarem nos projetos com agents.wait_for_capacity.")
+      : L("Nos projetos com agents.wait_for_capacity, builds e testes passam pela fila: liberados na hora ou recusados com o motivo, que o agente lê.")
   }
   /// Codex runs a user hook only after it is reviewed in its /hooks screen.
   @ViewBuilder private var codexNote: some View {

@@ -10,6 +10,32 @@ section as the GitHub release notes.
 
 ## [Unreleased]
 
+### Changed
+- **The capacity gate admits or refuses at once instead of holding commands.** The hook decides
+  within 5 seconds: the command runs, or the agent reads why, the numbers and what to do; if
+  CoreScope cannot decide in time the command runs and the failure is recorded. Blockers are
+  *transient* (CPU, memory pressure: wait with `wait_for_capacity`) or *structural* (a full
+  container VM, a container at its limit or stopped: do what it says; waiting won't help).
+- **Each heavy command says what it uses**: a plain prefix runs on the Mac (CPU and memory);
+  `{command, uses: [cpu, memory, containers], containers: [...], weight}` also checks the container
+  VM and the containers it loads (running, below 90% of their own limit). Default PHP suites and
+  Docker commands use containers. Existing `.corescope.yml` files keep working.
+
+### Added
+- **Admission queue shared by every session**: admitted commands count as running while their
+  processes live; at most `max_parallel` (by weight, default 2) at once, one heavy command per
+  container, staggered admissions, earlier commands first; places expire when a session stops
+  asking or ends. MCP `reserve_capacity`, `release_capacity`, `capacity_events`; `system_capacity`
+  and `wait_for_capacity` take the command. The Agents page shows the queue with *Run now* and the
+  latest decisions.
+- **`corescope capacity-advice` / MCP `capacity_advice`**: reads the container VM and the
+  project's containers (limits, use, missing limits, limits larger than the VM) and proposes the
+  `wait_for_capacity` rule with what each heavy command loads.
+
+### Fixed
+- **Explicit waits that never end**: `wait_for_capacity` stops at once on a structural blocker, and
+  when `max_wait_minutes` passes it says not to run the command (instead of "go ahead").
+
 ## [0.12.1] - 2026-10-22
 
 ### Added

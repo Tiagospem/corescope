@@ -380,12 +380,19 @@ final class AgentStore: ObservableObject {
   /// Codex desktop threads (running or active in the last hour), from Codex's local databases.
   @Published private(set) var codexThreads: [CodexThread] = []
   /// Heavy commands agents are holding until the Mac has room (from `corescope gate`).
-  @Published private(set) var gates: [GateWait] = []
+  @Published private(set) var admission = AdmissionState()
   /// Last transcript write (seconds since 1970) per busy session: "claude:<id>" / "codex:<id>".
   @Published private(set) var lastWrites: [String: Double] = [:]
   /// Separate object so token updates redraw only the views that show tokens.
   let tokens = TokenUsageStore()
   private let queue = DispatchQueue(label: "app.corescope.agents", qos: .utility)
+  /// The admission queue now (after Run now, or when the Agents page opens).
+  func refreshAdmission() {
+    queue.async {
+      let admission = AdmissionState.read()
+      DispatchQueue.main.async { if admission != self.admission { self.admission = admission } }
+    }
+  }
   private var timer: Timer?
   private var lastCodexFile: (URL, Date)?
   private var claudeSamples: (Date, [ClaudeLimitSample])?
@@ -471,11 +478,11 @@ final class AgentStore: ObservableObject {
       let sessions = Self.readClaudeSessions()
       let threads = CodexThreads.read()
       let writes = Transcripts.lastWrites(claude: Array(sessions.values), codex: threads)
-      let gates = GateWait.read()
+      let admission = AdmissionState.read()
       DispatchQueue.main.async {
         if threads != self.codexThreads { self.codexThreads = threads }
         if writes != self.lastWrites { self.lastWrites = writes }
-        if gates != self.gates { self.gates = gates }
+        if admission != self.admission { self.admission = admission }
         // Publish only real changes so idle refreshes do not redraw the interface.
         if let codex, codex != self.codex { self.codex = codex }
         if claude != self.claude { self.claude = claude }
@@ -794,7 +801,8 @@ struct AgentsView: View {
     ScrollView {
       if let s = monitor.snapshot {
         VStack(alignment: .leading, spacing: 16) {
-          GateWaitsCard(waits: AgentStore.shared.gates)
+          AdmissionCard(state: AgentStore.shared.admission) { AgentStore.shared.refreshAdmission() }
+            .onAppear { AgentStore.shared.refreshAdmission() }
           AgentConflictsCard(snapshot: s, threads: AgentStore.shared.codexThreads)
           LimitsCard()
           TokensCard()

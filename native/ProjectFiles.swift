@@ -40,7 +40,40 @@ struct ProjectConfig: Codable, Equatable {
     var cpu_below: Double
     var memory: String
     var max_wait_minutes: Double
-    var heavy_commands: [String]
+    var heavy_commands: [HeavyCommand]
+    var container_memory_free: Double?
+    var max_parallel: Double?
+  }
+  /// A prefix (runs on the Mac), or `{command, uses, weight, containers}`.
+  struct HeavyCommand: Codable, Equatable {
+    var command: String
+    var uses: [String]?
+    var weight: Double?
+    var containers: [String]?
+    init(from decoder: Decoder) throws {
+      if let text = try? decoder.singleValueContainer().decode(String.self) {
+        command = text
+        return
+      }
+      let c = try decoder.container(keyedBy: CodingKeys.self)
+      command = try c.decode(String.self, forKey: .command)
+      uses = try c.decodeIfPresent([String].self, forKey: .uses)
+      weight = try c.decodeIfPresent(Double.self, forKey: .weight)
+      containers = try c.decodeIfPresent([String].self, forKey: .containers)
+    }
+    func encode(to encoder: Encoder) throws {
+      if uses == nil && weight == nil && (containers ?? []).isEmpty {
+        var c = encoder.singleValueContainer()
+        try c.encode(command)
+        return
+      }
+      var c = encoder.container(keyedBy: CodingKeys.self)
+      try c.encode(command, forKey: .command)
+      try c.encodeIfPresent(uses, forKey: .uses)
+      try c.encodeIfPresent(weight, forKey: .weight)
+      if let containers, !containers.isEmpty { try c.encode(containers, forKey: .containers) }
+    }
+    private enum CodingKeys: String, CodingKey { case command, uses, weight, containers }
   }
   struct Agents: Codable, Equatable {
     var wait_for_capacity: Capacity?

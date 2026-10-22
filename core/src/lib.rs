@@ -1,4 +1,5 @@
 //! CoreScope: bounded local telemetry and explicitly authorized process control.
+pub mod admission;
 pub mod agentcontext;
 pub mod capacity;
 pub mod cleanplan;
@@ -1521,6 +1522,57 @@ pub extern "C" fn cs_containers(stats: i32) -> *mut c_char {
         serde_json::to_string(&report).map_err(|e| e.to_string())
     })
 }
+/// The admission queue for the app: `{"op":"list"}` (entries and the latest decisions),
+/// `{"op":"grant","agent_pid":N,"command":"…"}` (Run now: its next run is admitted) or
+/// `{"op":"release",…}` (drop its place).
+///
+/// # Safety
+/// `request` is a valid NUL-terminated string.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cs_capacity_queue(request: *const c_char) -> *mut c_char {
+    use admission as a;
+    response(|| {
+        if request.is_null() {
+            return Err("Pedido inválido".into());
+        }
+        let v: serde_json::Value =
+            serde_json::from_str(&unsafe { CStr::from_ptr(request) }.to_string_lossy())
+                .map_err(|e| e.to_string())?;
+        let pid = v["agent_pid"].as_i64().unwrap_or(0) as i32;
+        let command = v["command"].as_str().unwrap_or("");
+        let out = match v["op"].as_str() {
+            Some("grant") => {
+                let done = a::with_queue(|q| a::grant(q, pid, command, a::now()))?;
+                if done {
+                    a::record(&a::Event {
+                        at: a::now(),
+                        agent_pid: pid,
+                        folder: String::new(),
+                        command: command.into(),
+                        outcome: "granted_by_user".into(),
+                        reason: String::new(),
+                        via: "app".into(),
+                        millis: 0,
+                    });
+                }
+                serde_json::json!({"granted": done})
+            }
+            Some("release") => {
+                serde_json::json!({"released": a::with_queue(|q| a::release(q, pid, Some(command)))?})
+            }
+            _ => {
+                let table = a::process_table();
+                let entries = a::with_queue(|q| {
+                    a::prune(q, a::now(), &a::alive, &|e| a::running_in(&table, e));
+                    q.entries.clone()
+                })?;
+                serde_json::json!({"entries": entries, "events": a::events(20)})
+            }
+        };
+        serde_json::to_string(&out).map_err(|e| e.to_string())
+    })
+}
+
 /// Each container engine VM's memory: a few short requests to every engine.
 #[unsafe(no_mangle)]
 pub extern "C" fn cs_container_vm() -> *mut c_char {
