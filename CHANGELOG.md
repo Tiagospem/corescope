@@ -10,6 +10,8 @@ section as the GitHub release notes.
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-10-22
+
 ### Changed
 - **The capacity gate admits or refuses at once instead of holding commands.** The hook decides
   within 5 seconds: the command runs, or the agent reads why, the numbers and what to do; if
@@ -624,7 +626,8 @@ First public release.
   compact / standard / detailed layouts and in-panel controls.
 - English, Portuguese and Spanish; offline-only.
 
-[Unreleased]: https://github.com/Tiagospem/corescope/compare/v0.12.1...HEAD
+[Unreleased]: https://github.com/Tiagospem/corescope/compare/v0.13.0...HEAD
+[0.13.0]: https://github.com/Tiagospem/corescope/compare/v0.12.1...v0.13.0
 [0.12.1]: https://github.com/Tiagospem/corescope/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/Tiagospem/corescope/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/Tiagospem/corescope/compare/v0.10.0...v0.11.0
