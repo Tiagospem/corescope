@@ -18,6 +18,9 @@ section as the GitHub release notes.
   foreign key or partitioning on a generated column is restored as before. MySQL 8 also gets the
   dump's `sql_mode` without `NO_AUTO_CREATE_USER`, which MariaDB and MySQL 5.7 set for triggers
   and routines.
+- **A failed analysis or restore shows its error.** The restore dialog stayed on *Reading the
+  dump…*, and a failed restore at its last percentage, because the app took a failed job's status
+  for a failed call. MCP `restore_status` returns the failed job's state and log too.
 
 ## [0.13.1] - 2026-10-23
 
