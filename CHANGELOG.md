@@ -10,6 +10,13 @@ section as the GitHub release notes.
 
 ## [Unreleased]
 
+## [0.13.1] - 2026-10-23
+
+### Fixed
+- **The menu bar menu grew past the screen** with many profiles, projects, orphans and agent
+  sessions. The search and the footer stay put and the sections scroll within the screen's
+  visible height; with little content the menu keeps its natural size.
+
 ## [0.13.0] - 2026-10-22
 
 ### Changed
@@ -626,7 +633,8 @@ First public release.
   compact / standard / detailed layouts and in-panel controls.
 - English, Portuguese and Spanish; offline-only.
 
-[Unreleased]: https://github.com/Tiagospem/corescope/compare/v0.13.0...HEAD
+[Unreleased]: https://github.com/Tiagospem/corescope/compare/v0.13.1...HEAD
+[0.13.1]: https://github.com/Tiagospem/corescope/compare/v0.13.0...v0.13.1
 [0.13.0]: https://github.com/Tiagospem/corescope/compare/v0.12.1...v0.13.0
 [0.12.1]: https://github.com/Tiagospem/corescope/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/Tiagospem/corescope/compare/v0.11.0...v0.12.0

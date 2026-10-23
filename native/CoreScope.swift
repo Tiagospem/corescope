@@ -339,6 +339,11 @@ final class WindowVisibility: ObservableObject {
   deinit { if let observer { NotificationCenter.default.removeObserver(observer) } }
 }
 
+private struct MenuSectionsHeight: PreferenceKey {
+  static var defaultValue: CGFloat = 0
+  static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+}
+
 struct MenuSummary: View {
   @ObservedObject var monitor = Monitor.shared
   @ObservedObject var prefs = Preferences.shared
@@ -373,8 +378,50 @@ struct MenuSummary: View {
           Image(systemName: "gearshape")
         }.buttonStyle(HoverButtonStyle()).help(L("Ajustes")).accessibilityLabel(L("Ajustes"))
       }
+      if let s = monitor.snapshot { PortQuickLookup(snapshot: s) }
+      // Everything between the search and the footer scrolls when it doesn't fit the screen
+      // (profiles, projects, orphans and sessions grow with use); the menu itself never does.
+      // The menu sizes itself to its content, and a scroll view has no height of its own: the
+      // sections are measured and the scroll view gets that height, up to what the screen allows.
+      let limit = Self.maxSectionsHeight
+      ScrollView(.vertical) {
+        sections
+          .padding(.trailing, sectionsHeight > limit ? 10 : 0)
+          .background(
+            GeometryReader { g in Color.clear.preference(key: MenuSectionsHeight.self, value: g.size.height) })
+      }
+      .frame(height: min(sectionsHeight, limit))
+      .onPreferenceChange(MenuSectionsHeight.self) { height in
+        guard height > 0, abs(height - sectionsHeight) > 0.5 else { return }
+        sectionsHeight = height
+        Self.lastSectionsHeight = height
+      }
+      FeedbackToast()
+      Divider()
+      HStack {
+        Button(L("Abrir CoreScope")) { open(nil) }.keyboardShortcut("o")
+        Button(L("Processos")) { open(.processes) }
+        Spacer()
+        UpdateBadge { open(.settings) } placeholder: { EmptyView() }
+        Button(L("Sair")) { NSApp.terminate(nil) }.keyboardShortcut("q")
+      }.controlSize(.regular)
+    }.padding(14).frame(width: 372).id(prefs.language).watchesContainers(stats: false)
+      .onAppear { PanelProjectsStore.shared.use("menu", true) }
+      .onDisappear { PanelProjectsStore.shared.use("menu", false) }
+  }
+  /// Measured each time; the last value starts the next opening at about the right size.
+  @ViewState private var sectionsHeight: CGFloat = MenuSummary.lastSectionsHeight
+  private static var lastSectionsHeight: CGFloat = 520
+  /// Room for the sections: the visible height of the screen the menu opens on (where the
+  /// pointer is), less the header, the footer and the menu's own margins.
+  private static var maxSectionsHeight: CGFloat {
+    let mouse = NSEvent.mouseLocation
+    let screen = NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) } ?? NSScreen.main
+    return max(240, (screen?.visibleFrame.height ?? 800) - 190)
+  }
+  @ViewBuilder private var sections: some View {
+    VStack(alignment: .leading, spacing: 12) {
       if let s = monitor.snapshot {
-        PortQuickLookup(snapshot: s)
         MenuProfilesAndServices()
         MenuProjects()
         Grid(horizontalSpacing: 8, verticalSpacing: 8) {
@@ -478,18 +525,7 @@ struct MenuSummary: View {
       } else {
         ProgressView(L("Coletando…")).frame(maxWidth: .infinity, minHeight: 120)
       }
-      FeedbackToast()
-      Divider()
-      HStack {
-        Button(L("Abrir CoreScope")) { open(nil) }.keyboardShortcut("o")
-        Button(L("Processos")) { open(.processes) }
-        Spacer()
-        UpdateBadge { open(.settings) } placeholder: { EmptyView() }
-        Button(L("Sair")) { NSApp.terminate(nil) }.keyboardShortcut("q")
-      }.controlSize(.regular)
-    }.padding(14).frame(width: 372).id(prefs.language).watchesContainers(stats: false)
-      .onAppear { PanelProjectsStore.shared.use("menu", true) }
-      .onDisappear { PanelProjectsStore.shared.use("menu", false) }
+    }
   }
   private func open(_ page: Page?) {
     // The popover is the key window at click time; dismiss it before showing the main window.
