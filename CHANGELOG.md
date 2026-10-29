@@ -10,6 +10,18 @@ section as the GitHub release notes.
 
 ## [Unreleased]
 
+### Fixed
+- **A MariaDB dump restores into MySQL.** mariadb-dump writes the values of generated columns and
+  MySQL refuses them (error 3105), which stopped the restore half-way. Those columns now take the
+  data as plain columns; after the table's last row one `ALTER TABLE` adds them back as generated,
+  with the keys and checks on them, so `SHOW CREATE TABLE` matches the dump's. A table with a
+  foreign key or partitioning on a generated column is restored as before. MySQL 8 also gets the
+  dump's `sql_mode` without `NO_AUTO_CREATE_USER`, which MariaDB and MySQL 5.7 set for triggers
+  and routines.
+- **A failed analysis or restore shows its error.** The restore dialog stayed on *Reading the
+  dump…*, and a failed restore at its last percentage, because the app took a failed job's status
+  for a failed call. MCP `restore_status` returns the failed job's state and log too.
+
 ## [0.13.1] - 2026-10-23
 
 ### Fixed

@@ -15,7 +15,10 @@ enum DBTool {
     guard let value = try? JSONSerialization.jsonObject(with: body, options: [.fragmentsAllowed]) else {
       return .failure(DBError(message: L("Resposta inválida")))
     }
-    if let obj = value as? [String: Any], let error = obj["error"] as? String { return .failure(DBError(message: error)) }
+    // The core fails with {"error": …} alone; a failed job's status carries its error next to its state.
+    if let obj = value as? [String: Any], obj.count == 1, let error = obj["error"] as? String {
+      return .failure(DBError(message: error))
+    }
     return .success(value)
   }
   static func decode<T: Decodable>(_ request: [String: Any], as: T.Type) -> Result<T, DBError> {

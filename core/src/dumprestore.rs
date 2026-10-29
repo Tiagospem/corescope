@@ -2360,7 +2360,26 @@ pub fn restore(req: &Request, e: &Endpoint, job: &Job, home: &Path) -> Result<Ou
     // What the server allows.
     let mut accounts: HashSet<String> = HashSet::new();
     let mut log_bin_off = false;
+    let mut adapt = Adapt::default();
     if e.kind == "mysql" {
+        let version = query(e, req, None, "SELECT VERSION()", home).unwrap_or_default();
+        let mysql = !version.trim().is_empty() && !version.contains("MariaDB");
+        adapt.no_auto_create_user = mysql
+            && version
+                .trim()
+                .split('.')
+                .next()
+                .and_then(|major| major.parse::<u32>().ok())
+                .is_some_and(|major| major >= 8);
+        // mysqldump leaves generated columns out of its INSERTs; mariadb-dump writes their values.
+        let from_mysql = a.tool.as_deref() == Some("mysqldump")
+            && !a
+                .server_version
+                .as_deref()
+                .is_some_and(|v| v.contains("MariaDB"));
+        if mysql && !from_mysql {
+            adapt.generated = Some(a.tables.iter().map(|t| (t.name.clone(), t.rows)).collect());
+        }
         if let Ok(list) = query(
             e,
             req,
@@ -2546,6 +2565,7 @@ pub fn restore(req: &Request, e: &Endpoint, job: &Job, home: &Path) -> Result<Ou
                 &skip,
                 &accounts,
                 log_bin_off,
+                &adapt,
                 job,
                 &mut outcome,
             )
@@ -2764,6 +2784,389 @@ fn marker_name(file: &str) -> String {
         .unwrap_or_default()
 }
 
+// MARK: generated columns
+
+/// mariadb-dump writes the values of generated columns in its INSERTs and MySQL refuses them
+/// (error 3105). Such a table is created with those columns as plain ones, gets its data, and
+/// then one ALTER TABLE drops them and adds them back as they were, with the keys and checks on
+/// them (one statement: a key a foreign key needs cannot be dropped on its own).
+#[derive(Debug, PartialEq)]
+struct Generated {
+    columns: Vec<String>,
+    /// The CREATE TABLE with the generated columns as plain ones.
+    create: Vec<u8>,
+    alter: Vec<u8>,
+}
+fn quote_name(name: &str) -> String {
+    format!("`{}`", name.replace('`', "``"))
+}
+/// The columns, keys and constraints between a CREATE TABLE's parentheses (byte ranges without
+/// the whitespace around them) and where the closing parenthesis is.
+fn table_elements(
+    text: &[u8],
+    from: usize,
+    backslash: bool,
+) -> Option<(Vec<(usize, usize)>, usize)> {
+    let n = text.len();
+    let mut i = from;
+    loop {
+        match text.get(i)? {
+            b if b.is_ascii_whitespace() => i += 1,
+            b'/' if text.get(i + 1) == Some(&b'*') && text.get(i + 2) != Some(&b'!') => {
+                i += 2 + text[i + 2..].windows(2).position(|w| w == b"*/")? + 2
+            }
+            b'(' => break,
+            _ => return None,
+        }
+    }
+    let trim = |mut s: usize, mut e: usize| {
+        while s < e && text[s].is_ascii_whitespace() {
+            s += 1;
+        }
+        while e > s && text[e - 1].is_ascii_whitespace() {
+            e -= 1;
+        }
+        (s, e)
+    };
+    let mut elements = Vec::new();
+    let mut start = i + 1;
+    let mut depth = 0u32;
+    while i < n {
+        let b = text[i];
+        match b {
+            b'\'' | b'"' | b'`' => {
+                i += 1;
+                while i < n {
+                    if text[i] == b'\\' && backslash && b != b'`' {
+                        i += 2;
+                    } else if text[i] != b {
+                        i += 1;
+                    } else if text.get(i + 1) == Some(&b) {
+                        i += 2;
+                    } else {
+                        break;
+                    }
+                }
+            }
+            b'/' if text.get(i + 1) == Some(&b'*') && text.get(i + 2) != Some(&b'!') => {
+                i += 2 + text[i + 2..].windows(2).position(|w| w == b"*/")? + 2;
+                continue;
+            }
+            b'#' => {
+                while i < n && text[i] != b'\n' {
+                    i += 1;
+                }
+            }
+            b'-' if text.get(i + 1) == Some(&b'-')
+                && text.get(i + 2).is_none_or(|c| c.is_ascii_whitespace()) =>
+            {
+                while i < n && text[i] != b'\n' {
+                    i += 1;
+                }
+            }
+            b'(' => depth += 1,
+            b')' => {
+                depth -= 1;
+                if depth == 0 {
+                    let (s, e) = trim(start, i);
+                    if s < e {
+                        elements.push((s, e));
+                    }
+                    return Some((elements, i));
+                }
+            }
+            b',' if depth == 1 => {
+                let (s, e) = trim(start, i);
+                if s < e {
+                    elements.push((s, e));
+                }
+                start = i + 1;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
+}
+/// Names inside the first parenthesis of a key or constraint (a key's columns, a foreign key's
+/// own columns, a check's expression).
+fn first_group_names(t: &[Token]) -> Vec<String> {
+    let Some(open) = t.iter().position(|x| x.tok == Tok::Punct(b'(')) else {
+        return Vec::new();
+    };
+    let mut depth = 0;
+    let mut names = Vec::new();
+    for (k, x) in t.iter().enumerate().skip(open) {
+        match x.tok {
+            Tok::Punct(b'(') => depth += 1,
+            Tok::Punct(b')') => {
+                depth -= 1;
+                if depth == 0 {
+                    break;
+                }
+            }
+            _ => names.extend(ident(t, k)),
+        }
+    }
+    names
+}
+/// `text` is a CREATE TABLE of `table` whose name ends at `body`. None when it has no generated
+/// column, or one this cannot move: under a foreign key, a column check or the partitioning.
+fn generated_columns(text: &[u8], table: &str, body: usize, backslash: bool) -> Option<Generated> {
+    struct Column {
+        element: usize,
+        name: String,
+        /// `GENERATED ALWAYS AS (…) VIRTUAL|STORED`, and the space before it.
+        cut: Option<(usize, usize)>,
+        virtual_: bool,
+        /// MariaDB's PERSISTENT, which MySQL calls STORED.
+        persistent: Option<(usize, usize)>,
+    }
+    enum Drop {
+        Primary,
+        Index(String),
+        Check(String),
+        ForeignKey,
+        Unnamed,
+    }
+    let (elements, close) = table_elements(text, body, backslash)?;
+    let mut columns: Vec<Column> = Vec::new();
+    let mut others: Vec<(usize, Drop, Vec<String>)> = Vec::new();
+    for (k, &(s, e)) in elements.iter().enumerate() {
+        let t = head_tokens(&text[s..e], 1 << 16, backslash);
+        let mut i = 0;
+        let mut constraint = None;
+        if word(&t, 0).as_deref() == Some("CONSTRAINT") {
+            i = 1;
+            if !matches!(
+                word(&t, 1).as_deref(),
+                Some("PRIMARY" | "UNIQUE" | "FOREIGN" | "CHECK")
+            ) {
+                constraint = ident(&t, 1);
+                i = 2;
+            }
+        }
+        let drop = match word(&t, i).as_deref() {
+            Some("PRIMARY") => Drop::Primary,
+            Some("UNIQUE" | "KEY" | "INDEX" | "FULLTEXT" | "SPATIAL") => {
+                i += 1;
+                while matches!(word(&t, i).as_deref(), Some("KEY" | "INDEX")) {
+                    i += 1;
+                }
+                match if punct(&t, i) == Some(b'(') {
+                    constraint
+                } else {
+                    ident(&t, i)
+                } {
+                    Some(name) => Drop::Index(name),
+                    None => Drop::Unnamed,
+                }
+            }
+            Some("FOREIGN") => Drop::ForeignKey,
+            Some("CHECK") => constraint.map_or(Drop::Unnamed, Drop::Check),
+            Some("PERIOD") => continue,
+            _ if i == 0 => {
+                let name = ident(&t, 0)?;
+                let mut column = Column {
+                    element: k,
+                    name,
+                    cut: None,
+                    virtual_: true,
+                    persistent: None,
+                };
+                let mut depth = 0;
+                for j in 1..t.len() {
+                    match t[j].tok {
+                        Tok::Punct(b'(') => depth += 1,
+                        Tok::Punct(b')') => depth -= 1,
+                        _ => {}
+                    }
+                    if depth != 0 || column.cut.is_some() {
+                        if depth == 0 && word(&t, j).as_deref() == Some("CHECK") {
+                            return None;
+                        }
+                        continue;
+                    }
+                    if word(&t, j).as_deref() != Some("AS") || punct(&t, j + 1) != Some(b'(') {
+                        continue;
+                    }
+                    let from = if j >= 3
+                        && word(&t, j - 1).as_deref() == Some("ALWAYS")
+                        && word(&t, j - 2).as_deref() == Some("GENERATED")
+                    {
+                        j - 2
+                    } else {
+                        j
+                    };
+                    let mut d = 0;
+                    let end = (j + 1..t.len()).find(|&x| {
+                        match t[x].tok {
+                            Tok::Punct(b'(') => d += 1,
+                            Tok::Punct(b')') => d -= 1,
+                            _ => {}
+                        }
+                        d == 0
+                    })?;
+                    let mut last = end;
+                    match word(&t, end + 1).as_deref() {
+                        Some("VIRTUAL") => last = end + 1,
+                        Some(kind @ ("STORED" | "PERSISTENT")) => {
+                            last = end + 1;
+                            column.virtual_ = false;
+                            if kind == "PERSISTENT" {
+                                column.persistent = Some((s + t[last].start, s + t[last].end));
+                            }
+                        }
+                        _ => {}
+                    }
+                    column.cut = Some((s + t[from - 1].end, s + t[last].end));
+                }
+                columns.push(column);
+                continue;
+            }
+            _ => Drop::Unnamed,
+        };
+        others.push((k, drop, first_group_names(&t)));
+    }
+    let generated: Vec<&Column> = columns.iter().filter(|c| c.cut.is_some()).collect();
+    if generated.is_empty() {
+        return None;
+    }
+    let tail = head_tokens(&text[close + 1..], 1 << 16, backslash);
+    if (0..tail.len()).any(|k| word(&tail, k).as_deref() == Some("PARTITION")) {
+        return None;
+    }
+    let on = |names: &[String], virtual_only: bool| {
+        generated.iter().any(|c| {
+            (c.virtual_ || !virtual_only) && names.iter().any(|n| n.eq_ignore_ascii_case(&c.name))
+        })
+    };
+    // MySQL lists keys on virtual columns after the others and the rest in the order they were
+    // added: the keys after the first one on a stored column are added back too.
+    let first_stored = others
+        .iter()
+        .filter(|(_, d, names)| {
+            matches!(d, Drop::Primary | Drop::Index(_)) && on(names, false) && !on(names, true)
+        })
+        .map(|(k, _, _)| *k)
+        .min();
+    let mut again = Vec::new();
+    for (k, drop, names) in &others {
+        let after_stored = first_stored.is_some_and(|f| *k > f) && matches!(drop, Drop::Index(_));
+        if !on(names, false) && !after_stored {
+            continue;
+        }
+        let clause = match drop {
+            Drop::Primary => "DROP PRIMARY KEY".to_string(),
+            Drop::Index(name) => format!("DROP INDEX {}", quote_name(name)),
+            Drop::Check(name) => format!("DROP CHECK {}", quote_name(name)),
+            Drop::ForeignKey | Drop::Unnamed => return None,
+        };
+        again.push((*k, clause));
+    }
+    let mut alter = format!("ALTER TABLE {} ", quote_name(table)).into_bytes();
+    let mut first = true;
+    let mut part = |alter: &mut Vec<u8>, bytes: &[u8]| {
+        if !first {
+            alter.extend_from_slice(b", ");
+        }
+        first = false;
+        alter.extend_from_slice(bytes);
+    };
+    for (_, clause) in &again {
+        part(&mut alter, clause.as_bytes());
+    }
+    for c in &generated {
+        part(
+            &mut alter,
+            format!("DROP COLUMN {}", quote_name(&c.name)).as_bytes(),
+        );
+    }
+    for c in &generated {
+        let (s, e) = elements[c.element];
+        let mut def = b"ADD COLUMN ".to_vec();
+        match c.persistent {
+            Some((a, b)) => {
+                def.extend_from_slice(&text[s..a]);
+                def.extend_from_slice(b"STORED");
+                def.extend_from_slice(&text[b..e]);
+            }
+            None => def.extend_from_slice(&text[s..e]),
+        }
+        match columns.iter().rev().find(|p| p.element < c.element) {
+            Some(p) => def.extend_from_slice(format!(" AFTER {}", quote_name(&p.name)).as_bytes()),
+            None => def.extend_from_slice(b" FIRST"),
+        }
+        part(&mut alter, &def);
+    }
+    for (k, _) in &again {
+        let (s, e) = elements[*k];
+        let mut add = b"ADD ".to_vec();
+        add.extend_from_slice(&text[s..e]);
+        part(&mut alter, &add);
+    }
+    let mut create = text.to_vec();
+    for c in generated.iter().rev() {
+        if let Some((a, b)) = c.cut {
+            create.drain(a..b);
+        }
+    }
+    Some(Generated {
+        columns: generated.iter().map(|c| c.name.clone()).collect(),
+        create,
+        alter,
+    })
+}
+
+/// A table created with its generated columns as plain ones, until its rows are in.
+struct Refill {
+    table: String,
+    alter: Vec<u8>,
+    /// The CREATE TABLE's dump line, for an error in the ALTER.
+    line: u64,
+    rows: u64,
+    seen: u64,
+}
+fn put_refill<W: Write>(
+    out: &mut Out<W>,
+    r: &Refill,
+    delim: &[u8],
+    job: &Job,
+) -> std::io::Result<()> {
+    job.log(&format!("Table {}: generated columns added back", r.table));
+    out.at(r.line, 0);
+    out.put(&r.alter)?;
+    out.put(delim)?;
+    out.put(b"\n")
+}
+
+/// What a MySQL target refuses from this dump, adapted on the way.
+#[derive(Default)]
+struct Adapt {
+    /// The dump may hold values for generated columns (MariaDB): the rows of each table.
+    generated: Option<HashMap<String, u64>>,
+    /// MySQL 8 dropped the sql_mode NO_AUTO_CREATE_USER, which MariaDB and MySQL 5.7 dumps set
+    /// for their triggers and routines.
+    no_auto_create_user: bool,
+}
+/// `SET sql_mode = '…,NO_AUTO_CREATE_USER,…'` without that mode.
+fn without_no_auto_create_user(text: &mut Vec<u8>) {
+    const MODE: &[u8] = b"NO_AUTO_CREATE_USER";
+    while let Some(at) = text
+        .windows(MODE.len())
+        .position(|w| w.eq_ignore_ascii_case(MODE))
+    {
+        let end = at + MODE.len();
+        if text.get(end) == Some(&b',') {
+            text.drain(at..=end);
+        } else if at > 0 && text[at - 1] == b',' {
+            text.drain(at - 1..end);
+        } else {
+            text.drain(at..end);
+        }
+    }
+}
+
 /// Feeds a MySQL dump to the client, filtered.
 #[allow(clippy::too_many_arguments)]
 fn import_mysql<W: Write>(
@@ -2773,6 +3176,7 @@ fn import_mysql<W: Write>(
     skip: &HashSet<&str>,
     accounts: &HashSet<String>,
     log_bin_off: bool,
+    adapt: &Adapt,
     job: &Job,
     outcome: &mut Outcome,
 ) -> Result<(), String> {
@@ -2787,6 +3191,7 @@ fn import_mysql<W: Write>(
     let mut pending = 0u32;
     let mut skipped_tables: HashSet<String> = HashSet::new();
     let mut table: Option<String> = None;
+    let mut refills: Vec<Refill> = Vec::new();
     while let Some(item) = s.next_item()? {
         job.check()?;
         let (text, line) = match item {
@@ -2826,7 +3231,60 @@ fn import_mysql<W: Write>(
             outcome.left_out += 1;
             continue;
         }
+        // After a table's last row, past its ENABLE KEYS and UNLOCK TABLES.
+        if refills.iter().any(|r| r.seen >= r.rows) {
+            let holds = match word(&head_tokens(&text, 1, true), 0).as_deref() {
+                Some("UNLOCK") => true,
+                Some("ALTER") => refills
+                    .iter()
+                    .any(|r| r.seen >= r.rows && object.as_deref() == Some(r.table.as_str())),
+                _ => false,
+            };
+            if !holds {
+                let (due, waiting) = std::mem::take(&mut refills)
+                    .into_iter()
+                    .partition::<Vec<_>, _>(|r| r.seen >= r.rows);
+                refills = waiting;
+                for r in &due {
+                    put_refill(out, r, &delim, job).map_err(io)?;
+                    outcome.statements += 1;
+                }
+            }
+        }
+        if info.kind == Kind::DropTable {
+            refills.retain(|r| !info.objects.contains(&r.table));
+        }
         let mut text = text;
+        if info.kind == Kind::Insert
+            && let Some(r) = refills
+                .iter_mut()
+                .find(|r| object.as_deref() == Some(r.table.as_str()))
+        {
+            r.seen += count_tuples(&text, info.body, !s.no_backslash_escapes);
+        }
+        if info.sql_mode && adapt.no_auto_create_user {
+            without_no_auto_create_user(&mut text);
+        }
+        if info.kind == Kind::CreateTable
+            && let Some(rows) = &adapt.generated
+            && let Some(o) = &object
+            && rows.get(o).is_some_and(|&n| n > 0)
+            && !skip.contains(o.as_str())
+            && let Some(g) = generated_columns(&text, o, info.body, !s.no_backslash_escapes)
+        {
+            job.log(&format!(
+                "Table {o}: generated columns {} created plain for the data (MySQL refuses the values the dump has for them)",
+                g.columns.join(", ")
+            ));
+            text = g.create;
+            refills.push(Refill {
+                table: o.clone(),
+                alter: g.alter,
+                line,
+                rows: rows[o],
+                seen: 0,
+            });
+        }
         if let Some((a, b, acc)) = &info.definer
             && acc != "CURRENT_USER"
             && !accounts.contains(acc)
@@ -2861,6 +3319,10 @@ fn import_mysql<W: Write>(
             pending = 0;
             pending_bytes = 0;
         }
+    }
+    for r in &refills {
+        put_refill(out, r, &delim, job).map_err(io)?;
+        outcome.statements += 1;
     }
     out.put(b"COMMIT").map_err(io)?;
     out.put(&delim).map_err(io)?;
@@ -3586,6 +4048,157 @@ mod tests {
         assert_eq!(
             classify_pg(b"ALTER TABLE public.t OWNER TO x").skip,
             Some("owners")
+        );
+    }
+
+    /// As mariadb-dump 10.11 writes it.
+    const HABILITACOES: &str = "CREATE TABLE `habilitacoes` (\n  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,\n  `leilao_id` bigint(20) unsigned NOT NULL,\n  `user_id` bigint(20) unsigned NOT NULL,\n  `valor` decimal(12,2) NOT NULL DEFAULT 0.00,\n  `deleted_at` timestamp NULL DEFAULT NULL,\n  `habilitacao_ativa` tinyint(1) GENERATED ALWAYS AS (if(`deleted_at` is null,1,NULL)) VIRTUAL,\n  `valor_centavos` bigint(20) GENERATED ALWAYS AS (`valor` * 100) STORED,\n  `valor_dobro` bigint(20) GENERATED ALWAYS AS (`valor_centavos` * 2) VIRTUAL,\n  `observacao` varchar(255) DEFAULT NULL COMMENT 'texto; com, virgula e (parenteses)',\n  PRIMARY KEY (`id`),\n  UNIQUE KEY `habilitacoes_unica` (`leilao_id`,`user_id`,`habilitacao_ativa`),\n  KEY `habilitacoes_user_id` (`user_id`),\n  KEY `habilitacoes_valor_centavos` (`valor_centavos`),\n  KEY `habilitacoes_observacao` (`observacao`),\n  CONSTRAINT `habilitacoes_leilao_fk` FOREIGN KEY (`leilao_id`) REFERENCES `leiloes` (`id`) ON DELETE CASCADE,\n  CONSTRAINT `habilitacoes_valor_chk` CHECK (`valor_centavos` >= 0)\n) ENGINE=InnoDB AUTO_INCREMENT=7 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
+
+    fn generated(text: &str) -> Option<Generated> {
+        let info = classify_mysql(text.as_bytes());
+        generated_columns(text.as_bytes(), &info.objects[0], info.body, true)
+    }
+
+    #[test]
+    fn generated_columns_become_plain_and_come_back_with_their_keys() {
+        let g = generated(HABILITACOES).unwrap();
+        assert_eq!(
+            g.columns,
+            ["habilitacao_ativa", "valor_centavos", "valor_dobro"]
+        );
+        let plain = HABILITACOES
+            .replace(
+                " GENERATED ALWAYS AS (if(`deleted_at` is null,1,NULL)) VIRTUAL",
+                "",
+            )
+            .replace(" GENERATED ALWAYS AS (`valor` * 100) STORED", "")
+            .replace(" GENERATED ALWAYS AS (`valor_centavos` * 2) VIRTUAL", "");
+        assert_eq!(String::from_utf8(g.create).unwrap(), plain);
+        // The key the foreign key uses goes in the same statement; the keys after the first one
+        // on a stored column come back too (MySQL keeps them in that order); the user_id key and
+        // the foreign key stay.
+        assert_eq!(
+            String::from_utf8(g.alter).unwrap(),
+            "ALTER TABLE `habilitacoes` DROP INDEX `habilitacoes_unica`, DROP INDEX `habilitacoes_valor_centavos`, \
+             DROP INDEX `habilitacoes_observacao`, DROP CHECK `habilitacoes_valor_chk`, \
+             DROP COLUMN `habilitacao_ativa`, DROP COLUMN `valor_centavos`, DROP COLUMN `valor_dobro`, \
+             ADD COLUMN `habilitacao_ativa` tinyint(1) GENERATED ALWAYS AS (if(`deleted_at` is null,1,NULL)) VIRTUAL AFTER `deleted_at`, \
+             ADD COLUMN `valor_centavos` bigint(20) GENERATED ALWAYS AS (`valor` * 100) STORED AFTER `habilitacao_ativa`, \
+             ADD COLUMN `valor_dobro` bigint(20) GENERATED ALWAYS AS (`valor_centavos` * 2) VIRTUAL AFTER `valor_centavos`, \
+             ADD UNIQUE KEY `habilitacoes_unica` (`leilao_id`,`user_id`,`habilitacao_ativa`), \
+             ADD KEY `habilitacoes_valor_centavos` (`valor_centavos`), ADD KEY `habilitacoes_observacao` (`observacao`), \
+             ADD CONSTRAINT `habilitacoes_valor_chk` CHECK (`valor_centavos` >= 0)"
+        );
+        // The first column, MariaDB's PERSISTENT and a bare AS.
+        let g = generated("CREATE TABLE codigos (\n  upper_code varchar(20) AS (ucase(code)) PERSISTENT INVISIBLE,\n  code varchar(20) NOT NULL,\n  PRIMARY KEY (code),\n  UNIQUE KEY codigos_upper (upper_code)\n)").unwrap();
+        assert_eq!(
+            String::from_utf8(g.create).unwrap(),
+            "CREATE TABLE codigos (\n  upper_code varchar(20) INVISIBLE,\n  code varchar(20) NOT NULL,\n  PRIMARY KEY (code),\n  UNIQUE KEY codigos_upper (upper_code)\n)"
+        );
+        assert_eq!(
+            String::from_utf8(g.alter).unwrap(),
+            "ALTER TABLE `codigos` DROP INDEX `codigos_upper`, DROP COLUMN `upper_code`, ADD COLUMN upper_code varchar(20) AS (ucase(code)) STORED INVISIBLE FIRST, ADD UNIQUE KEY codigos_upper (upper_code)"
+        );
+    }
+
+    #[test]
+    fn tables_left_as_they_are() {
+        for text in [
+            // No generated column, the words only in strings.
+            "CREATE TABLE t (\n  a varchar(40) DEFAULT 'x GENERATED ALWAYS AS (1) VIRTUAL' COMMENT 'AS (y), z',\n  b int\n)",
+            "CREATE TABLE t LIKE u",
+            // A foreign key on it, a check on the column itself, partitioned.
+            "CREATE TABLE t (\n  a int,\n  g int GENERATED ALWAYS AS (a) STORED,\n  CONSTRAINT t_fk FOREIGN KEY (g) REFERENCES p (id)\n)",
+            "CREATE TABLE t (\n  a int,\n  g int GENERATED ALWAYS AS (a) VIRTUAL CHECK (g > 0)\n)",
+            "CREATE TABLE t (\n  a int,\n  g int GENERATED ALWAYS AS (a) VIRTUAL\n) ENGINE=InnoDB /*!50100 PARTITION BY HASH (`g`) PARTITIONS 2 */",
+        ] {
+            assert_eq!(generated(text), None, "{text}");
+        }
+    }
+
+    #[test]
+    fn sql_mode_without_no_auto_create_user() {
+        for (from, to) in [
+            (
+                "SET sql_mode = 'STRICT_TRANS_TABLES,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'",
+                "SET sql_mode = 'STRICT_TRANS_TABLES,NO_ENGINE_SUBSTITUTION'",
+            ),
+            (
+                "SET sql_mode = 'no_auto_create_user,X'",
+                "SET sql_mode = 'X'",
+            ),
+            (
+                "SET sql_mode = 'X,NO_AUTO_CREATE_USER'",
+                "SET sql_mode = 'X'",
+            ),
+            ("SET sql_mode = 'NO_AUTO_CREATE_USER'", "SET sql_mode = ''"),
+        ] {
+            let mut text = from.as_bytes().to_vec();
+            without_no_auto_create_user(&mut text);
+            assert_eq!(String::from_utf8(text).unwrap(), to);
+        }
+    }
+
+    fn imported(name: &str, dump: &str, adapt: &Adapt) -> String {
+        let p = write_temp(name, dump.as_bytes());
+        let mut out = Out {
+            w: Vec::new(),
+            line: 1,
+            marks: Vec::new(),
+        };
+        let job = Job::new("test".into(), "restore", "", None, None);
+        import_mysql(
+            Input::open(&p).unwrap(),
+            &mut out,
+            &Request::credentials(None, None),
+            &HashSet::new(),
+            &HashSet::new(),
+            false,
+            adapt,
+            &job,
+            &mut Outcome::default(),
+        )
+        .unwrap();
+        String::from_utf8(out.w).unwrap()
+    }
+
+    #[test]
+    fn import_adds_generated_columns_back_after_the_rows() {
+        let dump = format!(
+            "/*M!999999\\- enable the sandbox mode */ \n-- MariaDB dump 10.19  Distrib 10.11.19-MariaDB\n\nDROP TABLE IF EXISTS `habilitacoes`;\n{HABILITACOES};\nLOCK TABLES `habilitacoes` WRITE;\n/*!40000 ALTER TABLE `habilitacoes` DISABLE KEYS */;\nINSERT INTO `habilitacoes` VALUES\n(1,1,10,100.50,NULL,1,10050,20100,'a'),\n(2,1,10,90.00,'2026-01-02 03:04:05',NULL,9000,18000,'b; (c)');\nINSERT INTO `habilitacoes` VALUES (3,2,10,1.00,NULL,1,100,200,NULL);\n/*!40000 ALTER TABLE `habilitacoes` ENABLE KEYS */;\nUNLOCK TABLES;\n/*!50003 SET sql_mode              = 'STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION' */ ;\nDROP TABLE IF EXISTS `simples`;\nCREATE TABLE `simples` (`id` int NOT NULL, `g` int GENERATED ALWAYS AS (`id`) VIRTUAL);\n-- Dump completed on 2026-10-23 18:49:31\n"
+        );
+        let rows: HashMap<String, u64> =
+            HashMap::from([("habilitacoes".into(), 3), ("simples".into(), 0)]);
+        let adapt = Adapt {
+            generated: Some(rows),
+            no_auto_create_user: true,
+        };
+        let out = imported("generated.sql", &dump, &adapt);
+        let at = |p: &str| out.find(p).unwrap_or_else(|| panic!("{p} not in\n{out}"));
+        assert!(
+            at("`habilitacao_ativa` tinyint(1),") < at("INSERT INTO `habilitacoes` VALUES\n(1,")
+        );
+        let alter = at("ALTER TABLE `habilitacoes` DROP INDEX");
+        assert!(at("(3,2,10,1.00,NULL,1,100,200,NULL)") < alter);
+        assert!(at("UNLOCK TABLES") < alter && alter < at("/*!50003 SET sql_mode"));
+        assert!(
+            out.contains("'STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION'")
+        );
+        // A table without rows keeps its CREATE TABLE.
+        assert!(out.contains("`g` int GENERATED ALWAYS AS (`id`) VIRTUAL"));
+        assert_eq!(out.matches("ALTER TABLE `habilitacoes` DROP").count(), 1);
+        // MariaDB as the target: the dump as it is.
+        let plain = imported("generated-mariadb.sql", &dump, &Adapt::default());
+        assert!(!plain.contains("ALTER TABLE `habilitacoes` DROP") && plain.contains(HABILITACOES));
+        // A dump without generated columns goes out the same.
+        let all = HashMap::from([("clients".into(), 6), ("audit".into(), 4)]);
+        let adapt = Adapt {
+            generated: Some(all),
+            no_auto_create_user: true,
+        };
+        assert_eq!(
+            imported("plain-adapted.sql", DUMP, &adapt),
+            imported("plain.sql", DUMP, &Adapt::default())
         );
     }
 }

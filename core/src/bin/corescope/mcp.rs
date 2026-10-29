@@ -596,7 +596,8 @@ fn app_tools() -> Vec<(
              database are closed first (kill_connections: false waits up to 30 s instead). \
              The dump's own USE / CREATE DATABASE / \\connect are \
              left out, so it lands in `target`; DEFINER accounts missing here become \
-             CURRENT_USER. Runs in the app (its card shows progress); returns a job for \
+             CURRENT_USER; into MySQL, a MariaDB dump's generated columns are added back after \
+             their table's rows. Runs in the app (its card shows progress); returns a job for \
              restore_status. Confirm the target, mode and skipped tables with the user first.",
             json!({"file": {"type": "string"},
                    "database": {"type": ["string", "integer"], "description": "the server: container name or host port, from list_databases"},
