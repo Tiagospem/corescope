@@ -10,6 +10,8 @@ section as the GitHub release notes.
 
 ## [Unreleased]
 
+## [0.13.2] - 2026-10-29
+
 ### Fixed
 - **A MariaDB dump restores into MySQL.** mariadb-dump writes the values of generated columns and
   MySQL refuses them (error 3105), which stopped the restore half-way. Those columns now take the
@@ -645,7 +647,8 @@ First public release.
   compact / standard / detailed layouts and in-panel controls.
 - English, Portuguese and Spanish; offline-only.
 
-[Unreleased]: https://github.com/Tiagospem/corescope/compare/v0.13.1...HEAD
+[Unreleased]: https://github.com/Tiagospem/corescope/compare/v0.13.2...HEAD
+[0.13.2]: https://github.com/Tiagospem/corescope/compare/v0.13.1...v0.13.2
 [0.13.1]: https://github.com/Tiagospem/corescope/compare/v0.13.0...v0.13.1
 [0.13.0]: https://github.com/Tiagospem/corescope/compare/v0.12.1...v0.13.0
 [0.12.1]: https://github.com/Tiagospem/corescope/compare/v0.12.0...v0.12.1
